@@ -1,6 +1,7 @@
 import json
 import time
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
 from ..db.ego import get_ego_db
@@ -77,6 +78,75 @@ async def get_messages_json(session_id: str) -> list[dict]:
     rows = await get_session_messages(session_id)
     return [{"role": r["role"], "content": r["content"]} for r in rows
             if r.get("role") in ("user", "assistant") and r.get("content")]
+
+
+@router.post("/sentiment/trigger", status_code=202)
+async def trigger_scoring():
+    """Set a flag so the sentiment worker runs immediately on next poll."""
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            """
+            INSERT INTO module_data (module, key, value, updated_at)
+            VALUES ('_system', 'sentiment_trigger', '1', ?)
+            ON CONFLICT(module, key) DO UPDATE SET value='1', updated_at=excluded.updated_at
+            """,
+            (time.time(),),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+    return {"status": "queued"}
+
+
+@router.post("/sentiment/trigger-clear", status_code=202)
+async def clear_trigger():
+    """Called by the worker after it picks up the trigger."""
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            "UPDATE module_data SET value='0' WHERE module='_system' AND key='sentiment_trigger'"
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+    return {"status": "cleared"}
+
+
+@router.get("/sentiment/status")
+async def scoring_status() -> dict:
+    """Return pending count and trigger state for the UI button."""
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT COUNT(DISTINCT session_id) FROM events WHERE event_type='agent:end'"
+        )
+        total_ended = (await cursor.fetchone())[0] or 0
+
+        cursor = await conn.execute(
+            "SELECT COUNT(*) FROM module_data WHERE module='sentiment'"
+        )
+        total_scored = (await cursor.fetchone())[0] or 0
+
+        cursor = await conn.execute(
+            "SELECT value, updated_at FROM module_data WHERE module='_system' AND key='sentiment_trigger'"
+        )
+        row = await cursor.fetchone()
+        triggered = row is not None and row[0] == "1"
+
+        cursor = await conn.execute(
+            "SELECT updated_at FROM module_data WHERE module='sentiment' ORDER BY updated_at DESC LIMIT 1"
+        )
+        last_row = await cursor.fetchone()
+        last_run = last_row[0] if last_row else None
+    finally:
+        await conn.close()
+
+    return {
+        "pending": max(0, total_ended - total_scored),
+        "triggered": triggered,
+        "last_run": last_run,
+    }
 
 
 @router.get("/sentiment/{session_id}")

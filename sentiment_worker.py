@@ -64,57 +64,72 @@ def score_messages(classifier, texts: list[str]) -> dict | None:
     }
 
 
-def run(classifier):
-    while True:
+def check_trigger() -> bool:
+    """Return True if the UI requested an immediate run, then clear the flag."""
+    try:
+        status = requests.get(f"{EGO_URL}/api/sentiment/status", timeout=5).json()
+        if status.get("triggered"):
+            # Clear the flag
+            requests.post(f"{EGO_URL}/api/sentiment/trigger-clear", timeout=5)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def process_pending(classifier):
+    try:
+        resp = requests.get(f"{EGO_URL}/api/sentiment/pending", timeout=10)
+        resp.raise_for_status()
+        pending = resp.json()
+    except Exception as e:
+        log.warning("Could not reach AgentEgo: %s", e)
+        return
+
+    if pending:
+        log.info("%d session(s) pending scoring", len(pending))
+
+    for session_id in pending:
         try:
-            resp = requests.get(f"{EGO_URL}/api/sentiment/pending", timeout=10)
-            resp.raise_for_status()
-            pending = resp.json()
+            msgs = requests.get(
+                f"{EGO_URL}/api/sessions/{session_id}/messages", timeout=10
+            ).json()
         except Exception as e:
-            log.warning("Could not reach AgentEgo: %s", e)
-            time.sleep(POLL_INTERVAL)
+            log.warning("Could not fetch messages for %s: %s", session_id, e)
             continue
 
-        if pending:
-            log.info("%d session(s) pending scoring", len(pending))
+        user_texts  = [m["content"] for m in msgs if m["role"] == "user"]
+        agent_texts = [m["content"] for m in msgs if m["role"] == "assistant"]
 
-        for session_id in pending:
-            try:
-                msgs = requests.get(
-                    f"{EGO_URL}/api/sessions/{session_id}/messages", timeout=10
-                ).json()
-            except Exception as e:
-                log.warning("Could not fetch messages for %s: %s", session_id, e)
-                continue
+        user_score  = score_messages(classifier, user_texts)
+        agent_score = score_messages(classifier, agent_texts)
 
-            user_texts  = [m["content"] for m in msgs if m["role"] == "user"]
-            agent_texts = [m["content"] for m in msgs if m["role"] == "assistant"]
+        if not user_score and not agent_score:
+            log.info("No scoreable messages for session %s, skipping", session_id)
+            requests.post(f"{EGO_URL}/api/sentiment/score", json={
+                "session_id": session_id, "user": None, "agent": None,
+            }, timeout=10)
+            continue
 
-            user_score  = score_messages(classifier, user_texts)
-            agent_score = score_messages(classifier, agent_texts)
+        payload = {"session_id": session_id, "user": user_score, "agent": agent_score}
+        try:
+            requests.post(f"{EGO_URL}/api/sentiment/score", json=payload, timeout=10)
+            dominant_u = user_score["dominant"]  if user_score  else "—"
+            dominant_a = agent_score["dominant"] if agent_score else "—"
+            log.info("Scored %s | user: %s | agent: %s", session_id[:24], dominant_u, dominant_a)
+        except Exception as e:
+            log.warning("Failed to post score for %s: %s", session_id, e)
 
-            if not user_score and not agent_score:
-                log.info("No scoreable messages for session %s, skipping", session_id)
-                # Post empty result so it's not retried endlessly
-                requests.post(f"{EGO_URL}/api/sentiment/score", json={
-                    "session_id": session_id, "user": None, "agent": None,
-                }, timeout=10)
-                continue
 
-            payload = {
-                "session_id": session_id,
-                "user": user_score,
-                "agent": agent_score,
-            }
-            try:
-                requests.post(f"{EGO_URL}/api/sentiment/score", json=payload, timeout=10)
-                dominant_u = user_score["dominant"]  if user_score  else "—"
-                dominant_a = agent_score["dominant"] if agent_score else "—"
-                log.info("Scored %s | user: %s | agent: %s", session_id[:24], dominant_u, dominant_a)
-            except Exception as e:
-                log.warning("Failed to post score for %s: %s", session_id, e)
-
-        time.sleep(POLL_INTERVAL)
+def run(classifier):
+    while True:
+        process_pending(classifier)
+        # Sleep in 5s increments so we can react to UI trigger quickly
+        for _ in range(POLL_INTERVAL // 5):
+            time.sleep(5)
+            if check_trigger():
+                log.info("Triggered by UI — running scoring now")
+                break
 
 
 if __name__ == "__main__":

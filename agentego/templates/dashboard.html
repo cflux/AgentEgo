@@ -39,6 +39,13 @@
   {% include "partials/activity.html" %}
 </div>
 
+<div id="sentiment-controls"
+     hx-get="/partials/sentiment-status"
+     hx-trigger="every 15s"
+     hx-swap="innerHTML">
+  {% include "partials/sentiment_status.html" %}
+</div>
+
 {% if platform_stats %}
 <article>
   <header><strong>Platform Breakdown (7d)</strong></header>

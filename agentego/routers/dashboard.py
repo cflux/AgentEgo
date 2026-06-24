@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from ..db.hermes import get_recent_sessions, get_session_stats
 from ..db.ego import get_ego_db
+from .sentiment import scoring_status
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -128,6 +129,8 @@ async def dashboard(request: Request):
             "sentiment_agent": s_data.get("agent", {}).get("dominant") if s_data else None,
         })
 
+    status = await scoring_status()
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -138,7 +141,17 @@ async def dashboard(request: Request):
             "activity": activity,
             "active_sessions": active_sessions,
             "recent_sessions": recent,
+            "status": status,
         },
+    )
+
+
+@router.get("/partials/sentiment-status")
+async def sentiment_status_partial(request: Request):
+    status = await scoring_status()
+    return templates.TemplateResponse(
+        "partials/sentiment_status.html",
+        {"request": request, "status": status},
     )
 
 

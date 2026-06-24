@@ -1,0 +1,31 @@
+<article style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; padding:0.85rem 1rem;">
+  <div>
+    <strong>Emotion Scoring</strong>
+    <span style="font-size:0.82rem; color:var(--pico-muted-color); margin-left:0.75rem;">
+      {% if status.pending > 0 %}
+        {{ status.pending }} session{{ "s" if status.pending != 1 else "" }} awaiting scoring
+      {% else %}
+        All sessions scored
+      {% endif %}
+      {% if status.last_run %}
+        &nbsp;·&nbsp; Last run {{ status.last_run | ts }}
+      {% endif %}
+    </span>
+  </div>
+  <div style="display:flex; align-items:center; gap:0.5rem;">
+    {% if status.triggered %}
+      <span style="font-size:0.82rem; color:var(--pico-muted-color);">⏳ Worker notified, processing soon…</span>
+      <button class="secondary outline" style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;" disabled>Run Now</button>
+    {% else %}
+      <button
+        hx-post="/api/sentiment/trigger"
+        hx-target="#sentiment-controls"
+        hx-swap="innerHTML"
+        hx-vals='{"_refresh": true}'
+        style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;"
+        {% if status.pending == 0 %}class="secondary outline"{% endif %}>
+        Run Now{% if status.pending > 0 %} ({{ status.pending }}){% endif %}
+      </button>
+    {% endif %}
+  </div>
+</article>

@@ -1,7 +1,7 @@
 import json
 import time
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 from ..db.ego import get_ego_db
@@ -93,7 +93,7 @@ async def trigger_scoring():
         await conn.commit()
     finally:
         await conn.close()
-    return {"status": "queued"}
+    return JSONResponse({"status": "queued"}, headers={"HX-Trigger": "sentimentUpdate"})
 
 
 @router.post("/sentiment/heartbeat", status_code=202)

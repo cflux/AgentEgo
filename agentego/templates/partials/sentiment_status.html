@@ -47,8 +47,6 @@
     {% else %}
       <button
         hx-post="/api/sentiment/trigger"
-        hx-target="closest article"
-        hx-swap="outerHTML"
         style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;"
         {% if status.pending == 0 %}class="secondary outline"{% endif %}>
         Run Now{% if status.pending > 0 %} ({{ status.pending }}){% endif %}

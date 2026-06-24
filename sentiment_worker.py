@@ -77,7 +77,27 @@ def check_trigger() -> bool:
     return False
 
 
+def heartbeat():
+    try:
+        requests.post(f"{EGO_URL}/api/sentiment/heartbeat", timeout=5)
+    except Exception:
+        pass
+
+
+def report_progress(current: int, total: int, session_id: str = ""):
+    try:
+        requests.post(
+            f"{EGO_URL}/api/sentiment/progress",
+            params={"current": current, "total": total, "session_id": session_id},
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
 def process_pending(classifier):
+    heartbeat()
+
     try:
         resp = requests.get(f"{EGO_URL}/api/sentiment/pending", timeout=10)
         resp.raise_for_status()
@@ -86,10 +106,15 @@ def process_pending(classifier):
         log.warning("Could not reach AgentEgo: %s", e)
         return
 
-    if pending:
-        log.info("%d session(s) pending scoring", len(pending))
+    if not pending:
+        return
 
-    for session_id in pending:
+    log.info("%d session(s) pending scoring", len(pending))
+    total = len(pending)
+
+    for idx, session_id in enumerate(pending, start=1):
+        report_progress(idx, total, session_id)
+
         try:
             msgs = requests.get(
                 f"{EGO_URL}/api/sessions/{session_id}/messages", timeout=10
@@ -119,6 +144,9 @@ def process_pending(classifier):
             log.info("Scored %s | user: %s | agent: %s", session_id[:24], dominant_u, dominant_a)
         except Exception as e:
             log.warning("Failed to post score for %s: %s", session_id, e)
+
+    # Clear progress indicator when done
+    report_progress(0, 0)
 
 
 def run(classifier):

@@ -123,7 +123,7 @@ async def dashboard(request: Request):
         s_data = sentiment_map.get(r["id"], {})
         recent.append({
             **r,
-            "platform_name": src.get("platform", ""),
+            "platform_name": src.get("platform") or "console",
             "user_display": src.get("user_name") or src.get("user_id", ""),
             "sentiment_user":  s_data.get("user",  {}).get("dominant") if s_data else None,
             "sentiment_agent": s_data.get("agent", {}).get("dominant") if s_data else None,

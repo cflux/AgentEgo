@@ -99,6 +99,45 @@ async def trigger_scoring():
     return {"status": "queued"}
 
 
+@router.post("/sentiment/heartbeat", status_code=202)
+async def worker_heartbeat():
+    """Called by the worker each poll cycle to signal it's alive."""
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            """
+            INSERT INTO module_data (module, key, value, updated_at)
+            VALUES ('_system', 'sentiment_heartbeat', '1', ?)
+            ON CONFLICT(module, key) DO UPDATE SET value='1', updated_at=excluded.updated_at
+            """,
+            (time.time(),),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+    return {"status": "ok"}
+
+
+@router.post("/sentiment/progress", status_code=202)
+async def update_progress(current: int, total: int, session_id: str = ""):
+    """Called by the worker as it scores each session."""
+    conn = await get_ego_db()
+    try:
+        value = json.dumps({"current": current, "total": total, "session_id": session_id})
+        await conn.execute(
+            """
+            INSERT INTO module_data (module, key, value, updated_at)
+            VALUES ('_system', 'sentiment_progress', ?, ?)
+            ON CONFLICT(module, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """,
+            (value, time.time()),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+    return {"status": "ok"}
+
+
 @router.post("/sentiment/trigger-clear", status_code=202)
 async def clear_trigger():
     """Called by the worker after it picks up the trigger."""
@@ -115,7 +154,7 @@ async def clear_trigger():
 
 @router.get("/sentiment/status")
 async def scoring_status() -> dict:
-    """Return pending count and trigger state for the UI button."""
+    """Return pending count, trigger state, worker health, and active progress."""
     conn = await get_ego_db()
     try:
         cursor = await conn.execute(
@@ -139,6 +178,25 @@ async def scoring_status() -> dict:
         )
         last_row = await cursor.fetchone()
         last_run = last_row[0] if last_row else None
+
+        # Worker considered online if heartbeat within last 90s
+        cursor = await conn.execute(
+            "SELECT updated_at FROM module_data WHERE module='_system' AND key='sentiment_heartbeat'"
+        )
+        hb_row = await cursor.fetchone()
+        worker_online = hb_row is not None and (time.time() - hb_row[0]) < 90
+
+        # Active scoring progress
+        cursor = await conn.execute(
+            "SELECT value, updated_at FROM module_data WHERE module='_system' AND key='sentiment_progress'"
+        )
+        prog_row = await cursor.fetchone()
+        progress = None
+        if prog_row and (time.time() - prog_row[1]) < 30:
+            try:
+                progress = json.loads(prog_row[0])
+            except Exception:
+                pass
     finally:
         await conn.close()
 
@@ -146,6 +204,8 @@ async def scoring_status() -> dict:
         "pending": max(0, total_ended - total_scored),
         "triggered": triggered,
         "last_run": last_run,
+        "worker_online": worker_online,
+        "progress": progress,
     }
 
 

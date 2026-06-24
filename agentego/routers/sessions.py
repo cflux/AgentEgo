@@ -39,6 +39,7 @@ async def sessions_page(request: Request, platform: str = "", user_id: str = "")
         src = _parse_source(r.get("source"))
         plat = src.get("platform", r.get("platform", ""))
         uid = src.get("user_id", r.get("user_id", ""))
+        plat = plat or "console"
         if platform and plat != platform:
             continue
         if user_id and uid != user_id:
@@ -65,7 +66,7 @@ async def session_detail(request: Request, session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
     messages = await get_session_messages(session_id)
     src = _parse_source(session.get("source"))
-    session["platform_name"] = src.get("platform", "")
+    session["platform_name"] = src.get("platform") or "console"
     session["user_display"] = src.get("user_name") or src.get("user_id", "")
     session["chat_name"] = src.get("chat_name", src.get("chat_id", ""))
     sentiment = await _get_sentiment(session_id)

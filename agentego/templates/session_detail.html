@@ -1,5 +1,42 @@
 {% extends "base.html" %}
 {% block title %}Session {{ session.id[:16] }}… — AgentEgo{% endblock %}
+
+{% set POSITIVE = ["admiration","amusement","approval","caring","excitement","gratitude","joy","love","optimism","pride","relief"] %}
+{% set NEGATIVE = ["anger","annoyance","disappointment","disapproval","disgust","embarrassment","fear","grief","nervousness","remorse","sadness"] %}
+
+{% macro emo_badge(label, muted=false) %}
+{%- if label in POSITIVE -%}<span class="emo emo-positive"{% if muted %} style="opacity:0.7;"{% endif %}>{{ label }}</span>
+{%- elif label in NEGATIVE -%}<span class="emo emo-negative"{% if muted %} style="opacity:0.7;"{% endif %}>{{ label }}</span>
+{%- else -%}<span class="emo emo-cognitive"{% if muted %} style="opacity:0.7;"{% endif %}>{{ label }}</span>
+{%- endif %}
+{% endmacro %}
+
+{% macro emotion_panel(title, data) %}
+{% if data %}
+<div class="emotion-panel">
+  <h6>{{ title }}</h6>
+  <div style="margin-bottom:0.5rem;">
+    {{ emo_badge(data.dominant) }}
+    {% for e in data.top3[1:] %}{{ emo_badge(e, muted=true) }}{% endfor %}
+    <span style="font-size:0.72rem; color:var(--pico-muted-color); margin-left:0.4rem;">{{ data.message_count }} msgs</span>
+  </div>
+  {% for emotion, score in data.scores.items() | sort(attribute=1, reverse=True) %}
+  {% if loop.index <= 8 %}
+  <div class="emotion-bar">
+    <span style="width:110px; flex-shrink:0;">{{ emotion }}</span>
+    <div class="bar-track">
+      {% if emotion in POSITIVE %}<div class="bar-fill fill-positive" style="width:{{ (score * 100) | int }}%;"></div>
+      {% elif emotion in NEGATIVE %}<div class="bar-fill fill-negative" style="width:{{ (score * 100) | int }}%;"></div>
+      {% else %}<div class="bar-fill fill-cognitive" style="width:{{ (score * 100) | int }}%;"></div>{% endif %}
+    </div>
+    <span style="width:38px; text-align:right; color:var(--pico-muted-color);">{{ (score * 100) | int }}%</span>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}
+
 {% block content %}
 
 <p><a href="/sessions">← Back to sessions</a></p>
@@ -38,7 +75,20 @@
     <div class="value">${{ "%.4f"|format(session.estimated_cost_usd or 0) }}</div>
     <div class="label">Est. Cost</div>
   </div>
+  <div class="stat-card">
+    <div class="value">{{ session.tool_call_count or 0 }}</div>
+    <div class="label">Tool Calls</div>
+  </div>
 </div>
+
+{% if sentiment and (sentiment.user or sentiment.agent) %}
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
+  {{ emotion_panel("User emotions", sentiment.user) }}
+  {{ emotion_panel("Agent emotions", sentiment.agent) }}
+</div>
+{% elif sentiment is defined %}
+<p style="font-size:0.8rem; color:var(--pico-muted-color); margin-bottom:1.5rem;">Emotion analysis pending — run the sentiment worker to score this session.</p>
+{% endif %}
 
 <article>
   <details>
@@ -63,31 +113,8 @@
 
 {% for msg in messages %}
   {% set role = msg.role or "unknown" %}
-  {% if role == "tool" %}
-  <div class="msg msg-tool">
-    <div class="msg-header">
-      <span class="role">tool: {{ msg.tool_name or "?" }}</span>
-      <span>{{ msg.timestamp | ts }}</span>
-    </div>
-    <details>
-      <summary style="font-size:0.82rem; color:var(--pico-muted-color);">Tool result</summary>
-      <div class="msg-content" style="font-size:0.82rem;">{{ msg.content or "" }}</div>
-    </details>
-  </div>
-  {% elif role == "assistant" and msg.tool_calls %}
-  <div class="msg msg-tool">
-    <div class="msg-header">
-      <span class="role">assistant (tool call)</span>
-      <span>{{ msg.timestamp | ts }}</span>
-    </div>
-    {% if msg.content %}
-    <div class="msg-content" style="margin-bottom:0.5rem;">{{ msg.content }}</div>
-    {% endif %}
-    <details>
-      <summary style="font-size:0.82rem; color:var(--pico-muted-color);">Tool calls</summary>
-      <pre style="font-size:0.78rem; overflow-x:auto;">{{ msg.tool_calls }}</pre>
-    </details>
-  </div>
+  {% if role == "tool" or (role == "assistant" and msg.tool_calls) %}
+  {# tool messages filtered — count shown in stat cards above #}
   {% else %}
   <div class="msg msg-{{ role }}">
     <div class="msg-header">

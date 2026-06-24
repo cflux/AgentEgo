@@ -100,13 +100,32 @@ async def dashboard(request: Request):
     activity = await _get_activity_by_day()
     active_sessions = await _get_active_sessions()
 
+    # Fetch sentiment for recent sessions in one query
+    recent_ids = [s["id"] for s in sessions[:10]]
+    sentiment_map: dict = {}
+    if recent_ids:
+        conn = await get_ego_db()
+        try:
+            placeholders = ",".join("?" * len(recent_ids))
+            cursor = await conn.execute(
+                f"SELECT key, value FROM module_data WHERE module='sentiment' AND key IN ({placeholders})",
+                recent_ids,
+            )
+            for row in await cursor.fetchall():
+                sentiment_map[row[0]] = json.loads(row[1])
+        finally:
+            await conn.close()
+
     recent = []
     for r in sessions[:10]:
         src = _parse_source(r.get("source"))
+        s_data = sentiment_map.get(r["id"], {})
         recent.append({
             **r,
             "platform_name": src.get("platform", ""),
             "user_display": src.get("user_name") or src.get("user_id", ""),
+            "sentiment_user":  s_data.get("user",  {}).get("dominant") if s_data else None,
+            "sentiment_agent": s_data.get("agent", {}).get("dominant") if s_data else None,
         })
 
     return templates.TemplateResponse(

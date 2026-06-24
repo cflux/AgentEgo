@@ -31,6 +31,19 @@
     .msg-content { white-space: pre-wrap; word-break: break-word; font-size: 0.9rem; }
     table { font-size: 0.88rem; }
     td, th { padding: 0.5rem 0.75rem; }
+    /* Emotion colors */
+    .emo { display:inline-block; padding:0.2em 0.55em; border-radius:999px; font-size:0.75rem; font-weight:600; }
+    .emo-positive { background:#1a6b3a; color:#d4f5e3; }
+    .emo-negative { background:#7a1f1f; color:#fde8e8; }
+    .emo-cognitive { background:#1a3a6b; color:#d4e8f5; }
+    .emotion-panel { background:var(--pico-card-background-color); border:1px solid var(--pico-muted-border-color); border-radius:var(--pico-border-radius); padding:0.75rem 1rem; }
+    .emotion-panel h6 { margin:0 0 0.5rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color); }
+    .emotion-bar { display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem; font-size:0.78rem; }
+    .emotion-bar .bar-track { flex:1; height:6px; background:var(--pico-muted-border-color); border-radius:3px; overflow:hidden; }
+    .emotion-bar .bar-fill { height:100%; border-radius:3px; }
+    .fill-positive { background:#2ea05a; }
+    .fill-negative { background:#d94f4f; }
+    .fill-cognitive { background:#4f8fd9; }
   </style>
 </head>
 <body>

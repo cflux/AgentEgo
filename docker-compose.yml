@@ -4,7 +4,7 @@ services:
     container_name: agentego
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8765:8765"
+      - "0.0.0.0:8765:8765"
     volumes:
       # Hermes data dir read-only — provides state.db + WAL files (-shm, -wal)
       - /home/cflux/.hermes:/hermes:ro

@@ -10,7 +10,7 @@ from pathlib import Path
 from .config import settings
 from .db.migrations import run_migrations
 from .services.stats import start_scheduler
-from .routers import events, sessions, dashboard
+from .routers import events, sessions, dashboard, sentiment
 from .modules import load_modules
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
@@ -54,3 +54,4 @@ sessions.templates = _shared_templates
 app.include_router(events.router)
 app.include_router(sessions.router)
 app.include_router(dashboard.router)
+app.include_router(sentiment.router)

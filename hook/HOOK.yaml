@@ -1,0 +1,11 @@
+name: ego-bridge
+description: >
+  Forwards Hermes lifecycle events to the AgentEgo monitoring service
+  via HTTP POST. Non-blocking — failures are logged but never propagate
+  to the gateway.
+events:
+  - gateway:startup
+  - session:start
+  - session:end
+  - agent:start
+  - agent:end

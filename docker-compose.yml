@@ -1,0 +1,22 @@
+services:
+  agentego:
+    build: .
+    container_name: agentego
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      # Hermes data dir read-only — provides state.db + WAL files (-shm, -wal)
+      - /home/cflux/.hermes:/hermes:ro
+      # Persistent volume for ego.db
+      - agentego_data:/data
+    environment:
+      - EGO_HERMES_DB_PATH=/hermes/state.db
+      - EGO_EGO_DB_PATH=/data/ego.db
+      - EGO_RETENTION_DAYS=7
+      - EGO_LOG_LEVEL=info
+    user: "1000:1000"
+
+volumes:
+  agentego_data:
+    driver: local

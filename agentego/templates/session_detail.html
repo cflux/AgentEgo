@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Session {{ session.id[:16] }}… — AgentEgo{% endblock %}
+{% block content %}
+
+<p><a href="/sessions">← Back to sessions</a></p>
+
+<h2>
+  Session
+  <small style="font-size:0.55em; color:var(--pico-muted-color); word-break:break-all;">{{ session.id }}</small>
+</h2>
+
+{% if session.title %}
+<p style="color:var(--pico-muted-color); margin-top:-0.75rem;">{{ session.title }}</p>
+{% endif %}
+
+<div class="stat-grid" style="margin-bottom:1.5rem;">
+  <div class="stat-card">
+    <div class="value" style="font-size:1.1rem;">{{ session.platform_name or "—" }}</div>
+    <div class="label">Platform</div>
+  </div>
+  <div class="stat-card">
+    <div class="value" style="font-size:1.1rem; word-break:break-all;">{{ session.user_display or "—" }}</div>
+    <div class="label">User</div>
+  </div>
+  <div class="stat-card">
+    <div class="value" style="font-size:1rem;">{{ (session.model or "").split("/")[-1][:24] }}</div>
+    <div class="label">Model</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{ session.message_count or 0 }}</div>
+    <div class="label">Messages</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{ "{:,}".format((session.input_tokens or 0) + (session.output_tokens or 0)) }}</div>
+    <div class="label">Tokens</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">${{ "%.4f"|format(session.estimated_cost_usd or 0) }}</div>
+    <div class="label">Est. Cost</div>
+  </div>
+</div>
+
+<article>
+  <details>
+    <summary>Session metadata</summary>
+    <table style="font-size:0.82rem;">
+      <tr><th>Started</th><td>{{ session.started_at | ts }}</td></tr>
+      <tr><th>Ended</th><td>{{ session.ended_at | ts if session.ended_at else "active" }}</td></tr>
+      <tr><th>End reason</th><td>{{ session.end_reason or "—" }}</td></tr>
+      <tr><th>Chat</th><td>{{ session.chat_name or "—" }}</td></tr>
+      <tr><th>API calls</th><td>{{ session.api_call_count or 0 }}</td></tr>
+      <tr><th>Tool calls</th><td>{{ session.tool_call_count or 0 }}</td></tr>
+      <tr><th>Input tokens</th><td>{{ "{:,}".format(session.input_tokens or 0) }}</td></tr>
+      <tr><th>Output tokens</th><td>{{ "{:,}".format(session.output_tokens or 0) }}</td></tr>
+      <tr><th>Cache read</th><td>{{ "{:,}".format(session.cache_read_tokens or 0) }}</td></tr>
+      <tr><th>Cache write</th><td>{{ "{:,}".format(session.cache_write_tokens or 0) }}</td></tr>
+      <tr><th>Working dir</th><td style="font-size:0.78rem; word-break:break-all;">{{ session.cwd or "—" }}</td></tr>
+    </table>
+  </details>
+</article>
+
+<h3>Messages <small style="font-size:0.6em; color:var(--pico-muted-color);">{{ messages | length }} active</small></h3>
+
+{% for msg in messages %}
+  {% set role = msg.role or "unknown" %}
+  {% if role == "tool" %}
+  <div class="msg msg-tool">
+    <div class="msg-header">
+      <span class="role">tool: {{ msg.tool_name or "?" }}</span>
+      <span>{{ msg.timestamp | ts }}</span>
+    </div>
+    <details>
+      <summary style="font-size:0.82rem; color:var(--pico-muted-color);">Tool result</summary>
+      <div class="msg-content" style="font-size:0.82rem;">{{ msg.content or "" }}</div>
+    </details>
+  </div>
+  {% elif role == "assistant" and msg.tool_calls %}
+  <div class="msg msg-tool">
+    <div class="msg-header">
+      <span class="role">assistant (tool call)</span>
+      <span>{{ msg.timestamp | ts }}</span>
+    </div>
+    {% if msg.content %}
+    <div class="msg-content" style="margin-bottom:0.5rem;">{{ msg.content }}</div>
+    {% endif %}
+    <details>
+      <summary style="font-size:0.82rem; color:var(--pico-muted-color);">Tool calls</summary>
+      <pre style="font-size:0.78rem; overflow-x:auto;">{{ msg.tool_calls }}</pre>
+    </details>
+  </div>
+  {% else %}
+  <div class="msg msg-{{ role }}">
+    <div class="msg-header">
+      <span class="role">{{ role }}</span>
+      <span style="font-size:0.75rem;">
+        {{ msg.timestamp | ts }}
+        {% if msg.token_count %}&nbsp;·&nbsp;{{ msg.token_count }} tokens{% endif %}
+      </span>
+    </div>
+    {% if msg.reasoning_content %}
+    <details style="margin-bottom:0.5rem;">
+      <summary style="font-size:0.8rem; color:var(--pico-muted-color);">Reasoning</summary>
+      <div class="msg-content" style="font-size:0.82rem; opacity:0.8;">{{ msg.reasoning_content }}</div>
+    </details>
+    {% endif %}
+    <div class="msg-content">{{ msg.content or "" }}</div>
+    {% if msg.compacted %}
+    <p style="font-size:0.75rem; color:var(--pico-muted-color); margin-top:0.4rem; margin-bottom:0;">⚡ compacted</p>
+    {% endif %}
+  </div>
+  {% endif %}
+{% else %}
+<p style="color:var(--pico-muted-color);">No messages found for this session.</p>
+{% endfor %}
+
+{% endblock %}

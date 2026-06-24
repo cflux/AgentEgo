@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}AgentEgo{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <style>
+    :root { --spacing: 0.75rem; }
+    nav { padding: 0.5rem 1.5rem; border-bottom: 1px solid var(--pico-muted-border-color); }
+    nav ul { margin: 0; }
+    nav a { font-weight: 600; }
+    .nav-brand { font-size: 1.1rem; letter-spacing: 0.03em; }
+    main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .stat-card { background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: 1rem; text-align: center; }
+    .stat-card .value { font-size: 2rem; font-weight: 700; line-height: 1; }
+    .stat-card .label { font-size: 0.78rem; color: var(--pico-muted-color); margin-top: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .badge { display: inline-block; padding: 0.15em 0.5em; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--pico-primary-background); color: var(--pico-primary-inverse); }
+    .badge-muted { background: var(--pico-muted-border-color); color: var(--pico-color); }
+    .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 80px; }
+    .bar-chart .bar { flex: 1; background: var(--pico-primary); border-radius: 3px 3px 0 0; min-width: 8px; position: relative; }
+    .bar-chart .bar span { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); font-size: 0.65rem; white-space: nowrap; color: var(--pico-muted-color); }
+    .msg { padding: 0.75rem 1rem; border-radius: var(--pico-border-radius); margin-bottom: 0.75rem; border-left: 3px solid transparent; }
+    .msg-user { background: var(--pico-card-background-color); border-color: var(--pico-primary); }
+    .msg-assistant { background: var(--pico-card-sectioning-background-color); border-color: var(--pico-secondary); }
+    .msg-tool { background: var(--pico-card-background-color); border-color: var(--pico-muted-border-color); opacity: 0.85; }
+    .msg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; font-size: 0.8rem; color: var(--pico-muted-color); }
+    .msg-header .role { font-weight: 700; color: var(--pico-color); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; }
+    .msg-content { white-space: pre-wrap; word-break: break-word; font-size: 0.9rem; }
+    table { font-size: 0.88rem; }
+    td, th { padding: 0.5rem 0.75rem; }
+  </style>
+</head>
+<body>
+  <nav>
+    <ul>
+      <li><a href="/" class="nav-brand">🧠 AgentEgo</a></li>
+    </ul>
+    <ul>
+      <li><a href="/">Dashboard</a></li>
+      <li><a href="/sessions">Sessions</a></li>
+    </ul>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

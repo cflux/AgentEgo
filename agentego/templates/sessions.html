@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Sessions — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>Sessions <small style="font-size:0.6em; color:var(--pico-muted-color);">Last 7 days</small></h2>
+
+<form method="get" action="/sessions" style="display:flex; gap:1rem; align-items:flex-end; margin-bottom:1.5rem; flex-wrap:wrap;">
+  <label style="flex:1; min-width:160px;">
+    Platform
+    <select name="platform">
+      <option value="">All platforms</option>
+      {% for p in platforms %}
+      <option value="{{ p }}" {% if p == filter_platform %}selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label style="flex:1; min-width:160px;">
+    User ID
+    <input type="text" name="user_id" value="{{ filter_user }}" placeholder="Filter by user">
+  </label>
+  <button type="submit" style="margin-bottom:0;">Filter</button>
+  {% if filter_platform or filter_user %}
+  <a href="/sessions" role="button" class="secondary outline" style="margin-bottom:0;">Clear</a>
+  {% endif %}
+</form>
+
+{% if sessions %}
+<table>
+  <thead>
+    <tr>
+      <th>Started</th>
+      <th>Platform</th>
+      <th>User</th>
+      <th>Model</th>
+      <th>Msgs</th>
+      <th>Tokens</th>
+      <th>Cost</th>
+      <th>End reason</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in sessions %}
+    <tr>
+      <td style="white-space:nowrap; font-size:0.8rem;">{{ s.started_at | ts }}</td>
+      <td><span class="badge badge-muted">{{ s.platform_name or "—" }}</span></td>
+      <td style="font-size:0.82rem; max-width:120px; overflow:hidden; text-overflow:ellipsis;">{{ s.user_display or "—" }}</td>
+      <td style="font-size:0.78rem;">{{ (s.model or "").split("/")[-1][:20] }}</td>
+      <td>{{ s.message_count or 0 }}</td>
+      <td style="font-size:0.8rem;">{{ "{:,}".format((s.input_tokens or 0) + (s.output_tokens or 0)) }}</td>
+      <td style="font-size:0.8rem;">${{ "%.4f"|format(s.estimated_cost_usd or 0) }}</td>
+      <td style="font-size:0.78rem; color:var(--pico-muted-color);">{{ s.end_reason or "active" }}</td>
+      <td><a href="/sessions/{{ s.id }}" style="font-size:0.8rem;">View</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p style="font-size:0.8rem; color:var(--pico-muted-color);">{{ sessions | length }} session(s)</p>
+{% else %}
+<p style="color:var(--pico-muted-color);">No sessions found for the selected filters.</p>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>Dashboard</h2>
+
+{% if gateway_startup %}
+<p style="font-size:0.82rem; color:var(--pico-muted-color);">Gateway last started: <strong>{{ gateway_startup }}</strong></p>
+{% endif %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="value">{{ active_sessions }}</div>
+    <div class="label">Active Sessions</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{ stats.total_sessions or 0 }}</div>
+    <div class="label">Sessions (7d)</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{ stats.total_messages or 0 }}</div>
+    <div class="label">Messages (7d)</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">${{ "%.4f"|format(stats.total_cost or 0) }}</div>
+    <div class="label">Est. Cost (7d)</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{ "{:,}".format((stats.total_input_tokens or 0) + (stats.total_output_tokens or 0)) }}</div>
+    <div class="label">Total Tokens (7d)</div>
+  </div>
+</div>
+
+<div
+  hx-get="/partials/activity"
+  hx-trigger="every 30s"
+  hx-swap="innerHTML"
+  id="activity-section">
+  {% include "partials/activity.html" %}
+</div>
+
+{% if platform_stats %}
+<article>
+  <header><strong>Platform Breakdown (7d)</strong></header>
+  <table>
+    <thead><tr><th>Platform</th><th>Sessions</th><th>Agent Turns</th></tr></thead>
+    <tbody>
+    {% for p in platform_stats %}
+      <tr>
+        <td><span class="badge">{{ p.platform }}</span></td>
+        <td>{{ p.sessions }}</td>
+        <td>{{ p.turns }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</article>
+{% endif %}
+
+<article>
+  <header><strong>Recent Sessions</strong> <a href="/sessions" style="font-size:0.8rem; float:right;">View all →</a></header>
+  {% if recent_sessions %}
+  <table>
+    <thead>
+      <tr>
+        <th>Started</th>
+        <th>Platform</th>
+        <th>User</th>
+        <th>Model</th>
+        <th>Msgs</th>
+        <th>Cost</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for s in recent_sessions %}
+      <tr>
+        <td style="white-space:nowrap; font-size:0.8rem;">{{ s.started_at | ts }}</td>
+        <td><span class="badge badge-muted">{{ s.platform_name or "—" }}</span></td>
+        <td style="font-size:0.82rem;">{{ s.user_display or "—" }}</td>
+        <td style="font-size:0.8rem;">{{ (s.model or "").split("/")[-1][:20] }}</td>
+        <td>{{ s.message_count or 0 }}</td>
+        <td style="font-size:0.8rem;">${{ "%.4f"|format(s.estimated_cost_usd or 0) }}</td>
+        <td><a href="/sessions/{{ s.id }}" style="font-size:0.8rem;">View</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:var(--pico-muted-color);">No sessions in the last 7 days. Send a message through Hermes to see data here.</p>
+  {% endif %}
+</article>
+
+{% endblock %}

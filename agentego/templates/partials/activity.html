@@ -1,0 +1,24 @@
+<article>
+  <header>
+    <strong>Agent Activity (7d)</strong>
+    <span style="float:right; font-size:0.8rem; color:var(--pico-muted-color);">
+      {{ active_sessions }} active now
+    </span>
+  </header>
+  {% if activity %}
+  <div class="bar-chart">
+    {% set max_turns = activity | map(attribute='turns') | max %}
+    {% for day in activity %}
+      {% set pct = (day.turns / max_turns * 100) | int if max_turns > 0 else 5 %}
+      <div class="bar" style="height: {{ [pct, 5] | max }}%;" title="{{ day.date }}: {{ day.turns }} turns">
+        <span>{{ day.date[5:] }}</span>
+      </div>
+    {% endfor %}
+  </div>
+  <p style="font-size:0.75rem; color:var(--pico-muted-color); margin-top:0.5rem; text-align:center;">
+    Agent turns per day
+  </p>
+  {% else %}
+  <p style="color:var(--pico-muted-color); font-size:0.85rem;">No activity recorded yet.</p>
+  {% endif %}
+</article>

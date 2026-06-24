@@ -149,9 +149,11 @@ async def dashboard(request: Request):
 @router.get("/partials/sentiment-status")
 async def sentiment_status_partial(request: Request):
     status = await scoring_status()
+    headers = {"HX-Trigger": "sentimentComplete"} if status.get("just_completed") else {}
     return templates.TemplateResponse(
         "partials/sentiment_status.html",
         {"request": request, "status": status},
+        headers=headers,
     )
 
 

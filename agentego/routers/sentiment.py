@@ -135,6 +135,25 @@ async def update_progress(current: int, total: int, session_id: str = ""):
     return {"status": "ok"}
 
 
+@router.post("/sentiment/complete", status_code=202)
+async def scoring_complete():
+    """Called by the worker when a scoring run finishes."""
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            """
+            INSERT INTO module_data (module, key, value, updated_at)
+            VALUES ('_system', 'sentiment_complete', '1', ?)
+            ON CONFLICT(module, key) DO UPDATE SET value='1', updated_at=excluded.updated_at
+            """,
+            (time.time(),),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+    return {"status": "ok"}
+
+
 @router.post("/sentiment/trigger-clear", status_code=202)
 async def clear_trigger():
     """Called by the worker after it picks up the trigger."""
@@ -192,8 +211,26 @@ async def scoring_status() -> dict:
         if prog_row and (time.time() - prog_row[1]) < 30:
             try:
                 progress = json.loads(prog_row[0])
+                if progress.get("total", 0) == 0:
+                    progress = None
             except Exception:
                 pass
+
+        # One-shot "just finished" flag — read and clear atomically
+        cursor = await conn.execute(
+            "SELECT value, updated_at FROM module_data WHERE module='_system' AND key='sentiment_complete'"
+        )
+        complete_row = await cursor.fetchone()
+        just_completed = (
+            complete_row is not None
+            and complete_row[0] == "1"
+            and (time.time() - complete_row[1]) < 10
+        )
+        if just_completed:
+            await conn.execute(
+                "UPDATE module_data SET value='0' WHERE module='_system' AND key='sentiment_complete'"
+            )
+            await conn.commit()
     finally:
         await conn.close()
 
@@ -203,6 +240,7 @@ async def scoring_status() -> dict:
         "last_run": last_run,
         "worker_online": worker_online,
         "progress": progress,
+        "just_completed": just_completed,
     }
 
 

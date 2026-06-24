@@ -33,7 +33,7 @@
 
 <div
   hx-get="/partials/activity"
-  hx-trigger="every 30s"
+  hx-trigger="every 30s, sentimentComplete from:body"
   hx-swap="innerHTML"
   id="activity-section">
   {% include "partials/activity.html" %}

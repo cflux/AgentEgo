@@ -1,0 +1,15 @@
+[Unit]
+Description=AgentEgo Sentiment Worker
+After=network.target
+
+[Service]
+Type=simple
+User=cflux
+ExecStart=/home/cflux/ComfyUI/venv/bin/python /mnt/LargeStorage/AgentEgo/sentiment_worker.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

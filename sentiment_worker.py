@@ -145,8 +145,12 @@ def process_pending(classifier):
         except Exception as e:
             log.warning("Failed to post score for %s: %s", session_id, e)
 
-    # Clear progress indicator when done
+    # Clear progress indicator and signal completion to the UI
     report_progress(0, 0)
+    try:
+        requests.post(f"{EGO_URL}/api/sentiment/complete", timeout=5)
+    except Exception:
+        pass
 
 
 def run(classifier):

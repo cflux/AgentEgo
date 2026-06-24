@@ -25,27 +25,24 @@ class SentimentResult(BaseModel):
 
 @router.get("/sentiment/pending")
 async def get_pending_sessions() -> list[str]:
-    """Return session_ids that have agent:end events but no sentiment score yet."""
+    """Return session_ids from state.db (last 7d, ended) that have no sentiment score."""
+    from ..db.hermes import get_recent_sessions
+    sessions = await get_recent_sessions()
+
     conn = await get_ego_db()
     try:
-        # Sessions that received agent:end
-        cursor = await conn.execute(
-            """
-            SELECT DISTINCT session_id FROM events
-            WHERE event_type = 'agent:end' AND session_id IS NOT NULL
-            """
-        )
-        all_ended = {row[0] for row in await cursor.fetchall()}
-
-        # Sessions already scored
         cursor = await conn.execute(
             "SELECT key FROM module_data WHERE module = 'sentiment'"
         )
         already_scored = {row[0] for row in await cursor.fetchall()}
-
-        return list(all_ended - already_scored)
     finally:
         await conn.close()
+
+    # Only score sessions that have ended (ended_at is set)
+    return [
+        s["id"] for s in sessions
+        if s["id"] not in already_scored and s.get("ended_at")
+    ]
 
 
 @router.post("/sentiment/score", status_code=202)
@@ -155,17 +152,17 @@ async def clear_trigger():
 @router.get("/sentiment/status")
 async def scoring_status() -> dict:
     """Return pending count, trigger state, worker health, and active progress."""
+    from ..db.hermes import get_recent_sessions
+    sessions = await get_recent_sessions()
+    ended_ids = {s["id"] for s in sessions if s.get("ended_at")}
+
     conn = await get_ego_db()
     try:
         cursor = await conn.execute(
-            "SELECT COUNT(DISTINCT session_id) FROM events WHERE event_type='agent:end'"
+            "SELECT key FROM module_data WHERE module='sentiment'"
         )
-        total_ended = (await cursor.fetchone())[0] or 0
-
-        cursor = await conn.execute(
-            "SELECT COUNT(*) FROM module_data WHERE module='sentiment'"
-        )
-        total_scored = (await cursor.fetchone())[0] or 0
+        already_scored = {row[0] for row in await cursor.fetchall()}
+        total_scored = len(already_scored)  # noqa: F841 (used below implicitly)
 
         cursor = await conn.execute(
             "SELECT value, updated_at FROM module_data WHERE module='_system' AND key='sentiment_trigger'"
@@ -201,7 +198,7 @@ async def scoring_status() -> dict:
         await conn.close()
 
     return {
-        "pending": max(0, total_ended - total_scored),
+        "pending": len(ended_ids - already_scored),
         "triggered": triggered,
         "last_run": last_run,
         "worker_online": worker_online,

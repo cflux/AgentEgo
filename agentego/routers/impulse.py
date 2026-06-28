@@ -29,7 +29,12 @@ def _mood_map(moods: list) -> dict:
 
 def _action_summary(action: dict) -> str:
     moods = action.get("required_moods") or []
-    mood_part = "any mood" if not moods else "while " + "/".join(moods)
+    if not moods:
+        mood_part = "any mood"
+    elif action.get("mood_negate"):
+        mood_part = "while NOT " + "/".join(moods)
+    else:
+        mood_part = "while " + "/".join(moods)
     idle = action.get("min_idle_minutes", 0)
     idle_part = "any idle" if not idle else f"idle ≥ {idle}m"
     return f"{mood_part} · {idle_part} · weight {action.get('base_weight', 1)}"
@@ -77,12 +82,13 @@ async def create_impulse(request: Request):
     label = str(form.get("label", "")).strip() or "Untitled impulse"
     prompt = str(form.get("prompt", "")).strip()
     required_moods = _parse_moods(form)
+    mood_negate = str(form.get("mood_match", "any")) == "not"
     min_idle = int(form.get("min_idle_minutes", 0) or 0)
     base_weight = float(form.get("base_weight", 1.0) or 1.0)
     recency = int(form.get("recency_window_minutes", 240) or 240)
     if prompt:
         await impulse_engine.create_action(profile_name, label, prompt, required_moods,
-                                            min_idle, base_weight, recency)
+                                            min_idle, base_weight, recency, mood_negate)
     return RedirectResponse(f"/impulses?profile={profile_name}", status_code=303)
 
 
@@ -104,11 +110,12 @@ async def edit_impulse(request: Request, action_id: str):
     label = str(form.get("label", "")).strip() or "Untitled impulse"
     prompt = str(form.get("prompt", "")).strip()
     required_moods = _parse_moods(form)
+    mood_negate = str(form.get("mood_match", "any")) == "not"
     min_idle = int(form.get("min_idle_minutes", 0) or 0)
     base_weight = float(form.get("base_weight", 1.0) or 1.0)
     recency = int(form.get("recency_window_minutes", 240) or 240)
     await impulse_engine.update_action(action_id, label, prompt, required_moods,
-                                       min_idle, base_weight, recency)
+                                       min_idle, base_weight, recency, mood_negate)
     action = await impulse_engine.get_action(action_id)
     action["summary"] = _action_summary(action)
     moods = await _get_moods()

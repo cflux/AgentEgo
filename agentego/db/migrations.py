@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -135,7 +135,8 @@ CREATE TABLE IF NOT EXISTS impulse_actions (
     recency_window_minutes INTEGER NOT NULL DEFAULT 240,
     enabled                INTEGER NOT NULL DEFAULT 1,
     last_fired_at          REAL,
-    created_at             REAL NOT NULL
+    created_at             REAL NOT NULL,
+    mood_negate            INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_impulse_profile ON impulse_actions(profile_name);
 
@@ -222,6 +223,12 @@ async def run_migrations(db_path: str) -> None:
         if current_version < 5:
             # impulse_actions, impulse_log created by DDL above; no ALTER needed
             pass
+
+        if current_version < 6:
+            try:
+                await conn.execute("ALTER TABLE impulse_actions ADD COLUMN mood_negate INTEGER NOT NULL DEFAULT 0")
+            except Exception:
+                pass  # column already exists
 
         if current_version < SCHEMA_VERSION:
             if current_version == 0:

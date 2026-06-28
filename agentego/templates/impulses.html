@@ -69,6 +69,13 @@
       <textarea name="prompt" required rows="2" placeholder="Generate a self-portrait in ComfyUI that reflects your {mood} mood and share it with the user."></textarea>
     </label>
     <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+      <label style="margin:0; width:9rem;">
+        <span style="font-size:0.82rem; color:var(--pico-muted-color);">Mood match</span>
+        <select name="mood_match">
+          <option value="any">is one of</option>
+          <option value="not">is NOT one of</option>
+        </select>
+      </label>
       <label style="margin:0; flex:2; min-width:200px;">
         <span style="font-size:0.82rem; color:var(--pico-muted-color);">Required moods <small>(none = any)</small></span>
         <select name="required_moods" multiple size="3">

@@ -9,7 +9,14 @@
       <textarea name="prompt" required rows="2" placeholder="Impulse prompt the agent receives…"
                 style="margin:0; font-size:0.85rem;">{{ action.prompt }}</textarea>
       <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
-        <label style="margin:0; flex:2; min-width:200px;">
+        <label style="margin:0; width:8rem;">
+          <span style="font-size:0.78rem; color:var(--pico-muted-color);">Mood match</span>
+          <select name="mood_match" style="margin:0;">
+            <option value="any" {% if not action.mood_negate %}selected{% endif %}>is one of</option>
+            <option value="not" {% if action.mood_negate %}selected{% endif %}>is NOT one of</option>
+          </select>
+        </label>
+        <label style="margin:0; flex:2; min-width:180px;">
           <span style="font-size:0.78rem; color:var(--pico-muted-color);">Required moods (none = any)</span>
           <select name="required_moods" multiple size="3" style="margin:0;">
             {% for m in moods %}

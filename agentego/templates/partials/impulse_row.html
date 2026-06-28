@@ -11,6 +11,7 @@
   </td>
   <td style="font-size:0.78rem;">
     {% if action.required_moods %}
+      {% if action.mood_negate %}<span style="color:#e0a04a; font-weight:600; font-size:0.72rem;">NOT </span>{% endif %}
       {% for mid in action.required_moods %}
         {% set m = mood_map.get(mid) %}
         {% if m %}<span class="mood-badge" style="background:{{ m.color }}22; border:1px solid {{ m.color }}; color:{{ m.color }};">{{ m.icon }} {{ m.name }}</span>

@@ -26,12 +26,12 @@ def _row_to_action(r) -> dict:
         "id": r[0], "profile_name": r[1], "label": r[2], "prompt": r[3],
         "required_moods": moods, "min_idle_minutes": r[5], "base_weight": r[6],
         "recency_window_minutes": r[7], "enabled": bool(r[8]),
-        "last_fired_at": r[9], "created_at": r[10],
+        "last_fired_at": r[9], "created_at": r[10], "mood_negate": bool(r[11]),
     }
 
 
 _ACTION_COLS = ("id, profile_name, label, prompt, required_moods, min_idle_minutes, "
-                "base_weight, recency_window_minutes, enabled, last_fired_at, created_at")
+                "base_weight, recency_window_minutes, enabled, last_fired_at, created_at, mood_negate")
 
 
 # --- CRUD ---
@@ -61,16 +61,18 @@ async def get_action(action_id: str) -> dict | None:
 
 
 async def create_action(profile_name: str, label: str, prompt: str, required_moods: list,
-                        min_idle_minutes: int, base_weight: float, recency_window_minutes: int) -> str:
+                        min_idle_minutes: int, base_weight: float, recency_window_minutes: int,
+                        mood_negate: bool = False) -> str:
     aid = str(uuid4())
     conn = await get_ego_db()
     try:
         await conn.execute(
             "INSERT INTO impulse_actions (id, profile_name, label, prompt, required_moods, "
-            "min_idle_minutes, base_weight, recency_window_minutes, enabled, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            "min_idle_minutes, base_weight, recency_window_minutes, enabled, created_at, mood_negate) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
             (aid, profile_name, label, prompt, json.dumps(required_moods),
-             max(0, min_idle_minutes), max(0.0, base_weight), max(1, recency_window_minutes), time.time()),
+             max(0, min_idle_minutes), max(0.0, base_weight), max(1, recency_window_minutes),
+             time.time(), 1 if mood_negate else 0),
         )
         await conn.commit()
     finally:
@@ -79,14 +81,15 @@ async def create_action(profile_name: str, label: str, prompt: str, required_moo
 
 
 async def update_action(action_id: str, label: str, prompt: str, required_moods: list,
-                        min_idle_minutes: int, base_weight: float, recency_window_minutes: int) -> None:
+                        min_idle_minutes: int, base_weight: float, recency_window_minutes: int,
+                        mood_negate: bool = False) -> None:
     conn = await get_ego_db()
     try:
         await conn.execute(
             "UPDATE impulse_actions SET label=?, prompt=?, required_moods=?, min_idle_minutes=?, "
-            "base_weight=?, recency_window_minutes=? WHERE id=?",
+            "base_weight=?, recency_window_minutes=?, mood_negate=? WHERE id=?",
             (label, prompt, json.dumps(required_moods), max(0, min_idle_minutes),
-             max(0.0, base_weight), max(1, recency_window_minutes), action_id),
+             max(0.0, base_weight), max(1, recency_window_minutes), 1 if mood_negate else 0, action_id),
         )
         await conn.commit()
     finally:
@@ -209,8 +212,14 @@ async def evaluate_impulse(profile_name: str, db_path: str | None = None, commit
     for a in actions:
         if not a["enabled"]:
             continue
-        if a["required_moods"] and (mood_id not in a["required_moods"]):
-            continue
+        if a["required_moods"]:
+            in_list = mood_id in a["required_moods"]
+            # negate=True means "any mood EXCEPT these"; otherwise "one of these"
+            if a.get("mood_negate"):
+                if in_list:
+                    continue
+            elif not in_list:
+                continue
         if idle_minutes < a["min_idle_minutes"]:
             continue
         if a["last_fired_at"]:

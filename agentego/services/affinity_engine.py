@@ -8,9 +8,10 @@ affinities move within global bounds and gain confidence with repeated mentions.
 import json
 import re
 import time
+import random
 from uuid import uuid4
 from ..db.ego import get_ego_db
-from .settings_store import get_evolution_config
+from .settings_store import get_evolution_config, get_setting
 
 OCEAN_KEYS = ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]
 
@@ -207,9 +208,48 @@ async def find_affinity(profile_name: str, subject: str) -> dict | None:
     }
 
 
-async def get_taste_context(profile_name: str, top_n: int = 6) -> dict:
-    """Compact taste summary for prompt injection + the agent-facing profile API."""
-    summary = await get_affinity_summary(profile_name, top_n=top_n)
+def _weighted_sample(items: list, k: int, weight_fn) -> list:
+    """Sample up to k items without replacement, weighted by weight_fn (salience).
+
+    Stronger items appear more often, but the long tail still gets representation —
+    so injected taste lists stay short AND vary between calls instead of always
+    showing the same top entries."""
+    pool = list(items)
+    weights = [max(1e-6, weight_fn(it)) for it in pool]
+    chosen = []
+    for _ in range(min(k, len(pool))):
+        total = sum(weights)
+        r = random.uniform(0, total)
+        cum = 0.0
+        for i, w in enumerate(weights):
+            cum += w
+            if r <= cum:
+                chosen.append(pool.pop(i))
+                weights.pop(i)
+                break
+    return chosen
+
+
+async def get_taste_context(profile_name: str, top_n: int = 6, sample: bool = False) -> dict:
+    """Compact taste summary for prompt injection + the agent-facing profile API.
+
+    sample=True draws a weighted random subset from a larger pool (for impulse
+    prompts → variety); sample=False returns the deterministic top_n (for the
+    agent-facing profile API → full, stable picture)."""
+    if sample:
+        try:
+            pool_size = int(await get_setting("taste_pool_size", "15"))
+            sample_size = int(await get_setting("taste_sample_size", "5"))
+        except (TypeError, ValueError):
+            pool_size, sample_size = 15, 5
+        summary = await get_affinity_summary(profile_name, top_n=pool_size)
+        likes = _weighted_sample(summary["likes"], sample_size, lambda a: a["score"])
+        dislikes = _weighted_sample(summary["dislikes"], sample_size, lambda a: abs(a["score"]))
+        interests = _weighted_sample(summary["interests"], sample_size, lambda a: a["intensity"])
+    else:
+        summary = await get_affinity_summary(profile_name, top_n=top_n)
+        likes, dislikes, interests = summary["likes"], summary["dislikes"], summary["interests"]
+
     traits = await get_traits(profile_name)
 
     def _names(items: list) -> str:
@@ -222,9 +262,9 @@ async def get_taste_context(profile_name: str, top_n: int = 6) -> dict:
         personality = cur.get("summary", "")
         values = cur.get("values", [])
     return {
-        "likes": _names(summary["likes"]),
-        "dislikes": _names(summary["dislikes"]),
-        "interests": _names(summary["interests"]),
+        "likes": _names(likes),
+        "dislikes": _names(dislikes),
+        "interests": _names(interests),
         "personality": personality,
         "values": values,
         "summary": summary,

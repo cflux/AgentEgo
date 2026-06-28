@@ -260,7 +260,7 @@ async def evaluate_impulse(profile_name: str, db_path: str | None = None, commit
     taste = None
     if any(ph in chosen["prompt"] for ph in TASTE_PLACEHOLDERS):
         from . import affinity_engine
-        taste = await affinity_engine.get_taste_context(profile_name)
+        taste = await affinity_engine.get_taste_context(profile_name, sample=True)
     prompt = build_prompt(chosen, mood, idle_minutes, taste)
     result["fired"] = True
     result["action"] = {"id": chosen["id"], "label": chosen["label"]}

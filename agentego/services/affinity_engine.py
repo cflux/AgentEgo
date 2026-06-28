@@ -187,6 +187,51 @@ async def get_affinity(profile_name: str, entity: str) -> dict | None:
     }
 
 
+async def find_affinity(profile_name: str, subject: str) -> dict | None:
+    """Case-insensitive lookup of a stored affinity for an arbitrary subject."""
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT entity, category, valence, intensity, confidence, source, rationale "
+            "FROM affinities WHERE profile_name = ? AND LOWER(entity) = LOWER(?) LIMIT 1",
+            (profile_name, subject.strip()),
+        )
+        row = await cursor.fetchone()
+    finally:
+        await conn.close()
+    if not row:
+        return None
+    return {
+        "entity": row[0], "category": row[1], "valence": row[2], "intensity": row[3],
+        "confidence": row[4], "source": row[5], "rationale": row[6],
+    }
+
+
+async def get_taste_context(profile_name: str, top_n: int = 6) -> dict:
+    """Compact taste summary for prompt injection + the agent-facing profile API."""
+    summary = await get_affinity_summary(profile_name, top_n=top_n)
+    traits = await get_traits(profile_name)
+
+    def _names(items: list) -> str:
+        return ", ".join(a["entity"] for a in items) or "—"
+
+    personality = ""
+    values: list = []
+    if traits:
+        cur = traits["current"] or {}
+        personality = cur.get("summary", "")
+        values = cur.get("values", [])
+    return {
+        "likes": _names(summary["likes"]),
+        "dislikes": _names(summary["dislikes"]),
+        "interests": _names(summary["interests"]),
+        "personality": personality,
+        "values": values,
+        "summary": summary,
+        "traits": traits,
+    }
+
+
 async def apply_observation(
     profile_name: str,
     entity: str,

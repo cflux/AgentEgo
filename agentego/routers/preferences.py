@@ -294,47 +294,26 @@ _OPINION_SYSTEM = (
 )
 
 
-@router.post("/api/preferences/opinion")
-async def opinion(request: Request, profile: str = Form("default"), subject: str = Form(...), save: bool = Form(False)):
-    """Dev playground: live trait-grounded opinion on an arbitrary subject."""
-    subject = subject.strip()
-    if not subject:
-        return JSONResponse({"error": "empty subject"}, status_code=400)
+async def _infer_opinion(profile: str, subject: str) -> dict:
+    """Trait-grounded LLM opinion on a subject. Raises LLMError / ValueError on failure."""
     traits = await affinity_engine.get_traits(profile)
     if not traits:
-        return JSONResponse(
-            {"error": f"No personality traits extracted for '{profile}' yet — run the worker first."},
-            status_code=400,
-        )
-
+        raise ValueError(f"No personality traits extracted for '{profile}' yet — run the worker first.")
     current = traits["current"]
     ocean = current.get("ocean", {})
-    values = ", ".join(current.get("values", []))
-    summary = current.get("summary", "")
     trait_block = (
-        f"Trait summary: {summary}\n"
+        f"Trait summary: {current.get('summary', '')}\n"
         f"OCEAN: " + ", ".join(f"{k}={ocean.get(k)}" for k in affinity_engine.OCEAN_KEYS) + "\n"
-        f"Core values: {values}"
+        f"Core values: {', '.join(current.get('values', []))}"
     )
-    user_msg = f"{trait_block}\n\nSubject to form an opinion about: {subject}"
-
-    try:
-        # Generous budget so reasoning models have room to think AND emit the JSON.
-        raw = await chat(
-            [{"role": "system", "content": _OPINION_SYSTEM},
-             {"role": "user", "content": user_msg}],
-            response_json=True,
-            max_tokens=2000,
-        )
-    except LLMError as e:
-        return JSONResponse({"error": str(e)}, status_code=502)
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return JSONResponse({"error": "model did not return valid JSON", "raw": raw[:400]}, status_code=502)
-
-    result = {
+    raw = await chat(
+        [{"role": "system", "content": _OPINION_SYSTEM},
+         {"role": "user", "content": f"{trait_block}\n\nSubject to form an opinion about: {subject}"}],
+        response_json=True,
+        max_tokens=2000,
+    )
+    data = json.loads(raw)  # JSONDecodeError bubbles up
+    return {
         "subject": subject,
         "valence": _unit(data.get("valence"), signed=True),
         "intensity": _unit(data.get("intensity")) or 0.5,
@@ -342,6 +321,22 @@ async def opinion(request: Request, profile: str = Form("default"), subject: str
         "rationale": data.get("rationale", ""),
         "in_character_line": data.get("in_character_line", ""),
     }
+
+
+@router.post("/api/preferences/opinion")
+async def opinion(request: Request, profile: str = Form("default"), subject: str = Form(...), save: bool = Form(False)):
+    """Dev playground: live trait-grounded opinion on an arbitrary subject (HTML)."""
+    subject = subject.strip()
+    if not subject:
+        return JSONResponse({"error": "empty subject"}, status_code=400)
+    try:
+        result = await _infer_opinion(profile, subject)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except LLMError as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "model did not return valid JSON"}, status_code=502)
 
     if save:
         await affinity_engine.apply_observation(
@@ -356,3 +351,74 @@ async def opinion(request: Request, profile: str = Form("default"), subject: str
         "partials/opinion_result.html",
         {"request": request, "r": result},
     )
+
+
+# --- Agent-facing JSON API ---
+
+@router.get("/api/preferences/profile")
+async def preference_profile(profile: str = "default") -> dict:
+    """The agent's taste profile: personality + top likes/dislikes/interests."""
+    taste = await affinity_engine.get_taste_context(profile, top_n=10)
+    traits = taste.get("traits")
+    return {
+        "profile": profile,
+        "personality": taste["personality"],
+        "values": taste["values"],
+        "ocean": (traits["current"].get("ocean") if traits else None),
+        "likes": [{"thing": a["entity"], "valence": a["valence"], "intensity": a["intensity"]}
+                  for a in taste["summary"]["likes"]],
+        "dislikes": [{"thing": a["entity"], "valence": a["valence"], "intensity": a["intensity"]}
+                     for a in taste["summary"]["dislikes"]],
+        "interests": [{"thing": a["entity"], "intensity": a["intensity"]}
+                      for a in taste["summary"]["interests"]],
+    }
+
+
+@router.get("/api/preferences/opinion")
+async def opinion_json(profile: str = "default", subject: str = "", save: bool = False) -> dict:
+    """Agent-facing 'do I like X?' — ledger first (free), LLM trait inference as fallback."""
+    subject = subject.strip()
+    if not subject:
+        return JSONResponse({"error": "subject required"}, status_code=400)
+
+    known = await affinity_engine.find_affinity(profile, subject)
+    if known:
+        return {
+            "subject": subject, "known": True, "source": known["source"],
+            "valence": known["valence"], "intensity": known["intensity"],
+            "rationale": known["rationale"] or "",
+            "verdict": _verdict(known["valence"]),
+        }
+
+    try:
+        result = await _infer_opinion(profile, subject)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except LLMError as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "model did not return valid JSON"}, status_code=502)
+
+    if save:
+        await affinity_engine.apply_observation(
+            profile, subject, valence=float(result["valence"]), intensity=float(result["intensity"]),
+            confidence=0.5, category=result["category"], rationale=result["rationale"], source="observed",
+        )
+        result["saved"] = True
+
+    result["known"] = False
+    result["source"] = "inferred"
+    result["verdict"] = _verdict(result["valence"])
+    return result
+
+
+def _verdict(valence: float) -> str:
+    if valence >= 0.55:
+        return "love"
+    if valence >= 0.15:
+        return "like"
+    if valence > -0.15:
+        return "neutral"
+    if valence > -0.55:
+        return "dislike"
+    return "hate"

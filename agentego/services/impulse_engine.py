@@ -160,12 +160,27 @@ async def get_recent_log(profile_name: str, limit: int = 15) -> list[dict]:
 
 # --- Prompt building ---
 
-def build_prompt(action: dict, mood: dict | None, idle_minutes: float) -> str:
-    mood_name = (mood or {}).get("name", "neutral")
+TASTE_PLACEHOLDERS = ("{likes}", "{dislikes}", "{interests}", "{personality}")
+
+
+class _SafeDict(dict):
+    """Leave unknown {placeholders} intact instead of raising KeyError."""
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def build_prompt(action: dict, mood: dict | None, idle_minutes: float, taste: dict | None = None) -> str:
+    fmt = {
+        "mood": (mood or {}).get("name", "neutral"),
+        "idle_minutes": int(idle_minutes) if idle_minutes != float("inf") else 0,
+        "likes": "", "dislikes": "", "interests": "", "personality": "",
+    }
+    if taste:
+        fmt.update(likes=taste.get("likes", ""), dislikes=taste.get("dislikes", ""),
+                   interests=taste.get("interests", ""), personality=taste.get("personality", ""))
     try:
-        return action["prompt"].format(mood=mood_name, idle_minutes=int(idle_minutes))
+        return action["prompt"].format_map(_SafeDict(fmt))
     except Exception:
-        # A stray brace in the prompt shouldn't break firing
         return action["prompt"]
 
 
@@ -241,7 +256,12 @@ async def evaluate_impulse(profile_name: str, db_path: str | None = None, commit
     if chosen is None:
         return result
 
-    prompt = build_prompt(chosen, mood, idle_minutes)
+    # Inject the agent's tastes only when the prompt references them.
+    taste = None
+    if any(ph in chosen["prompt"] for ph in TASTE_PLACEHOLDERS):
+        from . import affinity_engine
+        taste = await affinity_engine.get_taste_context(profile_name)
+    prompt = build_prompt(chosen, mood, idle_minutes, taste)
     result["fired"] = True
     result["action"] = {"id": chosen["id"], "label": chosen["label"]}
     result["prompt"] = prompt

@@ -13,15 +13,24 @@
 
 {% macro emotion_panel(title, data) %}
 {% if data %}
+{% set ns = namespace(top=[]) %}
+{% for emotion, score in data.scores.items() | sort(attribute=1, reverse=True) %}
+  {% if emotion != "neutral" and ns.top | length < 3 %}{% set ns.top = ns.top + [emotion] %}{% endif %}
+{% endfor %}
+{% set visible_top3 = ns.top %}
+{% set display_dominant = visible_top3 | first | default(none) %}
+{% if display_dominant %}
 <div class="emotion-panel">
   <h6>{{ title }}</h6>
   <div style="margin-bottom:0.5rem;">
-    {{ emo_badge(data.dominant) }}
-    {% for e in data.top3[1:] %}{{ emo_badge(e, muted=true) }}{% endfor %}
+    {{ emo_badge(display_dominant) }}
+    {% for e in visible_top3[1:] %}{{ emo_badge(e, muted=true) }}{% endfor %}
     <span style="font-size:0.72rem; color:var(--pico-muted-color); margin-left:0.4rem;">{{ data.message_count }} msgs</span>
   </div>
+  {% set ns = namespace(count=0) %}
   {% for emotion, score in data.scores.items() | sort(attribute=1, reverse=True) %}
-  {% if loop.index <= 8 %}
+  {% if emotion != "neutral" and ns.count < 8 %}
+  {% set ns.count = ns.count + 1 %}
   <div class="emotion-bar">
     <span style="width:110px; flex-shrink:0;">{{ emotion }}</span>
     <div class="bar-track">
@@ -35,6 +44,7 @@
   {% endfor %}
 </div>
 {% endif %}
+{% endif %}
 {% endmacro %}
 
 {% block content %}
@@ -42,12 +52,34 @@
 <p><a href="/sessions">← Back to sessions</a></p>
 
 <h2>
-  Session
-  <small style="font-size:0.55em; color:var(--pico-muted-color); word-break:break-all;">{{ session.id }}</small>
+  {% if conv and conv.part_total > 1 %}
+  Conversation
+  <span class="badge badge-muted" style="font-size:0.45em; vertical-align:middle; margin-right:0.3rem;">Part {{ conv.part_index + 1 }} of {{ conv.part_total }}</span>
+  {% else %}
+  Conversation
+  {% endif %}
+  <small style="font-size:0.55em; color:var(--pico-muted-color); word-break:break-all;">
+    {% if conv %}{{ conv.id }}{% else %}{{ session.id }}{% endif %}
+  </small>
 </h2>
+{% if conv and conv.part_total > 1 %}
+<p style="font-size:0.82rem; color:var(--pico-muted-color); margin-top:-0.5rem;">
+  From session <code style="font-size:0.9em;">{{ session.id }}</code>
+  <a href="/sessions/{{ session.id }}" style="margin-left:0.5rem; font-size:0.85em;">View all parts</a>
+</p>
+{% endif %}
 
 {% if session.title %}
-<p style="color:var(--pico-muted-color); margin-top:-0.75rem;">{{ session.title }}</p>
+<p style="color:var(--pico-muted-color); margin-top:-0.75rem;">
+  {{ session.title }}
+  {% if topic %}<span class="badge badge-muted" style="font-size:0.75rem; margin-left:0.5rem;">{{ topic }}</span>{% endif %}
+  {% if mode %}<span class="mode mode-{{ mode }}" style="margin-left:0.35rem;">{{ mode }}</span>{% endif %}
+</p>
+{% elif topic or mode %}
+<p style="margin-top:-0.75rem;">
+  {% if topic %}<span class="badge badge-muted" style="font-size:0.75rem;">{{ topic }}</span>{% endif %}
+  {% if mode %}<span class="mode mode-{{ mode }}" style="margin-left:0.35rem;">{{ mode }}</span>{% endif %}
+</p>
 {% endif %}
 
 <div class="stat-grid" style="margin-bottom:1.5rem;">
@@ -109,7 +141,7 @@
   </details>
 </article>
 
-<h3>Messages <small style="font-size:0.6em; color:var(--pico-muted-color);">{{ messages | length }} active</small></h3>
+<h3>Messages <small style="font-size:0.6em; color:var(--pico-muted-color);">{{ messages | length }} in this conversation</small></h3>
 
 {% for msg in messages %}
   {% set role = msg.role or "unknown" %}

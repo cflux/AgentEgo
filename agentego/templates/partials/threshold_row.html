@@ -1,0 +1,34 @@
+{% set override = thresholds.get(mood.id) %}
+<tr id="threshold-row-{{ mood.id }}">
+  <td>
+    <span style="display:inline-block; width:0.9rem; height:0.9rem; border-radius:50%; background:{{ mood.color }}; vertical-align:middle; margin-right:0.3rem; border:1px solid rgba(255,255,255,0.15);"></span>
+    <strong>{{ mood.name }}</strong>
+  </td>
+  <td style="font-size:0.82rem; color:var(--pico-muted-color);">{{ mood.min_votes }}</td>
+  <td>
+    {% if override %}
+    <span class="badge" style="background:{{ mood.color }}22; color:{{ mood.color }}; border:1px solid {{ mood.color }}; font-size:0.78rem;">{{ override }}</span>
+    {% else %}
+    <span style="font-size:0.82rem; color:var(--pico-muted-color);">using default</span>
+    {% endif %}
+  </td>
+  <td style="white-space:nowrap;">
+    <form hx-post="/api/mood/thresholds"
+          hx-target="#threshold-row-{{ mood.id }}"
+          hx-swap="outerHTML"
+          style="display:inline-flex; gap:0.4rem; align-items:center;">
+      <input type="hidden" name="profile_name" value="{{ profile_name }}">
+      <input type="hidden" name="mood_id" value="{{ mood.id }}">
+      <input type="number" name="min_votes" value="{{ override or mood.min_votes }}" min="1" max="20"
+             style="width:4rem; padding:0.2rem 0.4rem; font-size:0.82rem; margin:0;">
+      <button type="submit" style="margin:0; padding:0.2rem 0.6rem; font-size:0.78rem;">Set</button>
+    </form>
+    {% if override %}
+    <button class="secondary outline" style="margin:0 0 0 0.3rem; padding:0.2rem 0.6rem; font-size:0.78rem;"
+      hx-delete="/api/mood/thresholds/{{ profile_name }}/{{ mood.id }}"
+      hx-confirm="Clear override and use global default ({{ mood.min_votes }})?"
+      hx-target="#threshold-row-{{ mood.id }}"
+      hx-swap="outerHTML">Clear</button>
+    {% endif %}
+  </td>
+</tr>

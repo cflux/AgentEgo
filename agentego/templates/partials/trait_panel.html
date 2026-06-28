@@ -1,0 +1,50 @@
+{# Expects: traits (dict with .baseline/.current), ocean_keys #}
+{% if traits %}
+{% set base = traits.baseline.ocean or {} %}
+{% set cur = traits.current.ocean or {} %}
+<article style="padding:1rem 1.25rem;">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.75rem;">
+    <strong>Personality Substrate <small style="color:var(--pico-muted-color); font-weight:400;">(Big Five — derived from SOUL.md)</small></strong>
+    <span style="font-size:0.72rem; color:var(--pico-muted-color);">extracted {{ traits.extracted_at | ts }}</span>
+  </div>
+
+  {% if traits.current.summary %}
+  <p style="font-size:0.9rem; margin:0 0 0.9rem;">{{ traits.current.summary }}</p>
+  {% endif %}
+
+  <div style="display:grid; gap:0.45rem; margin-bottom:0.9rem;">
+    {% for k in ocean_keys %}
+    {% set cv = cur.get(k) if cur.get(k) is not none else 0 %}
+    {% set bv = base.get(k) if base.get(k) is not none else cv %}
+    <div style="display:flex; align-items:center; gap:0.6rem; font-size:0.8rem;">
+      <span style="min-width:8.5rem; text-transform:capitalize;">{{ k }}</span>
+      <div style="flex:1; position:relative; height:8px; background:var(--pico-muted-border-color); border-radius:4px;">
+        <div style="position:absolute; top:0; left:0; height:100%; width:{{ (cv * 100) | int }}%; background:#b47aff; border-radius:4px;"></div>
+        {# baseline marker #}
+        <div title="baseline {{ '%.2f'|format(bv) }}" style="position:absolute; top:-2px; left:{{ (bv * 100) | int }}%; width:2px; height:12px; background:var(--pico-color); opacity:0.55;"></div>
+      </div>
+      <span style="min-width:2.4rem; text-align:right; color:var(--pico-muted-color);">{{ "%.2f"|format(cv) }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if traits.current['values'] %}
+  <div style="display:flex; flex-wrap:wrap; gap:0.35rem;">
+    {% for v in traits.current['values'] %}
+    <span class="badge badge-muted">{{ v }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <p style="font-size:0.7rem; color:var(--pico-muted-color); margin:0.75rem 0 0;">
+    The bar is the agent's <em>current</em> (evolved) trait; the vertical tick is its SOUL.md baseline.
+  </p>
+</article>
+{% else %}
+<article style="padding:1rem 1.25rem;">
+  <strong>Personality Substrate</strong>
+  <p style="font-size:0.88rem; color:var(--pico-muted-color); margin:0.5rem 0 0;">
+    No traits extracted yet. Make sure the preference worker is running and a model is configured in the
+    <a href="/config">control panel</a>, then hit <strong>Run Now</strong> below.
+  </p>
+</article>
+{% endif %}

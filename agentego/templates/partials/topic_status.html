@@ -1,0 +1,67 @@
+<article style="padding:0.85rem 1rem;"
+  {% if status.progress or status.triggered %}
+  hx-get="/partials/topic-status"
+  hx-trigger="every 2s"
+  hx-swap="outerHTML"
+  hx-target="this"
+  {% endif %}>
+
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
+    <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+      <strong>Session Analysis</strong>
+
+      {% if status.worker_online %}
+        <span style="font-size:0.78rem; color:#4caf50;">● Worker online</span>
+      {% else %}
+        <span style="font-size:0.78rem; color:var(--pico-muted-color);">○ Worker offline</span>
+      {% endif %}
+
+      {% if status.progress %}
+        <span style="font-size:0.82rem; color:var(--pico-muted-color);">
+          Analyzing {{ status.progress.current }} of {{ status.progress.total }}…
+        </span>
+      {% elif status.triggered and status.worker_online %}
+        <span style="font-size:0.82rem; color:var(--pico-muted-color);">Queued, starting soon…</span>
+      {% elif status.triggered and not status.worker_online %}
+        <span style="font-size:0.82rem; color:#e57373;">Queued but worker is not running</span>
+      {% elif status.pending > 0 %}
+        <span style="font-size:0.82rem; color:var(--pico-muted-color);">
+          {{ status.pending }} session{{ "s" if status.pending != 1 else "" }} unanalyzed
+        </span>
+      {% else %}
+        <span style="font-size:0.82rem; color:var(--pico-muted-color);">All sessions analyzed</span>
+      {% endif %}
+
+      {% if status.last_run %}
+        <span style="font-size:0.78rem; color:var(--pico-muted-color);">· Last run {{ status.last_run | ts }}</span>
+      {% endif %}
+    </div>
+
+    {% if status.progress %}
+      <button class="secondary outline" style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;" disabled>Labeling…</button>
+    {% elif status.triggered %}
+      <button class="secondary outline" style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;" disabled>Queued</button>
+    {% else %}
+      <button
+        hx-post="/api/topic/trigger"
+        style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;"
+        {% if status.pending == 0 %}class="secondary outline"{% endif %}>
+        Run Now{% if status.pending > 0 %} ({{ status.pending }}){% endif %}
+      </button>
+    {% endif %}
+  </div>
+
+  {% if status.progress and status.progress.total > 0 %}
+  <div style="margin-top:0.6rem;">
+    <div style="background:var(--pico-card-background-color); border-radius:4px; height:6px; overflow:hidden;">
+      <div style="background:#7c9cbf; height:100%; width:{{ ((status.progress.current - 1) / status.progress.total * 100) | int }}%; transition:width 0.3s;"></div>
+    </div>
+    {% if status.progress.session_id %}
+    <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.3rem 0 0;">
+      {{ status.progress.session_id[:32] }}…
+    </p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</article>

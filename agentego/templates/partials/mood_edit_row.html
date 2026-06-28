@@ -1,0 +1,29 @@
+<tr id="mood-row-{{ mood.id }}">
+  <td colspan="6">
+    <form hx-post="/api/moods/{{ mood.id }}/edit"
+          hx-target="#mood-row-{{ mood.id }}"
+          hx-swap="outerHTML"
+          style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; padding:0.25rem 0;">
+      <label style="display:flex; align-items:center; gap:0.3rem; margin:0;">
+        <span style="font-size:0.78rem; color:var(--pico-muted-color);">Color</span>
+        <input type="color" name="color" value="{{ mood.color }}" style="width:2.5rem; height:2rem; padding:0.1rem; border-radius:4px; cursor:pointer;">
+      </label>
+      <label style="margin:0;">
+        <span style="font-size:0.78rem; color:var(--pico-muted-color);">Icon</span>
+        <input type="text" name="icon" value="{{ mood.icon or '' }}" style="width:3.5rem; padding:0.25rem 0.5rem; font-size:1rem;" placeholder="🎯" maxlength="4">
+      </label>
+      <input type="text" name="name" value="{{ mood.name }}" required style="flex:1; min-width:100px; padding:0.3rem 0.5rem;" placeholder="Name">
+      <input type="text" name="description" value="{{ mood.description or '' }}" style="flex:2; min-width:140px; padding:0.3rem 0.5rem;" placeholder="Description">
+      <label style="display:flex; align-items:center; gap:0.3rem; margin:0;">
+        <span style="font-size:0.78rem; color:var(--pico-muted-color);">Min votes</span>
+        <input type="number" name="min_votes" value="{{ mood.min_votes }}" min="1" max="20" style="width:4rem; padding:0.25rem 0.4rem;">
+      </label>
+      <button type="submit" style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;">Save</button>
+      <button type="button" style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;"
+        class="secondary outline"
+        hx-get="/api/moods/{{ mood.id }}/row"
+        hx-target="#mood-row-{{ mood.id }}"
+        hx-swap="outerHTML">Cancel</button>
+    </form>
+  </td>
+</tr>

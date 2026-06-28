@@ -4,6 +4,15 @@
 
 <h2>Sessions <small style="font-size:0.6em; color:var(--pico-muted-color);">Last 7 days</small></h2>
 
+{% if profiles and profiles|length > 1 %}
+<div class="profile-tabs">
+  <a href="/sessions" class="profile-tab {% if not active_profile %}active{% endif %}">All</a>
+  {% for p in profiles %}
+  <a href="/sessions?profile={{ p.name }}" class="profile-tab {% if active_profile == p.name %}active{% endif %}">{{ p.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
 <form method="get" action="/sessions" style="display:flex; gap:1rem; align-items:flex-end; margin-bottom:1.5rem; flex-wrap:wrap;">
   <label style="flex:1; min-width:160px;">
     Platform
@@ -29,12 +38,15 @@
   <thead>
     <tr>
       <th>Started</th>
+      {% if multi_profile %}<th>Profile</th>{% endif %}
       <th>Platform</th>
       <th>User</th>
       <th>Model</th>
       <th>Msgs</th>
       <th>Tokens</th>
       <th>Cost</th>
+      <th>Topic</th>
+      <th>Mode</th>
       <th>End reason</th>
       <th></th>
     </tr>
@@ -42,20 +54,40 @@
   <tbody>
   {% for s in sessions %}
     <tr>
-      <td style="white-space:nowrap; font-size:0.8rem;">{{ s.started_at | ts }}</td>
+      <td style="white-space:nowrap; font-size:0.8rem;">
+        {{ s.start_ts | ts }}
+        {% if s.part_total > 1 %}
+        <br><span class="badge badge-muted" style="font-size:0.68rem; margin-top:0.15rem; display:inline-block;">Part {{ s.part_index + 1 }} of {{ s.part_total }}</span>
+        {% endif %}
+      </td>
+      {% if multi_profile %}<td style="font-size:0.78rem;">{{ s.profile_name or "—" }}</td>{% endif %}
       <td><span class="badge badge-muted">{{ s.platform_name or "—" }}</span></td>
       <td style="font-size:0.82rem; max-width:120px; overflow:hidden; text-overflow:ellipsis;">{{ s.user_display or "—" }}</td>
       <td style="font-size:0.78rem;">{{ (s.model or "").split("/")[-1][:20] }}</td>
-      <td>{{ s.message_count or 0 }}</td>
-      <td style="font-size:0.8rem;">{{ "{:,}".format((s.input_tokens or 0) + (s.output_tokens or 0)) }}</td>
-      <td style="font-size:0.8rem;">${{ "%.4f"|format(s.estimated_cost_usd or 0) }}</td>
+      <td>{{ s.msg_count or 0 }}</td>
+      <td style="font-size:0.8rem;">
+        {% if s.part_total == 1 %}{{ "{:,}".format((s.input_tokens or 0) + (s.output_tokens or 0)) }}{% else %}—{% endif %}
+      </td>
+      <td style="font-size:0.8rem;">
+        {% if s.part_total == 1 %}${{ "%.4f"|format(s.estimated_cost_usd or 0) }}{% else %}—{% endif %}
+      </td>
+      <td>
+        {% if s.topic %}<span class="badge badge-muted" style="font-size:0.75rem;">{{ s.topic }}</span>
+        {% else %}<span style="color:var(--pico-muted-color); font-size:0.75rem;">—</span>{% endif %}
+      </td>
+      <td>
+        {% if s.mode %}<span class="mode mode-{{ s.mode }}">{{ s.mode }}</span>
+        {% else %}<span style="color:var(--pico-muted-color); font-size:0.75rem;">—</span>{% endif %}
+      </td>
       <td style="font-size:0.78rem; color:var(--pico-muted-color);">{{ s.end_reason or "active" }}</td>
-      <td><a href="/sessions/{{ s.id }}" style="font-size:0.8rem;">View</a></td>
+      <td>
+        <a href="/conversations/{{ s.id }}" style="font-size:0.8rem;">View</a>
+      </td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
-<p style="font-size:0.8rem; color:var(--pico-muted-color);">{{ sessions | length }} session(s)</p>
+<p style="font-size:0.8rem; color:var(--pico-muted-color);">{{ sessions | length }} conversation(s)</p>
 {% else %}
 <p style="color:var(--pico-muted-color);">No sessions found for the selected filters.</p>
 {% endif %}

@@ -1,0 +1,15 @@
+[Unit]
+Description=AgentEgo Topic Worker
+After=network.target
+
+[Service]
+Type=simple
+User=cflux
+ExecStart=/usr/bin/python3 /mnt/LargeStorage/AgentEgo/topic_worker.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

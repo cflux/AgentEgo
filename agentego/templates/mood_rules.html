@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Mood Rules — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>Mood Rules <small style="font-size:0.6em; color:var(--pico-muted-color);">Per-agent configuration</small></h2>
+
+{% if profiles and profiles|length > 1 %}
+<div class="profile-tabs">
+  {% for p in profiles %}
+  <a href="/moods/rules?profile={{ p.name }}" class="profile-tab {% if active_profile == p.name %}active{% endif %}">{{ p.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div style="display:grid; grid-template-columns:1fr auto; gap:1rem; align-items:start; margin-bottom:1.5rem;">
+  <div>
+    <p style="font-size:0.88rem; color:var(--pico-muted-color); margin:0;">
+      Rules for <strong>{{ active_profile }}</strong>. Each matching rule casts one vote for its target mood.
+      A mood activates when votes reach its threshold (set per-agent below, or use the global default).
+    </p>
+  </div>
+  <article style="padding:0.75rem 1rem; margin:0; min-width:200px;">
+    <div style="font-size:0.75rem; color:var(--pico-muted-color); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.4rem;">Current mood</div>
+    {% if current_mood %}
+    <span class="mood-badge" style="background:{{ current_mood.color }}22; border:1px solid {{ current_mood.color }}; color:{{ current_mood.color }}; font-size:0.95rem;">
+      {{ current_mood.icon }} {{ current_mood.name }}
+    </span>
+    <span style="font-size:0.75rem; color:var(--pico-muted-color); margin-left:0.4rem;">{{ current_mood.vote_count }} vote{{ 's' if current_mood.vote_count != 1 else '' }}</span>
+    {% else %}
+    <span style="font-size:0.85rem; color:var(--pico-muted-color);">No mood — rules not met</span>
+    {% endif %}
+  </article>
+</div>
+
+{% if rules %}
+<article style="padding:0; overflow:hidden; margin-bottom:1.5rem;">
+<table style="margin:0;">
+  <thead>
+    <tr>
+      <th style="width:2.5rem;">On</th>
+      <th>Label</th>
+      <th>Condition</th>
+      <th>Target mood</th>
+      <th style="width:7rem;"></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for rule in rules %}
+  <tr id="rule-row-{{ rule.id }}">
+    <td>
+      <input type="checkbox" {% if rule.enabled %}checked{% endif %}
+        hx-patch="/api/mood/rules/{{ rule.id }}/toggle"
+        hx-swap="none"
+        style="cursor:pointer; width:1.1rem; height:1.1rem; margin:0;"
+        title="{{ 'Disable' if rule.enabled else 'Enable' }} rule">
+    </td>
+    <td style="font-size:0.85rem;">{{ rule.label or "—" }}</td>
+    <td style="font-size:0.82rem; color:var(--pico-muted-color);">
+      {% if rule.mood_gate %}
+        {% for gm in moods if gm.id == rule.mood_gate %}
+        <span class="mood-badge" style="background:{{ gm.color }}22; border:1px solid {{ gm.color }}; color:{{ gm.color }}; font-size:0.7rem; margin-right:0.3rem;">🔒 while {{ gm.icon }} {{ gm.name }}</span>
+        {% endfor %}
+        <span style="margin-right:0.3rem;">→</span>
+      {% endif %}
+      {{ rule.summary | safe }}
+    </td>
+    <td>
+      {% for m in moods if m.id == rule.mood_id %}
+      <span class="mood-badge" style="background:{{ m.color }}22; border:1px solid {{ m.color }}; color:{{ m.color }}; font-size:0.78rem;">
+        {{ m.icon }} {{ m.name }}
+      </span>
+      {% endfor %}
+    </td>
+    <td>
+      <button class="secondary outline" style="margin:0; padding:0.2rem 0.6rem; font-size:0.78rem; color:#d94f4f; border-color:#d94f4f;"
+        hx-delete="/api/mood/rules/{{ rule.id }}"
+        hx-confirm="Delete this rule?"
+        hx-target="#rule-row-{{ rule.id }}"
+        hx-swap="outerHTML">Delete</button>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</article>
+{% else %}
+<p style="color:var(--pico-muted-color); margin-bottom:1.5rem;">No rules defined yet for <strong>{{ active_profile }}</strong>. Add one below.</p>
+{% endif %}
+
+<article>
+  <header><strong>Add Rule</strong></header>
+  <form method="post" action="/api/mood/rules">
+    <input type="hidden" name="profile_name" value="{{ active_profile }}">
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:0.75rem;">
+      <label style="flex:1; min-width:150px; margin:0;">
+        Target mood
+        <select name="mood_id" required>
+          <option value="">Select mood…</option>
+          {% for m in moods %}
+          <option value="{{ m.id }}">{{ m.icon }} {{ m.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="flex:1; min-width:180px; margin:0;">
+        Rule type
+        <select name="rule_type" required
+          hx-get="/api/mood/rule-params"
+          hx-trigger="change"
+          hx-target="#rule-params"
+          hx-swap="innerHTML">
+          <option value="">Select type…</option>
+          <option value="mode_streak">Mode streak — last N all same mode</option>
+          <option value="mode_count">Mode count — N of last X sessions</option>
+          <option value="sentiment_user">User sentiment — emotions in list</option>
+          <option value="sentiment_agent">Agent sentiment — emotions in list</option>
+          <option value="sentiment_mismatch">Sentiment mismatch — one felt, other didn't</option>
+          <option value="topic_keyword">Topic keyword — contains word</option>
+        </select>
+      </label>
+      <label style="flex:1; min-width:150px; margin:0;">
+        Mood gate <small style="color:var(--pico-muted-color); font-size:0.72rem;">(optional)</small>
+        <select name="mood_gate">
+          <option value="">Always evaluate</option>
+          {% for m in moods %}
+          <option value="{{ m.id }}">{{ m.icon }} {{ m.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="flex:1; min-width:150px; margin:0;">
+        Label <small style="color:var(--pico-muted-color); font-size:0.72rem;">(optional)</small>
+        <input type="text" name="label" placeholder="e.g. Too many work sessions">
+      </label>
+    </div>
+    <div id="rule-params" style="margin-bottom:0.75rem; padding:0.75rem; background:var(--pico-card-sectioning-background-color); border-radius:var(--pico-border-radius);">
+      <p style="color:var(--pico-muted-color); font-size:0.85rem; margin:0;">Select a rule type above.</p>
+    </div>
+    <button type="submit" style="margin:0;">Add Rule</button>
+  </form>
+</article>
+
+<details style="margin-top:1.5rem;">
+  <summary style="cursor:pointer; font-weight:600; font-size:0.9rem; padding:0.5rem 0;">
+    Vote thresholds for {{ active_profile }}
+    <small style="color:var(--pico-muted-color); font-weight:normal; margin-left:0.5rem;">override global defaults per mood</small>
+  </summary>
+  <article style="padding:0; overflow:hidden; margin-top:0.75rem;">
+  <table style="margin:0;">
+    <thead>
+      <tr>
+        <th>Mood</th>
+        <th style="width:8rem;">Global default</th>
+        <th style="width:8rem;">This agent</th>
+        <th style="width:14rem;"></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for m in moods %}
+    {% with mood=m %}
+    {% include "partials/threshold_row.html" %}
+    {% endwith %}
+    {% endfor %}
+    </tbody>
+  </table>
+  </article>
+</details>
+
+<p style="margin-top:1rem; font-size:0.82rem; color:var(--pico-muted-color);">
+  ← <a href="/moods">Manage canonical moods</a>
+</p>
+
+{% endblock %}

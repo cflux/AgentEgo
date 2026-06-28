@@ -10,7 +10,7 @@ from pathlib import Path
 from .config import settings
 from .db.migrations import run_migrations
 from .services.stats import start_scheduler
-from .routers import events, sessions, dashboard, sentiment
+from .routers import events, sessions, dashboard, sentiment, topic, mood, preferences, config_panel
 from .modules import load_modules
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
@@ -50,8 +50,15 @@ _shared_templates.env.filters["ts"] = _fmt_ts
 # Patch the router instances to use the shared templates environment
 dashboard.templates = _shared_templates
 sessions.templates = _shared_templates
+mood.templates = _shared_templates
+preferences.templates = _shared_templates
+config_panel.templates = _shared_templates
 
 app.include_router(events.router)
 app.include_router(sessions.router)
 app.include_router(dashboard.router)
 app.include_router(sentiment.router)
+app.include_router(topic.router)
+app.include_router(mood.router)
+app.include_router(preferences.router)
+app.include_router(config_panel.router)

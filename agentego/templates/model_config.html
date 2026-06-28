@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Model Config — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>Model Control Panel <small style="font-size:0.6em; color:var(--pico-muted-color);">LLM backend for the preference engine</small></h2>
+
+<p style="font-size:0.88rem; color:var(--pico-muted-color); max-width:60rem;">
+  The preference worker and the opinion playground pull this config live — no restart needed.
+  Use the hosted DeepSeek API, or point <code>base url</code> at a local Ollama instance
+  (<code>http://localhost:11434/v1</code>) and set the model name (e.g. <code>qwen2.5:14b</code>).
+</p>
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1rem; align-items:start;">
+
+  <article style="padding:1rem 1.25rem;">
+    <form hx-post="/config/model" hx-target="#config-feedback" hx-swap="innerHTML">
+      <div style="display:grid; gap:0.75rem;">
+        <label style="margin:0;">Backend
+          <select name="llm_backend">
+            <option value="deepseek" {% if settings.llm_backend == 'deepseek' %}selected{% endif %}>DeepSeek API (hosted)</option>
+            <option value="ollama" {% if settings.llm_backend == 'ollama' %}selected{% endif %}>Ollama / OpenAI-compatible (local)</option>
+          </select>
+        </label>
+        <label style="margin:0;">Base URL
+          <input type="text" name="llm_base_url" value="{{ settings.llm_base_url }}" placeholder="https://api.deepseek.com">
+        </label>
+        <label style="margin:0;">Model
+          <input type="text" name="llm_model" value="{{ settings.llm_model }}" placeholder="deepseek-chat">
+        </label>
+        <label style="margin:0;">API Key
+          <input type="password" name="llm_api_key" placeholder="{% if masked_key %}{{ masked_key }} (leave blank to keep){% else %}sk-…{% endif %}" autocomplete="off">
+        </label>
+        <label style="margin:0;">Temperature
+          <input type="number" name="llm_temperature" value="{{ settings.llm_temperature }}" min="0" max="2" step="0.1">
+        </label>
+      </div>
+
+      <hr style="margin:1rem 0;">
+      <strong style="font-size:0.85rem;">Evolution tuning</strong>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.6rem; margin-top:0.5rem;">
+        <label style="margin:0; font-size:0.82rem;">EMA α
+          <input type="number" name="evolution_alpha" value="{{ settings.evolution_alpha }}" min="0" max="1" step="0.05">
+        </label>
+        <label style="margin:0; font-size:0.82rem;">Seed band
+          <input type="number" name="seed_deviation_band" value="{{ settings.seed_deviation_band }}" min="0" max="1" step="0.05">
+        </label>
+        <label style="margin:0; font-size:0.82rem;">Trait drift
+          <input type="number" name="trait_drift_delta" value="{{ settings.trait_drift_delta }}" min="0" max="1" step="0.05">
+        </label>
+      </div>
+      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.5rem 0 0;">
+        α = how fast affinities move per observation · seed band = max drift for SOUL-seeded likes (prevents flips) · trait drift = max OCEAN drift from baseline.
+      </p>
+
+      <div style="display:flex; gap:0.6rem; margin-top:1rem;">
+        <button type="submit" style="margin:0; padding:0.45rem 1.2rem;">Save</button>
+        <button type="button" class="secondary outline" style="margin:0; padding:0.45rem 1.2rem;"
+                hx-post="/config/test" hx-target="#config-test" hx-swap="innerHTML">Test connection</button>
+      </div>
+    </form>
+    <div id="config-feedback" style="margin-top:0.75rem;"></div>
+  </article>
+
+  <div>
+    <div id="config-test"></div>
+  </div>
+
+</div>
+
+{% endblock %}

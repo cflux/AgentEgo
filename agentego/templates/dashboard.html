@@ -4,6 +4,15 @@
 
 <h2>Dashboard</h2>
 
+{% if profiles and profiles|length > 1 %}
+<div class="profile-tabs">
+  <a href="/" class="profile-tab {% if not active_profile %}active{% endif %}">All</a>
+  {% for p in profiles %}
+  <a href="/?profile={{ p.name }}" class="profile-tab {% if active_profile == p.name %}active{% endif %}">{{ p.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if gateway_startup %}
 <p style="font-size:0.82rem; color:var(--pico-muted-color);">Gateway last started: <strong>{{ gateway_startup }}</strong></p>
 {% endif %}
@@ -46,6 +55,19 @@
   {% include "partials/sentiment_status.html" %}
 </div>
 
+<div id="topic-controls"
+     hx-get="/partials/topic-status"
+     hx-trigger="every 15s, topicUpdate from:body"
+     hx-swap="innerHTML">
+  {% with status=topic_status %}{% include "partials/topic_status.html" %}{% endwith %}
+</div>
+
+<div id="mood-widget"
+     hx-get="/partials/mood-badge{% if active_profile %}?profile={{ active_profile }}{% endif %}"
+     hx-trigger="load"
+     hx-swap="innerHTML">
+</div>
+
 {% if platform_stats %}
 <article>
   <header><strong>Platform Breakdown (7d)</strong></header>
@@ -64,56 +86,11 @@
 </article>
 {% endif %}
 
-<article>
-  <header><strong>Recent Sessions</strong> <a href="/sessions" style="font-size:0.8rem; float:right;">View all →</a></header>
-  {% if recent_sessions %}
-  <table>
-    <thead>
-      <tr>
-        <th>Started</th>
-        <th>Platform</th>
-        <th>User</th>
-        <th>Model</th>
-        <th>Msgs</th>
-        <th>Cost</th>
-        <th>User mood</th>
-        <th>Agent mood</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-    {% set positive_emotions = ["admiration","amusement","approval","caring","excitement","gratitude","joy","love","optimism","pride","relief"] %}
-    {% set negative_emotions = ["anger","annoyance","disappointment","disapproval","disgust","embarrassment","fear","grief","nervousness","remorse","sadness"] %}
-    {% for s in recent_sessions %}
-      <tr>
-        <td style="white-space:nowrap; font-size:0.8rem;">{{ s.started_at | ts }}</td>
-        <td><span class="badge badge-muted">{{ s.platform_name or "—" }}</span></td>
-        <td style="font-size:0.82rem;">{{ s.user_display or "—" }}</td>
-        <td style="font-size:0.8rem;">{{ (s.model or "").split("/")[-1][:20] }}</td>
-        <td>{{ s.message_count or 0 }}</td>
-        <td style="font-size:0.8rem;">${{ "%.4f"|format(s.estimated_cost_usd or 0) }}</td>
-        <td>
-          {% if s.sentiment_user %}
-            {% if s.sentiment_user in positive_emotions %}<span class="emo emo-positive">{{ s.sentiment_user }}</span>
-            {% elif s.sentiment_user in negative_emotions %}<span class="emo emo-negative">{{ s.sentiment_user }}</span>
-            {% else %}<span class="emo emo-cognitive">{{ s.sentiment_user }}</span>{% endif %}
-          {% else %}<span style="color:var(--pico-muted-color); font-size:0.75rem;">—</span>{% endif %}
-        </td>
-        <td>
-          {% if s.sentiment_agent %}
-            {% if s.sentiment_agent in positive_emotions %}<span class="emo emo-positive">{{ s.sentiment_agent }}</span>
-            {% elif s.sentiment_agent in negative_emotions %}<span class="emo emo-negative">{{ s.sentiment_agent }}</span>
-            {% else %}<span class="emo emo-cognitive">{{ s.sentiment_agent }}</span>{% endif %}
-          {% else %}<span style="color:var(--pico-muted-color); font-size:0.75rem;">—</span>{% endif %}
-        </td>
-        <td><a href="/sessions/{{ s.id }}" style="font-size:0.8rem;">View</a></td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p style="color:var(--pico-muted-color);">No sessions in the last 7 days. Send a message through Hermes to see data here.</p>
-  {% endif %}
-</article>
+<div id="recent-sessions-section"
+     hx-get="/partials/recent-sessions{% if active_profile %}?profile={{ active_profile }}{% endif %}"
+     hx-trigger="sentimentComplete from:body, topicComplete from:body"
+     hx-swap="innerHTML">
+  {% include "partials/recent_sessions.html" %}
+</div>
 
 {% endblock %}

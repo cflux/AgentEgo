@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Preferences — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>Preferences <small style="font-size:0.6em; color:var(--pico-muted-color);">Likes · Dislikes · Interests</small></h2>
+
+<p style="font-size:0.88rem; color:var(--pico-muted-color); max-width:60rem;">
+  Affinities are extrapolated from the agent's personality traits (not its stated likes), then
+  evolve as it encounters new topics — anchored to a SOUL.md baseline so the character stays itself.
+</p>
+
+{% if profiles and profiles|length > 1 %}
+<div class="profile-tabs">
+  {% for p in profiles %}
+  <a href="/preferences?profile={{ p.name }}" class="profile-tab {% if active_profile == p.name %}active{% endif %}">{{ p.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div id="preference-controls"
+     hx-get="/partials/preference-status"
+     hx-trigger="every 15s, preferenceUpdate from:body"
+     hx-swap="innerHTML"
+     style="margin-bottom:1.25rem;">
+  {% include "partials/preference_status.html" %}
+</div>
+
+{% include "partials/trait_panel.html" %}
+
+{# --- Opinion playground (dev tool) --- #}
+<article style="padding:1rem 1.25rem;">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.6rem;">
+    <strong>Opinion Playground <small style="color:var(--pico-muted-color); font-weight:400;">— ask the personality about anything</small></strong>
+  </div>
+  <form hx-post="/api/preferences/opinion" hx-target="#opinion-result" hx-swap="innerHTML"
+        style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+    <input type="hidden" name="profile" value="{{ active_profile }}">
+    <input type="text" name="subject" required placeholder="e.g. jazz brunch, corporate tax audits, street racing…"
+           style="flex:1; min-width:220px; margin:0;">
+    <label style="margin:0; display:flex; align-items:center; gap:0.35rem; font-size:0.82rem; white-space:nowrap;">
+      <input type="checkbox" name="save" value="true" style="margin:0;"> save as observation
+    </label>
+    <button type="submit" style="margin:0; padding:0.45rem 1.1rem;">Ask</button>
+  </form>
+  <div id="opinion-result" style="margin-top:0.85rem;"></div>
+</article>
+
+{# --- Likes / Dislikes / Interests --- #}
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); gap:1rem;">
+
+  <article style="padding:0; overflow:hidden;">
+    <header style="padding:0.7rem 1rem; margin:0;"><strong>👍 Likes</strong></header>
+    {% if summary.likes %}
+    <table style="margin:0;"><tbody>
+      {% for a in summary.likes %}{% include "partials/affinity_row.html" %}{% endfor %}
+    </tbody></table>
+    {% else %}<p style="padding:0.75rem 1rem; font-size:0.85rem; color:var(--pico-muted-color);">None yet.</p>{% endif %}
+  </article>
+
+  <article style="padding:0; overflow:hidden;">
+    <header style="padding:0.7rem 1rem; margin:0;"><strong>👎 Dislikes</strong></header>
+    {% if summary.dislikes %}
+    <table style="margin:0;"><tbody>
+      {% for a in summary.dislikes %}{% include "partials/affinity_row.html" %}{% endfor %}
+    </tbody></table>
+    {% else %}<p style="padding:0.75rem 1rem; font-size:0.85rem; color:var(--pico-muted-color);">None yet.</p>{% endif %}
+  </article>
+
+  <article style="padding:0; overflow:hidden;">
+    <header style="padding:0.7rem 1rem; margin:0;"><strong>🔥 Interests <small style="color:var(--pico-muted-color); font-weight:400;">(high intensity)</small></strong></header>
+    {% if summary.interests %}
+    <table style="margin:0;"><tbody>
+      {% for a in summary.interests %}{% include "partials/affinity_row.html" %}{% endfor %}
+    </tbody></table>
+    {% else %}<p style="padding:0.75rem 1rem; font-size:0.85rem; color:var(--pico-muted-color);">None yet.</p>{% endif %}
+  </article>
+
+</div>
+
+<p style="font-size:0.78rem; color:var(--pico-muted-color); margin-top:1rem;">
+  {{ summary.total }} affinit{{ "ies" if summary.total != 1 else "y" }} tracked · {{ summary.emergent }} emergent (extrapolated, not from SOUL.md).
+</p>
+
+{% endblock %}

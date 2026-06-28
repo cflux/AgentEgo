@@ -1,0 +1,20 @@
+<tr id="mood-row-{{ mood.id }}">
+  <td>
+    <span style="display:inline-block; width:1.2rem; height:1.2rem; border-radius:50%; background:{{ mood.color }}; vertical-align:middle; border:1px solid rgba(255,255,255,0.15);"></span>
+  </td>
+  <td style="font-size:1.1rem;">{{ mood.icon or "—" }}</td>
+  <td><strong>{{ mood.name }}</strong> <small style="color:var(--pico-muted-color); font-size:0.75rem;">{{ mood.id }}</small></td>
+  <td style="font-size:0.85rem; color:var(--pico-muted-color);">{{ mood.description or "—" }}</td>
+  <td style="text-align:center;">{{ mood.min_votes }}</td>
+  <td style="white-space:nowrap;">
+    <button class="secondary outline" style="margin:0; padding:0.25rem 0.65rem; font-size:0.78rem;"
+      hx-get="/api/moods/{{ mood.id }}/edit-form"
+      hx-target="#mood-row-{{ mood.id }}"
+      hx-swap="outerHTML">Edit</button>
+    <button class="secondary outline" style="margin:0 0 0 0.4rem; padding:0.25rem 0.65rem; font-size:0.78rem; color:#d94f4f; border-color:#d94f4f;"
+      hx-delete="/api/moods/{{ mood.id }}"
+      hx-confirm="Delete '{{ mood.name }}'? This also removes all rules targeting this mood."
+      hx-target="#mood-row-{{ mood.id }}"
+      hx-swap="outerHTML">Delete</button>
+  </td>
+</tr>

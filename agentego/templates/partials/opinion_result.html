@@ -1,0 +1,17 @@
+{# Expects: r (opinion result dict) #}
+{% set pos = r.valence >= 0 %}
+<article style="padding:0.9rem 1.1rem; margin:0; border-left:3px solid {{ '#2ea05a' if pos else '#d94f4f' }};">
+  <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+    <strong>{{ r.subject }}</strong>
+    <span class="badge" style="background:{{ '#1a6b3a' if pos else '#7a1f1f' }}; color:{{ '#d4f5e3' if pos else '#fde8e8' }};">
+      {{ "%+.2f"|format(r.valence) }} valence
+    </span>
+    <span style="font-size:0.78rem; color:var(--pico-muted-color);">intensity {{ "%.2f"|format(r.intensity) }}</span>
+    {% if r.category %}<span class="badge badge-muted">{{ r.category }}</span>{% endif %}
+    {% if r.saved %}<span style="font-size:0.75rem; color:#4caf50;">● saved as observation</span>{% endif %}
+  </div>
+  {% if r.in_character_line %}
+  <p style="font-size:0.95rem; font-style:italic; margin:0 0 0.4rem;">"{{ r.in_character_line }}"</p>
+  {% endif %}
+  <p style="font-size:0.8rem; color:var(--pico-muted-color); margin:0;">{{ r.rationale }}</p>
+</article>

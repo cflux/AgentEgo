@@ -3,12 +3,29 @@ import time
 from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
-from ..db.hermes import get_recent_sessions, get_session_stats
+from ..db.hermes import get_session_stats, get_all_session_stats, get_sessions_by_ids
 from ..db.ego import get_ego_db
+from ..services.profiles import discover_profiles, resolve_profile
+from ..services.conversations import (
+    sync_recent_conversations, get_recent_conversations, get_all_recent_conversations,
+)
 from .sentiment import scoring_status
+from .topic import topic_status
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+_SKIP_EMOTIONS = {"neutral"}
+
+
+def _first_non_neutral(sdata: dict) -> str | None:
+    dominant = sdata.get("dominant")
+    if dominant and dominant not in _SKIP_EMOTIONS:
+        return dominant
+    for e in sdata.get("top3") or []:
+        if e not in _SKIP_EMOTIONS:
+            return e
+    return None
 
 
 def _parse_source(source_str: str | None) -> dict:
@@ -17,7 +34,71 @@ def _parse_source(source_str: str | None) -> dict:
     try:
         return json.loads(source_str)
     except Exception:
-        return {}
+        return {"platform": source_str}
+
+
+async def _enrich_conversations(conversations: list) -> list:
+    """Add sentiment, topic, mode, and session metadata to conversation dicts."""
+    if not conversations:
+        return []
+    conv_ids = [c["id"] for c in conversations]
+    sentiment_map: dict = {}
+    topic_map: dict = {}
+    mode_map: dict = {}
+    conn = await get_ego_db()
+    try:
+        ph = ",".join("?" * len(conv_ids))
+        cursor = await conn.execute(
+            f"SELECT key, value FROM module_data WHERE module='sentiment' AND key IN ({ph})", conv_ids
+        )
+        for row in await cursor.fetchall():
+            try:
+                sentiment_map[row[0]] = json.loads(row[1])
+            except Exception:
+                pass
+        cursor = await conn.execute(
+            f"SELECT key, value FROM module_data WHERE module='topic' AND key IN ({ph})", conv_ids
+        )
+        for row in await cursor.fetchall():
+            topic_map[row[0]] = row[1]
+        cursor = await conn.execute(
+            f"SELECT key, value FROM module_data WHERE module='mode' AND key IN ({ph})", conv_ids
+        )
+        for row in await cursor.fetchall():
+            mode_map[row[0]] = row[1]
+    finally:
+        await conn.close()
+
+    # Batch-fetch session metadata grouped by profile
+    session_meta: dict[str, dict] = {}
+    by_profile: dict[str, list[str]] = {}
+    for c in conversations:
+        by_profile.setdefault(c["profile_name"], []).append(c["session_id"])
+    for pname, sids in by_profile.items():
+        dp = resolve_profile(pname)
+        if dp:
+            try:
+                for s in await get_sessions_by_ids(list(set(sids)), db_path=dp):
+                    session_meta[s["id"]] = s
+            except Exception:
+                pass
+
+    result = []
+    for c in conversations:
+        s = session_meta.get(c["session_id"], {})
+        src = _parse_source(s.get("source"))
+        s_data = sentiment_map.get(c["id"]) or {}
+        result.append({
+            **c,
+            "platform_name": src.get("platform") or "console",
+            "user_display": src.get("user_name") or src.get("user_id", ""),
+            "model": s.get("model", ""),
+            "sentiment_user": _first_non_neutral(s_data.get("user") or {}),
+            "sentiment_agent": _first_non_neutral(s_data.get("agent") or {}),
+            "topic": topic_map.get(c["id"]),
+            "mode": mode_map.get(c["id"]),
+        })
+    return result
 
 
 async def _get_platform_stats() -> list:
@@ -78,7 +159,7 @@ async def _get_activity_by_day() -> list:
 async def _get_active_sessions() -> int:
     conn = await get_ego_db()
     try:
-        cutoff = time.time() - 600  # sessions with activity in the last 10 min
+        cutoff = time.time() - 600
         cursor = await conn.execute(
             """
             SELECT COUNT(DISTINCT session_id) FROM events
@@ -93,43 +174,28 @@ async def _get_active_sessions() -> int:
 
 
 @router.get("/")
-async def dashboard(request: Request):
-    sessions = await get_recent_sessions()
-    stats = await get_session_stats()
+async def dashboard(request: Request, profile: str = ""):
+    profiles = discover_profiles()
+    db_path = resolve_profile(profile) if profile else None
+    multi = not profile
+
+    if multi:
+        for p in profiles:
+            await sync_recent_conversations(p["name"], p["db_path"])
+        conversations = await get_all_recent_conversations()
+        stats = await get_all_session_stats()
+    else:
+        await sync_recent_conversations(profile, db_path)
+        conversations = await get_recent_conversations(profile)
+        stats = await get_session_stats(db_path=db_path)
+
     platform_stats = await _get_platform_stats()
     gateway_startup = await _get_last_gateway_startup()
     activity = await _get_activity_by_day()
     active_sessions = await _get_active_sessions()
-
-    # Fetch sentiment for recent sessions in one query
-    recent_ids = [s["id"] for s in sessions[:10]]
-    sentiment_map: dict = {}
-    if recent_ids:
-        conn = await get_ego_db()
-        try:
-            placeholders = ",".join("?" * len(recent_ids))
-            cursor = await conn.execute(
-                f"SELECT key, value FROM module_data WHERE module='sentiment' AND key IN ({placeholders})",
-                recent_ids,
-            )
-            for row in await cursor.fetchall():
-                sentiment_map[row[0]] = json.loads(row[1])
-        finally:
-            await conn.close()
-
-    recent = []
-    for r in sessions[:10]:
-        src = _parse_source(r.get("source"))
-        s_data = sentiment_map.get(r["id"], {})
-        recent.append({
-            **r,
-            "platform_name": src.get("platform") or "console",
-            "user_display": src.get("user_name") or src.get("user_id", ""),
-            "sentiment_user":  s_data.get("user",  {}).get("dominant") if s_data else None,
-            "sentiment_agent": s_data.get("agent", {}).get("dominant") if s_data else None,
-        })
-
+    recent = await _enrich_conversations(conversations[:10])
     status = await scoring_status()
+    topic_status_data = await topic_status()
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -142,6 +208,10 @@ async def dashboard(request: Request):
             "active_sessions": active_sessions,
             "recent_sessions": recent,
             "status": status,
+            "topic_status": topic_status_data,
+            "profiles": profiles,
+            "active_profile": profile,
+            "multi_profile": multi,
         },
     )
 
@@ -154,6 +224,32 @@ async def sentiment_status_partial(request: Request):
         "partials/sentiment_status.html",
         {"request": request, "status": status},
         headers=headers,
+    )
+
+
+@router.get("/partials/topic-status")
+async def topic_status_partial(request: Request):
+    status = await topic_status()
+    headers = {"HX-Trigger": "topicComplete"} if status.get("just_completed") else {}
+    return templates.TemplateResponse(
+        "partials/topic_status.html",
+        {"request": request, "status": status},
+        headers=headers,
+    )
+
+
+@router.get("/partials/recent-sessions")
+async def recent_sessions_partial(request: Request, profile: str = ""):
+    db_path = resolve_profile(profile) if profile else None
+    multi = not profile
+    if multi:
+        conversations = await get_all_recent_conversations()
+    else:
+        conversations = await get_recent_conversations(profile)
+    recent = await _enrich_conversations(conversations[:10])
+    return templates.TemplateResponse(
+        "partials/recent_sessions.html",
+        {"request": request, "recent_sessions": recent, "multi_profile": multi},
     )
 
 

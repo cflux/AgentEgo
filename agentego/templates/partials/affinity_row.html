@@ -1,0 +1,33 @@
+{# Expects: a (affinity dict) #}
+{% set v = a.valence %}
+{% set pos = v >= 0 %}
+{% set pct = ((v|abs) * 100) | int %}
+<tr>
+  <td>
+    <strong>{{ a.entity }}</strong>
+    {% if a.category %}<br><span style="font-size:0.7rem; color:var(--pico-muted-color);">{{ a.category }}</span>{% endif %}
+  </td>
+  <td style="width:11rem;">
+    <div style="position:relative; height:8px; background:var(--pico-muted-border-color); border-radius:4px; overflow:hidden;">
+      <div style="position:absolute; top:0; {{ 'left' if pos else 'right' }}:50%; height:100%; width:{{ (pct/2)|int }}%; background:{{ '#2ea05a' if pos else '#d94f4f' }};"></div>
+      <div style="position:absolute; top:0; left:50%; width:1px; height:100%; background:var(--pico-color); opacity:0.3;"></div>
+    </div>
+    <span style="font-size:0.7rem; color:var(--pico-muted-color);">{{ "%+.2f"|format(v) }} · int {{ "%.2f"|format(a.intensity) }}</span>
+  </td>
+  <td style="text-align:center; width:5rem;">
+    {% if a.source == 'seed' %}
+      <span class="badge badge-muted" title="From explicit SOUL.md likes/dislikes">seed</span>
+    {% elif a.source == 'observed' %}
+      <span class="badge" style="background:#5c4a0d; color:#f0e8cc;" title="From the dev opinion playground">observed</span>
+    {% else %}
+      <span class="badge" style="background:#3a1a6b; color:#e0d4f5;" title="Extrapolated from traits">inferred</span>
+    {% endif %}
+    {% if a.valence_drift is not none and a.valence_drift|abs >= 0.02 %}
+    <br><span style="font-size:0.65rem; color:var(--pico-muted-color);" title="Drift from baseline">{{ "%+.2f"|format(a.valence_drift) }} drift</span>
+    {% endif %}
+  </td>
+  <td style="font-size:0.78rem; color:var(--pico-muted-color);">
+    {{ a.rationale or '—' }}
+    {% if a.mention_count > 1 %}<span style="opacity:0.7;"> ·{{ a.mention_count }}×</span>{% endif %}
+  </td>
+</tr>

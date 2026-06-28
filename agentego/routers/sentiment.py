@@ -5,7 +5,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 from ..db.ego import get_ego_db
-from ..db.hermes import get_session_messages
+from ..db.hermes import get_session_messages_in_range
+from ..services.profiles import resolve_profile
+from ..services.conversations import get_conversation, get_all_recent_conversations
 
 router = APIRouter(prefix="/api")
 
@@ -25,24 +27,22 @@ class SentimentResult(BaseModel):
 
 @router.get("/sentiment/pending")
 async def get_pending_sessions() -> list[str]:
-    """Return session_ids from state.db (last 7d, ended) that have no sentiment score."""
-    from ..db.hermes import get_recent_sessions
-    sessions = await get_recent_sessions()
-
+    """Return conversation UUIDs that have no sentiment score yet."""
+    conversations = await get_all_recent_conversations()
+    if not conversations:
+        return []
+    conv_ids = [c["id"] for c in conversations]
     conn = await get_ego_db()
     try:
+        ph = ",".join("?" * len(conv_ids))
         cursor = await conn.execute(
-            "SELECT key FROM module_data WHERE module = 'sentiment'"
+            f"SELECT key FROM module_data WHERE module='sentiment' AND key IN ({ph})",
+            conv_ids,
         )
         already_scored = {row[0] for row in await cursor.fetchall()}
     finally:
         await conn.close()
-
-    # Only score sessions that have ended (ended_at is set)
-    return [
-        s["id"] for s in sessions
-        if s["id"] not in already_scored and s.get("ended_at")
-    ]
+    return [c["id"] for c in conversations if c["id"] not in already_scored]
 
 
 @router.post("/sentiment/score", status_code=202)
@@ -69,10 +69,24 @@ async def save_sentiment_score(result: SentimentResult):
     return {"status": "saved"}
 
 
-@router.get("/sessions/{session_id}/messages")
-async def get_messages_json(session_id: str) -> list[dict]:
-    """Lightweight JSON endpoint for the sentiment worker."""
-    rows = await get_session_messages(session_id)
+@router.get("/sessions/{conv_or_session_id}/messages")
+async def get_messages_json(conv_or_session_id: str, profile: str = "") -> list[dict]:
+    """Lightweight JSON endpoint for the sentiment worker. Accepts conv UUID or legacy session_id."""
+    conv = await get_conversation(conv_or_session_id)
+    if conv:
+        db_path = resolve_profile(conv["profile_name"])
+        rows = await get_session_messages_in_range(
+            conv["session_id"], conv["start_ts"], conv["end_ts"], db_path=db_path
+        )
+    else:
+        # Legacy fallback: treat as raw session_id
+        from ..db.hermes import find_session_messages
+        db_path = resolve_profile(profile) if profile else None
+        if db_path:
+            from ..db.hermes import get_session_messages
+            rows = await get_session_messages(conv_or_session_id, db_path=db_path)
+        else:
+            rows = await find_session_messages(conv_or_session_id)
     return [{"role": r["role"], "content": r["content"]} for r in rows
             if r.get("role") in ("user", "assistant") and r.get("content")]
 
@@ -171,17 +185,17 @@ async def clear_trigger():
 @router.get("/sentiment/status")
 async def scoring_status() -> dict:
     """Return pending count, trigger state, worker health, and active progress."""
-    from ..db.hermes import get_recent_sessions
-    sessions = await get_recent_sessions()
-    ended_ids = {s["id"] for s in sessions if s.get("ended_at")}
+    conversations = await get_all_recent_conversations()
+    conv_ids = [c["id"] for c in conversations]
 
     conn = await get_ego_db()
     try:
+        ph = ",".join("?" * len(conv_ids)) if conv_ids else "''"
         cursor = await conn.execute(
-            "SELECT key FROM module_data WHERE module='sentiment'"
+            f"SELECT key FROM module_data WHERE module='sentiment' AND key IN ({ph})",
+            conv_ids,
         )
         already_scored = {row[0] for row in await cursor.fetchall()}
-        total_scored = len(already_scored)  # noqa: F841 (used below implicitly)
 
         cursor = await conn.execute(
             "SELECT value, updated_at FROM module_data WHERE module='_system' AND key='sentiment_trigger'"
@@ -235,7 +249,7 @@ async def scoring_status() -> dict:
         await conn.close()
 
     return {
-        "pending": len(ended_ids - already_scored),
+        "pending": len([c for c in conversations if c["id"] not in already_scored]),
         "triggered": triggered,
         "last_run": last_run,
         "worker_online": worker_online,

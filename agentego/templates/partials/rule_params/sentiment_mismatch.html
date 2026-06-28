@@ -1,0 +1,41 @@
+<div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-start;">
+  <label style="flex:1; min-width:160px; margin:0;">
+    Direction
+    <select name="params_direction" required>
+      <option value="either">Either direction</option>
+      <option value="user_only">User felt it, agent didn't</option>
+      <option value="agent_only">Agent felt it, user didn't</option>
+    </select>
+  </label>
+  <label style="flex:2; min-width:200px; margin:0;">
+    Emotions to watch (hold Ctrl/Cmd for multiple)
+    <select name="params_emotions" multiple size="8" required style="height:auto;">
+      <optgroup label="Positive">
+        {% for e in ["admiration","amusement","approval","caring","desire","excitement","gratitude","joy","love","optimism","pride","relief"] %}
+        <option value="{{ e }}">{{ e }}</option>
+        {% endfor %}
+      </optgroup>
+      <optgroup label="Negative">
+        {% for e in ["anger","annoyance","disappointment","disapproval","disgust","embarrassment","fear","grief","nervousness","remorse","sadness"] %}
+        <option value="{{ e }}">{{ e }}</option>
+        {% endfor %}
+      </optgroup>
+      <optgroup label="Other">
+        {% for e in ["confusion","curiosity","realization","surprise","neutral"] %}
+        <option value="{{ e }}">{{ e }}</option>
+        {% endfor %}
+      </optgroup>
+    </select>
+  </label>
+  <div style="display:flex; flex-direction:column; gap:0.6rem;">
+    <label style="margin:0;">
+      Look back (sessions)
+      <input type="number" name="params_lookback" value="1" min="1" max="20" required>
+    </label>
+    <label style="margin:0;">
+      Min matches
+      <input type="number" name="params_min_count" value="1" min="1" max="20" required>
+    </label>
+  </div>
+</div>
+<p style="margin:0.4rem 0 0; font-size:0.78rem; color:var(--pico-muted-color);">Fires when a selected emotion appears in one party's top-3 but <em>not</em> the other's, in at least <em>min</em> of the last <em>lookback</em> sessions.</p>

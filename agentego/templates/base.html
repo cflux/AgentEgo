@@ -36,6 +36,15 @@
     .emo-positive { background:#1a6b3a; color:#d4f5e3; }
     .emo-negative { background:#7a1f1f; color:#fde8e8; }
     .emo-cognitive { background:#1a3a6b; color:#d4e8f5; }
+    /* Conversation mode colors */
+    .mode { display:inline-block; padding:0.2em 0.55em; border-radius:999px; font-size:0.75rem; font-weight:600; }
+    .mode-work        { background:#1a3a6b; color:#d4e8f5; }
+    .mode-social      { background:#1a6b3a; color:#d4f5e3; }
+    .mode-informative { background:#0d5c6b; color:#ccecf0; }
+    .mode-serious     { background:#3a1a6b; color:#e0d4f5; }
+    .mode-flirting    { background:#6b1a4a; color:#f5d4e8; }
+    .mode-creative    { background:#5c4a0d; color:#f0e8cc; }
+    .mode-support     { background:#6b3a1a; color:#f5dcc4; }
     .emotion-panel { background:var(--pico-card-background-color); border:1px solid var(--pico-muted-border-color); border-radius:var(--pico-border-radius); padding:0.75rem 1rem; }
     .emotion-panel h6 { margin:0 0 0.5rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color); }
     .emotion-bar { display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem; font-size:0.78rem; }
@@ -44,6 +53,13 @@
     .fill-positive { background:#2ea05a; }
     .fill-negative { background:#d94f4f; }
     .fill-cognitive { background:#4f8fd9; }
+    /* Profile tabs */
+    .profile-tabs { display:flex; gap:0.25rem; margin-bottom:1.25rem; flex-wrap:wrap; }
+    .profile-tab { display:inline-block; padding:0.3em 0.9em; border-radius:999px; font-size:0.82rem; font-weight:600; text-decoration:none; background:var(--pico-card-background-color); border:1px solid var(--pico-muted-border-color); color:var(--pico-muted-color); }
+    .profile-tab:hover { border-color:var(--pico-primary); color:var(--pico-primary); }
+    .profile-tab.active { background:var(--pico-primary-background); border-color:var(--pico-primary-background); color:var(--pico-primary-inverse); }
+    /* Mood badge */
+    .mood-badge { display:inline-block; padding:0.2em 0.65em; border-radius:999px; font-size:0.82rem; font-weight:600; }
   </style>
 </head>
 <body>
@@ -54,6 +70,9 @@
     <ul>
       <li><a href="/">Dashboard</a></li>
       <li><a href="/sessions">Sessions</a></li>
+      <li><a href="/moods">Moods</a></li>
+      <li><a href="/preferences">Preferences</a></li>
+      <li><a href="/config">Config</a></li>
     </ul>
   </nav>
   <main>

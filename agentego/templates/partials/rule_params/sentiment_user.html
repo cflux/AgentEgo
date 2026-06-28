@@ -1,0 +1,33 @@
+<div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-start;">
+  <label style="flex:2; min-width:200px; margin:0;">
+    Emotions (hold Ctrl/Cmd to select multiple)
+    <select name="params_emotions" multiple size="8" required style="height:auto;">
+      <optgroup label="Positive">
+        {% for e in ["admiration","amusement","approval","caring","desire","excitement","gratitude","joy","love","optimism","pride","relief"] %}
+        <option value="{{ e }}">{{ e }}</option>
+        {% endfor %}
+      </optgroup>
+      <optgroup label="Negative">
+        {% for e in ["anger","annoyance","disappointment","disapproval","disgust","embarrassment","fear","grief","nervousness","remorse","sadness"] %}
+        <option value="{{ e }}">{{ e }}</option>
+        {% endfor %}
+      </optgroup>
+      <optgroup label="Other">
+        {% for e in ["confusion","curiosity","realization","surprise","neutral"] %}
+        <option value="{{ e }}">{{ e }}</option>
+        {% endfor %}
+      </optgroup>
+    </select>
+  </label>
+  <div style="display:flex; flex-direction:column; gap:0.6rem;">
+    <label style="margin:0;">
+      Look back (sessions)
+      <input type="number" name="params_lookback" value="1" min="1" max="20" required>
+    </label>
+    <label style="margin:0;">
+      Min matches
+      <input type="number" name="params_min_count" value="1" min="1" max="20" required>
+    </label>
+  </div>
+</div>
+<p style="margin:0.4rem 0 0; font-size:0.78rem; color:var(--pico-muted-color);">Fires when the user's dominant emotion matches any selected emotion in <em>min</em> of the last <em>lookback</em> sessions.</p>

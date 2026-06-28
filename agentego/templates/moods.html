@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Moods — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>Moods <small style="font-size:0.6em; color:var(--pico-muted-color);">Canonical mood definitions</small></h2>
+
+<p style="font-size:0.88rem; color:var(--pico-muted-color);">
+  These moods are shared across all agents. Each mood has a minimum vote threshold — it only activates when enough rules match.
+  Go to <a href="/moods/rules">Rules</a> to configure per-agent mood rules.
+</p>
+
+{% if moods %}
+<article style="padding:0; overflow:hidden; margin-bottom:1.5rem;">
+<table style="margin:0;">
+  <thead>
+    <tr>
+      <th style="width:2rem;"></th>
+      <th style="width:2rem;"></th>
+      <th>ID / Name</th>
+      <th>Description</th>
+      <th style="text-align:center; width:8rem;">Default min votes</th>
+      <th style="width:10rem;"></th>
+    </tr>
+  </thead>
+  <tbody id="moods-table">
+    {% for mood in moods %}
+    {% include "partials/mood_row.html" %}
+    {% endfor %}
+  </tbody>
+</table>
+</article>
+{% else %}
+<p style="color:var(--pico-muted-color);">No moods defined yet. Add one below.</p>
+{% endif %}
+
+<article>
+  <header><strong>Add Mood</strong></header>
+  <form method="post" action="/api/moods" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+    <label style="margin:0;">
+      <span style="font-size:0.82rem; color:var(--pico-muted-color);">Color</span>
+      <input type="color" name="color" value="#888888" style="width:2.5rem; height:2.4rem; padding:0.1rem; border-radius:4px; cursor:pointer;">
+    </label>
+    <label style="margin:0; width:4rem;">
+      Icon
+      <input type="text" name="icon" placeholder="🎯" maxlength="4" style="font-size:1rem;">
+    </label>
+    <label style="margin:0; flex:1; min-width:100px;">
+      ID <small style="color:var(--pico-muted-color); font-size:0.72rem;">(slug, e.g. "tired")</small>
+      <input type="text" name="id" required placeholder="tired" pattern="[a-z0-9_]+" title="Lowercase letters, digits, underscores only">
+    </label>
+    <label style="margin:0; flex:1; min-width:110px;">
+      Name
+      <input type="text" name="name" required placeholder="Tired">
+    </label>
+    <label style="margin:0; flex:2; min-width:180px;">
+      Description
+      <input type="text" name="description" placeholder="Worn out from repetitive sessions">
+    </label>
+    <label style="margin:0; width:5.5rem;">
+      Min votes
+      <input type="number" name="min_votes" value="1" min="1" max="20">
+    </label>
+    <button type="submit" style="margin:0; padding:0.45rem 1rem;">Add</button>
+  </form>
+</article>
+
+{% endblock %}

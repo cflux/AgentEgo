@@ -1,0 +1,12 @@
+{# Expects: result {ok, latency_ms?, reply?, error?} #}
+<article style="padding:0.85rem 1rem; margin:0; border-left:3px solid {{ '#2ea05a' if result.ok else '#d94f4f' }};">
+  {% if result.ok %}
+  <strong style="color:#4caf50;">● Connection OK</strong>
+  <p style="font-size:0.82rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
+    Replied in {{ result.latency_ms }}ms{% if result.reply %} · "{{ result.reply }}"{% endif %}
+  </p>
+  {% else %}
+  <strong style="color:#e57373;">● Connection failed</strong>
+  <p style="font-size:0.82rem; color:var(--pico-muted-color); margin:0.4rem 0 0; word-break:break-word;">{{ result.error }}</p>
+  {% endif %}
+</article>

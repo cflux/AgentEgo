@@ -369,6 +369,21 @@ async def clear_threshold(request: Request, profile_name: str, mood_id: str):
 
 # --- Dashboard badge ---
 
+@router.get("/api/mood/current")
+async def current_mood_json(profile: str = "default") -> dict:
+    """Agent-facing: the profile's current mood + why it's in that mood."""
+    mood = await evaluate_mood(profile, db_path=resolve_profile(profile))
+    if not mood:
+        return {"profile": profile, "mood": None, "mood_id": None, "vote_count": 0, "why": []}
+    return {
+        "profile": profile,
+        "mood": mood["name"],
+        "mood_id": mood["id"],
+        "vote_count": mood.get("vote_count", 0),
+        "why": mood.get("breakdown") or [],
+    }
+
+
 @router.get("/partials/mood-badge")
 async def mood_badge_partial(request: Request, profile: str = ""):
     profiles = discover_profiles()

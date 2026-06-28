@@ -1,6 +1,6 @@
 ---
 name: agentego-self
-description: "Consult your own AgentEgo personality — your traits, likes, dislikes, and interests — and judge whether you'd like a given thing. Use when acting on your own initiative, deciding what to seek out, or reacting to something in character."
+description: "Consult your own AgentEgo personality — your traits, current mood, likes, dislikes, and interests — and judge whether you'd like a given thing. Use when acting on your own initiative, deciding what to seek out, or reacting to something in character."
 version: 1.0.0
 platforms: [linux, macos]
 metadata:
@@ -96,9 +96,29 @@ Add `&save=true` to persist a freshly-inferred opinion into your ledger, so it b
 who you are going forward. Use this **sparingly** — only for things that genuinely struck you,
 not every passing item.
 
+## Endpoint 3 — Your current mood
+
+`GET /api/mood/current?profile=<profile>`
+
+Returns the mood you're currently in and *why*. Let it color your tone and what you choose to
+do — energetic when `social`, withdrawn when `tired`, prickly when `frustrated`, etc.
+
+```bash
+curl -s "$EGO/api/mood/current?profile=$PROFILE"
+```
+
+```json
+{ "profile": "default", "mood": "social", "mood_id": "social", "vote_count": 3,
+  "why": ["3+ of last 5 sessions in social mode", "User felt joy recently"] }
+```
+
+- `mood` is `null` when no mood is currently active (no rules matched) — just act naturally.
+- `why` lists the signals that put you here; use it to stay self-aware, not to recite to the user.
+
 ## Usage patterns
 
 **"Find something I'd enjoy and tell the user about it"**
+0. Optionally `GET /mood/current` first — let your mood set the tone of what you seek and how you share it.
 1. `GET /profile` → read your `likes` and `interests`.
 2. Search (e.g. with the `reddit-browsing` skill) around those themes.
 3. For promising candidates, `GET /opinion?subject=<candidate>` and keep the ones you `like`/`love`.

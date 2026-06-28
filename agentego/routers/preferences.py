@@ -77,6 +77,12 @@ async def _set_flag(key: str, value: str) -> None:
 
 # --- Worker-facing API ---
 
+@router.get("/api/preferences/profiles")
+async def list_profiles() -> list[str]:
+    """Profile names the worker should process (filesystem auto-discovery)."""
+    return [p["name"] for p in discover_profiles()]
+
+
 @router.get("/api/preferences/trait-status")
 async def trait_status(profile: str = "default") -> dict:
     """Worker compares its freshly computed SOUL.md hash against the stored one."""

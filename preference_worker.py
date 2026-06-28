@@ -32,8 +32,23 @@ log = logging.getLogger(__name__)
 
 EGO_URL = os.environ.get("EGO_URL", "http://localhost:8765")
 POLL_INTERVAL = 300  # preferences change slowly; poll every 5 min
-PROFILES = [p.strip() for p in os.environ.get("EGO_PREFERENCE_PROFILES", "default").split(",") if p.strip()]
+# Optional override: a comma-separated list pins the worker to specific profiles.
+# When unset, the worker auto-discovers profiles from the server each poll.
+_PROFILE_OVERRIDE = [p.strip() for p in os.environ.get("EGO_PREFERENCE_PROFILES", "").split(",") if p.strip()]
 HERMES_HOME = os.path.expanduser("~/.hermes")
+
+
+def get_profiles() -> list[str]:
+    """Profiles to process: explicit env override, else live server discovery."""
+    if _PROFILE_OVERRIDE:
+        return _PROFILE_OVERRIDE
+    try:
+        names = requests.get(f"{EGO_URL}/api/preferences/profiles", timeout=10).json()
+        if isinstance(names, list) and names:
+            return names
+    except Exception as e:
+        log.warning("Profile discovery failed (%s) — falling back to 'default'", e)
+    return ["default"]
 
 
 # --- SOUL.md resolution ---
@@ -305,7 +320,9 @@ def check_trigger() -> bool:
 
 def process():
     heartbeat()
-    for profile in PROFILES:
+    profiles = get_profiles()  # re-discovered each cycle so new profiles appear automatically
+    log.info("Processing %d profile(s): %s", len(profiles), ", ".join(profiles))
+    for profile in profiles:
         extract_traits(profile)
         infer_affinities(profile)
     report_progress(0, 0)
@@ -316,7 +333,8 @@ def process():
 
 
 def run():
-    log.info("Worker started. Polling %s every %ds (profiles: %s)", EGO_URL, POLL_INTERVAL, ", ".join(PROFILES))
+    mode = ("override: " + ", ".join(_PROFILE_OVERRIDE)) if _PROFILE_OVERRIDE else "auto-discover"
+    log.info("Worker started. Polling %s every %ds (profiles: %s)", EGO_URL, POLL_INTERVAL, mode)
     while True:
         process()
         # Idle until the next poll, but keep the heartbeat fresh (server's online

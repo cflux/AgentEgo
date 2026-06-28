@@ -6,12 +6,38 @@ around their baseline so the character can shift in nuance but never flip; emerg
 affinities move within global bounds and gain confidence with repeated mentions.
 """
 import json
+import re
 import time
 from uuid import uuid4
 from ..db.ego import get_ego_db
 from .settings_store import get_evolution_config
 
 OCEAN_KEYS = ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]
+
+# Conversational filler words. A topic made up ENTIRELY of these (e.g. "greeting chat",
+# "general conversation", "name") carries no preference signal and is excluded from the
+# affinity ledger. A topic with any substantive word (e.g. "python debugging") is kept.
+_FILLER_WORDS = {
+    "greeting", "greetings", "hello", "hi", "hey", "yo", "name", "names", "intro",
+    "introduction", "chat", "chats", "chatting", "chitchat", "smalltalk", "talk",
+    "talking", "casual", "general", "generic", "conversation", "convo", "discussion",
+    "check", "checkin", "checking", "in", "catchup", "goodbye", "bye", "farewell",
+    "thanks", "thank", "you", "test", "testing", "untitled", "misc", "miscellaneous",
+    "random", "stuff", "things", "question", "questions", "query", "help", "request",
+    "status", "update", "the", "a", "an", "and", "of", "to", "about", "some",
+    "small", "quick", "brief", "casual", "friendly",
+}
+
+
+def is_meaningful_topic(topic: str) -> bool:
+    """False for empty/too-short topics or pure conversational filler."""
+    t = (topic or "").strip().lower()
+    if len(t) < 3:
+        return False
+    words = [w for w in re.split(r"[^a-z0-9]+", t) if w]
+    if not words:
+        return False
+    return not all(w in _FILLER_WORDS for w in words)
 
 
 def _clamp(v: float, lo: float, hi: float) -> float:
@@ -268,7 +294,34 @@ async def get_pending_entities(profile_name: str, limit: int = 200) -> list[str]
         known = {row[0].strip().lower() for row in await cursor.fetchall()}
     finally:
         await conn.close()
-    return sorted(t for t in topics if t.lower() not in known)
+    return sorted(
+        t for t in topics
+        if t.lower() not in known and is_meaningful_topic(t)
+    )
+
+
+async def prune_generic_affinities(profile_name: str | None = None) -> int:
+    """Delete already-stored emergent affinities that are pure conversational filler.
+
+    Never removes SOUL-seeded affinities. Returns the number deleted."""
+    conn = await get_ego_db()
+    try:
+        if profile_name:
+            cursor = await conn.execute(
+                "SELECT id, entity FROM affinities WHERE source != 'seed' AND profile_name = ?",
+                (profile_name,),
+            )
+        else:
+            cursor = await conn.execute(
+                "SELECT id, entity FROM affinities WHERE source != 'seed'"
+            )
+        doomed = [row[0] for row in await cursor.fetchall() if not is_meaningful_topic(row[1])]
+        for aid in doomed:
+            await conn.execute("DELETE FROM affinities WHERE id = ?", (aid,))
+        await conn.commit()
+        return len(doomed)
+    finally:
+        await conn.close()
 
 
 # --- Dashboard helpers ---

@@ -69,8 +69,8 @@ async def ping() -> dict:
     try:
         content = await chat(
             [{"role": "user", "content": "Reply with the single word: ok"}],
-            max_tokens=5,
-            timeout=20.0,
+            max_tokens=1000,  # reasoning models need room before the answer token
+            timeout=30.0,
         )
         return {"ok": True, "latency_ms": int((time.time() - start) * 1000), "reply": content.strip()[:40]}
     except LLMError as e:

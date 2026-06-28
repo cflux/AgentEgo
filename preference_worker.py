@@ -111,11 +111,32 @@ def parse_json(raw: str | None) -> dict | None:
     return None
 
 
+def _unit(x, signed: bool = False) -> float:
+    """Normalize a model-supplied score to 0..1 (or -1..1 if signed).
+
+    Models often answer on a 0-100 (or -100..100) scale despite the prompt; rescale
+    anything out of range so '90' becomes 0.9, '-95' becomes -0.95."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return 0.0
+    if abs(v) > 1.0:
+        v = v / 100.0
+    lo = -1.0 if signed else 0.0
+    return max(lo, min(1.0, v))
+
+
+def normalize_ocean(ocean: dict) -> dict:
+    return {k: _unit(ocean.get(k)) for k in
+            ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]}
+
+
 # --- Prompts ---
 
 _EXTRACT_SYSTEM = (
     "You are a personality psychologist. Read a fictional character's persona description and "
-    "abstract it into a structured psychological profile. Output a JSON object ONLY:\n"
+    "abstract it into a structured psychological profile. All numeric scores are DECIMALS between "
+    "0 and 1 (e.g. 0.85 — NOT 85). Output a JSON object ONLY:\n"
     '{\n'
     '  "ocean": {"openness":0-1,"conscientiousness":0-1,"extraversion":0-1,'
     '"agreeableness":0-1,"neuroticism":0-1},\n'
@@ -132,7 +153,8 @@ _INFER_SYSTEM = (
     "You ARE a character defined ONLY by the psychological traits given below — you do NOT have "
     "access to any list of stated likes. Decide how this character would feel about a subject by "
     "extrapolating from these traits and values. The subject is likely NOT something in the "
-    "character's background; reason about who they are. Output a JSON object ONLY:\n"
+    "character's background; reason about who they are. All numeric scores are DECIMALS "
+    "(valence -1 to 1, intensity/confidence 0 to 1 — e.g. 0.8, NOT 80). Output a JSON object ONLY:\n"
     '{"valence":-1..1, "intensity":0..1, "confidence":0..1, '
     '"category":"object|activity|concept|person|place|topic|food|media", '
     '"rationale":"one sentence grounded in the traits"}'
@@ -185,17 +207,34 @@ def extract_traits(profile: str) -> dict | None:
         return None  # up to date
 
     log.info("[%s] Extracting personality traits from SOUL.md…", profile)
+    # Reasoning models (e.g. deepseek-v4-flash) spend many tokens thinking before the
+    # JSON answer, so give a generous completion budget.
     data = parse_json(llm_chat(
         [{"role": "system", "content": _EXTRACT_SYSTEM},
          {"role": "user", "content": soul}],
-        max_tokens=1200,
+        max_tokens=4000,
     ))
     if not data or "ocean" not in data:
         log.warning("[%s] Trait extraction returned no usable data", profile)
         return None
 
-    traits = {"ocean": data["ocean"], "values": data.get("values", []), "summary": data.get("summary", "")}
-    seeds = data.get("seeds", []) or []
+    traits = {
+        "ocean": normalize_ocean(data["ocean"]),
+        "values": data.get("values", []),
+        "summary": data.get("summary", ""),
+    }
+    seeds = []
+    for s in (data.get("seeds") or []):
+        if not s.get("entity"):
+            continue
+        seeds.append({
+            "entity": s["entity"],
+            "category": s.get("category"),
+            "valence": _unit(s.get("valence"), signed=True),
+            "intensity": _unit(s.get("intensity")),
+            "confidence": _unit(s.get("confidence")) or 0.7,
+            "rationale": s.get("rationale"),
+        })
     try:
         requests.post(f"{EGO_URL}/api/preferences/traits", json={
             "profile": profile, "source_hash": digest, "traits": traits, "seeds": seeds,
@@ -232,22 +271,23 @@ def infer_affinities(profile: str):
         data = parse_json(llm_chat(
             [{"role": "system", "content": _INFER_SYSTEM},
              {"role": "user", "content": f"{tblock}\n\nSubject: {entity}"}],
-            max_tokens=250,
+            max_tokens=2000,
         ))
         if not data or "valence" not in data:
             continue
+        valence = _unit(data.get("valence"), signed=True)
         try:
             requests.post(f"{EGO_URL}/api/preferences/affinity", json={
                 "profile": profile,
                 "entity": entity,
                 "category": data.get("category"),
-                "valence": float(data.get("valence", 0.0)),
-                "intensity": float(data.get("intensity", 0.5)),
-                "confidence": float(data.get("confidence", 0.5)),
+                "valence": valence,
+                "intensity": _unit(data.get("intensity")) or 0.5,
+                "confidence": _unit(data.get("confidence")) or 0.5,
                 "rationale": data.get("rationale", ""),
                 "source": "inferred",
             }, timeout=15)
-            log.info("[%s] %s → valence=%.2f", profile, entity, float(data.get("valence", 0.0)))
+            log.info("[%s] %s → valence=%.2f", profile, entity, valence)
         except Exception as e:
             log.warning("[%s] Failed to save affinity for %s: %s", profile, entity, e)
 
@@ -279,8 +319,12 @@ def run():
     log.info("Worker started. Polling %s every %ds (profiles: %s)", EGO_URL, POLL_INTERVAL, ", ".join(PROFILES))
     while True:
         process()
-        for _ in range(POLL_INTERVAL // 5):
+        # Idle until the next poll, but keep the heartbeat fresh (server's online
+        # window is ~90s, far shorter than our 5-min poll) and react fast to UI triggers.
+        for i in range(POLL_INTERVAL // 5):
             time.sleep(5)
+            if i % 6 == 5:  # every ~30s
+                heartbeat()
             if check_trigger():
                 log.info("Triggered by UI — running now")
                 break

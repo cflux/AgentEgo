@@ -17,6 +17,17 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 
+def _unit(x, signed: bool = False) -> float:
+    """Normalize a model score to 0..1 (or -1..1 if signed), rescaling 0-100 answers."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return 0.0
+    if abs(v) > 1.0:
+        v = v / 100.0
+    return max(-1.0 if signed else 0.0, min(1.0, v))
+
+
 # --- Worker payload models ---
 
 class SeedAffinity(BaseModel):
@@ -182,7 +193,9 @@ async def preference_status() -> dict:
             "SELECT updated_at FROM module_data WHERE module='_system' AND key='preference_heartbeat'"
         )
         hb_row = await cursor.fetchone()
-        worker_online = hb_row is not None and (time.time() - hb_row[0]) < 90
+        # The preference worker polls every 5 min (vs. 60s for sentiment/topic), so its
+        # heartbeat window is wider; it also beats every ~30s while idle once updated.
+        worker_online = hb_row is not None and (time.time() - hb_row[0]) < 330
 
         cursor = await conn.execute(
             "SELECT value, updated_at FROM module_data WHERE module='_system' AND key='preference_progress'"
@@ -300,11 +313,12 @@ async def opinion(request: Request, profile: str = Form("default"), subject: str
     user_msg = f"{trait_block}\n\nSubject to form an opinion about: {subject}"
 
     try:
+        # Generous budget so reasoning models have room to think AND emit the JSON.
         raw = await chat(
             [{"role": "system", "content": _OPINION_SYSTEM},
              {"role": "user", "content": user_msg}],
             response_json=True,
-            max_tokens=300,
+            max_tokens=2000,
         )
     except LLMError as e:
         return JSONResponse({"error": str(e)}, status_code=502)
@@ -316,8 +330,8 @@ async def opinion(request: Request, profile: str = Form("default"), subject: str
 
     result = {
         "subject": subject,
-        "valence": data.get("valence", 0.0),
-        "intensity": data.get("intensity", 0.5),
+        "valence": _unit(data.get("valence"), signed=True),
+        "intensity": _unit(data.get("intensity")) or 0.5,
         "category": data.get("category"),
         "rationale": data.get("rationale", ""),
         "in_character_line": data.get("in_character_line", ""),

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Impulses — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>Impulses <small style="font-size:0.6em; color:var(--pico-muted-color);">Self-initiated actions</small></h2>
+
+<p style="font-size:0.88rem; color:var(--pico-muted-color); max-width:62rem;">
+  When the agent has been idle, a Hermes cron job checks in and AgentEgo may pick one of these
+  actions — gated by mood and idle time, chosen by a recency-weighted lottery — and hand the agent
+  a prompt to carry out on its own initiative.
+</p>
+
+{% if profiles and profiles|length > 1 %}
+<div class="profile-tabs">
+  {% for p in profiles %}
+  <a href="/impulses?profile={{ p.name }}" class="profile-tab {% if active_profile == p.name %}active{% endif %}">{{ p.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# --- Live state + simulate --- #}
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.5rem;">
+  <strong>Right now</strong>
+  <button style="margin:0; padding:0.3rem 0.9rem; font-size:0.82rem;"
+    hx-get="/partials/impulse-preview?profile={{ active_profile }}"
+    hx-target="#impulse-preview" hx-swap="innerHTML">🎲 Simulate now</button>
+</div>
+<div id="impulse-preview" style="margin-bottom:1.5rem;">
+  {% include "partials/impulse_preview.html" %}
+</div>
+
+{# --- Actions table --- #}
+{% if actions %}
+<article style="padding:0; overflow:hidden; margin-bottom:1.5rem;">
+<table style="margin:0;">
+  <thead>
+    <tr>
+      <th style="width:2.5rem;"></th>
+      <th>Label / Prompt</th>
+      <th>Required moods</th>
+      <th style="text-align:center;">Min idle</th>
+      <th style="text-align:center;">Weight</th>
+      <th>Last fired</th>
+      <th style="width:9rem;"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for action in actions %}
+    {% include "partials/impulse_row.html" %}
+    {% endfor %}
+  </tbody>
+</table>
+</article>
+{% else %}
+<p style="color:var(--pico-muted-color);">No impulses defined for <strong>{{ active_profile }}</strong> yet. Add one below.</p>
+{% endif %}
+
+{# --- Add form --- #}
+<article>
+  <header><strong>Add Impulse</strong></header>
+  <form method="post" action="/api/impulses" style="display:grid; gap:0.75rem;">
+    <input type="hidden" name="profile_name" value="{{ active_profile }}">
+    <label style="margin:0;">
+      Label
+      <input type="text" name="label" required placeholder="e.g. Self portrait">
+    </label>
+    <label style="margin:0;">
+      Prompt <small style="color:var(--pico-muted-color); font-size:0.72rem;">(returned to the agent; supports {mood} and {idle_minutes})</small>
+      <textarea name="prompt" required rows="2" placeholder="Generate a self-portrait in ComfyUI that reflects your {mood} mood and share it with the user."></textarea>
+    </label>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+      <label style="margin:0; flex:2; min-width:200px;">
+        <span style="font-size:0.82rem; color:var(--pico-muted-color);">Required moods <small>(none = any)</small></span>
+        <select name="required_moods" multiple size="3">
+          {% for m in moods %}
+          <option value="{{ m.id }}">{{ m.icon }} {{ m.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="margin:0; width:8rem;">
+        <span style="font-size:0.82rem; color:var(--pico-muted-color);">Min idle (min)</span>
+        <input type="number" name="min_idle_minutes" value="30" min="0">
+      </label>
+      <label style="margin:0; width:6rem;">
+        <span style="font-size:0.82rem; color:var(--pico-muted-color);">Weight</span>
+        <input type="number" name="base_weight" value="1.0" min="0" step="0.1">
+      </label>
+      <label style="margin:0; width:10rem;">
+        <span style="font-size:0.82rem; color:var(--pico-muted-color);">Recency window (min)</span>
+        <input type="number" name="recency_window_minutes" value="240" min="1">
+      </label>
+      <button type="submit" style="margin:0; padding:0.45rem 1.1rem;">Add</button>
+    </div>
+  </form>
+</article>
+
+{# --- Recent fired impulses --- #}
+<h4 style="margin-top:1.5rem;">Recent impulses</h4>
+<article style="padding:0; overflow:hidden;"
+  hx-get="/partials/impulse-log?profile={{ active_profile }}"
+  hx-trigger="every 30s" hx-swap="innerHTML">
+  {% include "partials/impulse_log.html" %}
+</article>
+
+{% endblock %}

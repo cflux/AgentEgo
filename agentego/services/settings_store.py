@@ -17,6 +17,8 @@ DEFAULTS = {
     "evolution_alpha": "0.2",
     "seed_deviation_band": "0.35",
     "trait_drift_delta": "0.1",
+    "impulse_enabled": "1",
+    "impulse_restraint_weight": "0.5",
 }
 
 

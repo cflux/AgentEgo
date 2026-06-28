@@ -1,0 +1,42 @@
+<tr id="impulse-row-{{ action.id }}">
+  <td colspan="7">
+    <form hx-post="/api/impulses/{{ action.id }}/edit"
+          hx-target="#impulse-row-{{ action.id }}"
+          hx-swap="outerHTML"
+          style="display:grid; gap:0.6rem; padding:0.4rem 0;">
+      <input type="text" name="label" value="{{ action.label }}" required placeholder="Label"
+             style="margin:0; font-weight:600;">
+      <textarea name="prompt" required rows="2" placeholder="Impulse prompt the agent receives…"
+                style="margin:0; font-size:0.85rem;">{{ action.prompt }}</textarea>
+      <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+        <label style="margin:0; flex:2; min-width:200px;">
+          <span style="font-size:0.78rem; color:var(--pico-muted-color);">Required moods (none = any)</span>
+          <select name="required_moods" multiple size="3" style="margin:0;">
+            {% for m in moods %}
+            <option value="{{ m.id }}" {% if m.id in action.required_moods %}selected{% endif %}>{{ m.icon }} {{ m.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label style="margin:0; width:7rem;">
+          <span style="font-size:0.78rem; color:var(--pico-muted-color);">Min idle (min)</span>
+          <input type="number" name="min_idle_minutes" value="{{ action.min_idle_minutes }}" min="0" style="margin:0;">
+        </label>
+        <label style="margin:0; width:6rem;">
+          <span style="font-size:0.78rem; color:var(--pico-muted-color);">Weight</span>
+          <input type="number" name="base_weight" value="{{ action.base_weight }}" min="0" step="0.1" style="margin:0;">
+        </label>
+        <label style="margin:0; width:9rem;">
+          <span style="font-size:0.78rem; color:var(--pico-muted-color);">Recency window (min)</span>
+          <input type="number" name="recency_window_minutes" value="{{ action.recency_window_minutes }}" min="1" style="margin:0;">
+        </label>
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="submit" style="margin:0; padding:0.3rem 0.9rem; font-size:0.82rem;">Save</button>
+        <button type="button" class="secondary outline" style="margin:0; padding:0.3rem 0.9rem; font-size:0.82rem;"
+          hx-get="/api/impulses/{{ action.id }}/row"
+          hx-target="#impulse-row-{{ action.id }}"
+          hx-swap="outerHTML">Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>

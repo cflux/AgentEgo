@@ -1,0 +1,27 @@
+{# Expects: log (list of fired impulses) #}
+{% if log %}
+<table style="margin:0;">
+  <thead>
+    <tr>
+      <th>When</th>
+      <th>Action</th>
+      <th>Mood</th>
+      <th style="text-align:center;">Idle</th>
+      <th>Prompt sent</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in log %}
+    <tr>
+      <td style="white-space:nowrap; font-size:0.78rem; color:var(--pico-muted-color);">{{ e.fired_at | ts }}</td>
+      <td style="font-size:0.85rem;"><strong>{{ e.label }}</strong></td>
+      <td style="font-size:0.8rem; color:var(--pico-muted-color);">{{ e.mood_id or "—" }}</td>
+      <td style="text-align:center; font-size:0.8rem; color:var(--pico-muted-color);">{{ e.idle_minutes | round(0) }}m</td>
+      <td style="font-size:0.8rem; color:var(--pico-muted-color); white-space:pre-wrap;">{{ e.prompt }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="padding:0.75rem 1rem; font-size:0.85rem; color:var(--pico-muted-color); margin:0;">No impulses fired yet.</p>
+{% endif %}

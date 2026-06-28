@@ -1,0 +1,39 @@
+<tr id="impulse-row-{{ action.id }}" {% if not action.enabled %}style="opacity:0.5;"{% endif %}>
+  <td style="width:2.5rem; text-align:center;">
+    <input type="checkbox" {% if action.enabled %}checked{% endif %}
+      hx-patch="/api/impulses/{{ action.id }}/toggle"
+      hx-swap="none"
+      title="Enable / disable">
+  </td>
+  <td>
+    <strong>{{ action.label }}</strong>
+    <div style="font-size:0.78rem; color:var(--pico-muted-color); margin-top:0.15rem; white-space:pre-wrap;">{{ action.prompt }}</div>
+  </td>
+  <td style="font-size:0.78rem;">
+    {% if action.required_moods %}
+      {% for mid in action.required_moods %}
+        {% set m = mood_map.get(mid) %}
+        {% if m %}<span class="mood-badge" style="background:{{ m.color }}22; border:1px solid {{ m.color }}; color:{{ m.color }};">{{ m.icon }} {{ m.name }}</span>
+        {% else %}<span class="badge badge-muted">{{ mid }}</span>{% endif %}
+      {% endfor %}
+    {% else %}
+      <span style="color:var(--pico-muted-color);">any</span>
+    {% endif %}
+  </td>
+  <td style="text-align:center; font-size:0.82rem;">{% if action.min_idle_minutes %}{{ action.min_idle_minutes }}m{% else %}—{% endif %}</td>
+  <td style="text-align:center; font-size:0.82rem;">{{ action.base_weight }}</td>
+  <td style="text-align:center; font-size:0.78rem; color:var(--pico-muted-color);">
+    {% if action.last_fired_at %}{{ action.last_fired_at | ts }}{% else %}never{% endif %}
+  </td>
+  <td style="white-space:nowrap;">
+    <button class="secondary outline" style="margin:0; padding:0.25rem 0.65rem; font-size:0.78rem;"
+      hx-get="/api/impulses/{{ action.id }}/edit-form"
+      hx-target="#impulse-row-{{ action.id }}"
+      hx-swap="outerHTML">Edit</button>
+    <button class="secondary outline" style="margin:0 0 0 0.4rem; padding:0.25rem 0.65rem; font-size:0.78rem; color:#d94f4f; border-color:#d94f4f;"
+      hx-delete="/api/impulses/{{ action.id }}"
+      hx-confirm="Delete '{{ action.label }}'?"
+      hx-target="#impulse-row-{{ action.id }}"
+      hx-swap="outerHTML">Delete</button>
+  </td>
+</tr>

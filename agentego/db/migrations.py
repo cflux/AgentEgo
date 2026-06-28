@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -123,6 +123,33 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value      TEXT,
     updated_at REAL
 );
+
+CREATE TABLE IF NOT EXISTS impulse_actions (
+    id                     TEXT PRIMARY KEY,
+    profile_name           TEXT NOT NULL,
+    label                  TEXT NOT NULL,
+    prompt                 TEXT NOT NULL,
+    required_moods         TEXT,
+    min_idle_minutes       INTEGER NOT NULL DEFAULT 0,
+    base_weight            REAL NOT NULL DEFAULT 1.0,
+    recency_window_minutes INTEGER NOT NULL DEFAULT 240,
+    enabled                INTEGER NOT NULL DEFAULT 1,
+    last_fired_at          REAL,
+    created_at             REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_impulse_profile ON impulse_actions(profile_name);
+
+CREATE TABLE IF NOT EXISTS impulse_log (
+    id           TEXT PRIMARY KEY,
+    profile_name TEXT NOT NULL,
+    action_id    TEXT,
+    label        TEXT,
+    prompt       TEXT,
+    mood_id      TEXT,
+    idle_minutes REAL,
+    fired_at     REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_impulse_log_profile ON impulse_log(profile_name, fired_at DESC);
 """
 
 _DEFAULT_MOODS = [
@@ -157,6 +184,8 @@ _DEFAULT_SETTINGS = {
     "evolution_alpha": "0.2",
     "seed_deviation_band": "0.35",
     "trait_drift_delta": "0.1",
+    "impulse_enabled": "1",
+    "impulse_restraint_weight": "0.5",
 }
 
 
@@ -186,6 +215,10 @@ async def run_migrations(db_path: str) -> None:
 
         if current_version < 4:
             # personality_traits, affinities, app_settings created by DDL above; no ALTER needed
+            pass
+
+        if current_version < 5:
+            # impulse_actions, impulse_log created by DDL above; no ALTER needed
             pass
 
         if current_version < SCHEMA_VERSION:

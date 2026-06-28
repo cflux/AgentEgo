@@ -1,0 +1,43 @@
+{# Expects: preview (evaluate_impulse dry-run result) #}
+<article style="padding:0.85rem 1rem; margin:0;">
+  <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+    <strong>Current state</strong>
+    {% if preview.mood %}
+      <span class="mood-badge" style="background:{{ preview.mood.color }}22; border:1px solid {{ preview.mood.color }}; color:{{ preview.mood.color }};">{{ preview.mood.icon }} {{ preview.mood.name }}</span>
+    {% else %}
+      <span style="font-size:0.8rem; color:var(--pico-muted-color);">no mood</span>
+    {% endif %}
+    <span style="font-size:0.82rem; color:var(--pico-muted-color);">
+      idle: {% if preview.idle_minutes is none %}∞ (no activity){% else %}{{ preview.idle_minutes }} min{% endif %}
+    </span>
+    {% if not preview.global_enabled %}
+      <span style="font-size:0.8rem; color:#e57373;">● impulses globally disabled</span>
+    {% endif %}
+  </div>
+
+  {% if preview.eligible %}
+  <p style="font-size:0.8rem; color:var(--pico-muted-color); margin:0 0 0.4rem;">
+    {{ preview.eligible|length }} eligible action(s) right now. Selection chances this tick:
+  </p>
+  <div style="display:grid; gap:0.3rem;">
+    {% for e in preview.eligible %}
+    <div style="display:flex; align-items:center; gap:0.6rem; font-size:0.82rem;">
+      <span style="min-width:12rem;">{{ e.label }}</span>
+      <div style="flex:1; height:7px; background:var(--pico-muted-border-color); border-radius:4px; overflow:hidden;">
+        <div style="height:100%; width:{{ (e.probability * 100) | int }}%; background:#b47aff;"></div>
+      </div>
+      <span style="min-width:3rem; text-align:right; color:var(--pico-muted-color);">{{ (e.probability * 100) | round(1) }}%</span>
+    </div>
+    {% endfor %}
+    <div style="display:flex; align-items:center; gap:0.6rem; font-size:0.82rem; opacity:0.7;">
+      <span style="min-width:12rem;">— do nothing —</span>
+      <div style="flex:1; height:7px; background:var(--pico-muted-border-color); border-radius:4px; overflow:hidden;">
+        <div style="height:100%; width:{{ (preview.nothing_probability * 100) | int }}%; background:var(--pico-muted-color);"></div>
+      </div>
+      <span style="min-width:3rem; text-align:right; color:var(--pico-muted-color);">{{ (preview.nothing_probability * 100) | round(1) }}%</span>
+    </div>
+  </div>
+  {% else %}
+  <p style="font-size:0.85rem; color:var(--pico-muted-color); margin:0;">No actions eligible right now (mood/idle conditions unmet, or none defined).</p>
+  {% endif %}
+</article>

@@ -32,67 +32,22 @@
   </article>
 </div>
 
-<div style="margin-bottom:1.5rem;">
-  <button class="secondary outline" style="margin:0; padding:0.35rem 0.9rem; font-size:0.82rem;"
-    hx-get="/partials/mood-debug?profile={{ active_profile }}"
-    hx-target="#mood-debug" hx-swap="innerHTML">🔬 Debug mood computation</button>
-  <div id="mood-debug" style="margin-top:0.75rem;"></div>
-</div>
+<details style="margin-bottom:1.5rem;">
+  <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; padding:0.35rem 0;">🔬 Debug mood computation</summary>
+  <div id="mood-debug"
+       hx-get="/partials/mood-debug?profile={{ active_profile }}"
+       hx-trigger="toggle once from:closest details"
+       hx-swap="innerHTML" style="margin-top:0.5rem;">
+    <p style="font-size:0.82rem; color:var(--pico-muted-color);">Loading…</p>
+  </div>
+</details>
 
-{% if rules %}
-<article style="padding:0; overflow:hidden; margin-bottom:1.5rem;">
-<table style="margin:0;">
-  <thead>
-    <tr>
-      <th style="width:2.5rem;">On</th>
-      <th>Label</th>
-      <th>Condition</th>
-      <th>Target mood</th>
-      <th style="width:7rem;"></th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for rule in rules %}
-  <tr id="rule-row-{{ rule.id }}">
-    <td>
-      <input type="checkbox" {% if rule.enabled %}checked{% endif %}
-        hx-patch="/api/mood/rules/{{ rule.id }}/toggle"
-        hx-swap="none"
-        style="cursor:pointer; width:1.1rem; height:1.1rem; margin:0;"
-        title="{{ 'Disable' if rule.enabled else 'Enable' }} rule">
-    </td>
-    <td style="font-size:0.85rem;">{{ rule.label or "—" }}</td>
-    <td style="font-size:0.82rem; color:var(--pico-muted-color);">
-      {% if rule.mood_gate %}
-        {% for gm in moods if gm.id == rule.mood_gate %}
-        <span class="mood-badge" style="background:{{ gm.color }}22; border:1px solid {{ gm.color }}; color:{{ gm.color }}; font-size:0.7rem; margin-right:0.3rem;">🔒 while {{ gm.icon }} {{ gm.name }}</span>
-        {% endfor %}
-        <span style="margin-right:0.3rem;">→</span>
-      {% endif %}
-      {{ rule.summary | safe }}
-    </td>
-    <td>
-      {% for m in moods if m.id == rule.mood_id %}
-      <span class="mood-badge" style="background:{{ m.color }}22; border:1px solid {{ m.color }}; color:{{ m.color }}; font-size:0.78rem;">
-        {{ m.icon }} {{ m.name }}
-      </span>
-      {% endfor %}
-    </td>
-    <td>
-      <button class="secondary outline" style="margin:0; padding:0.2rem 0.6rem; font-size:0.78rem; color:#d94f4f; border-color:#d94f4f;"
-        hx-delete="/api/mood/rules/{{ rule.id }}"
-        hx-confirm="Delete this rule?"
-        hx-target="#rule-row-{{ rule.id }}"
-        hx-swap="outerHTML">Delete</button>
-    </td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
-</article>
-{% else %}
-<p style="color:var(--pico-muted-color); margin-bottom:1.5rem;">No rules defined yet for <strong>{{ active_profile }}</strong>. Add one below.</p>
-{% endif %}
+<div id="rules-list"
+     hx-get="/partials/mood-rules-list?profile={{ active_profile }}"
+     hx-trigger="rulesUpdated from:body"
+     hx-swap="innerHTML">
+  {% include "partials/mood_rules_list.html" %}
+</div>
 
 <article>
   <header><strong>✨ Describe a rule</strong> <small style="color:var(--pico-muted-color); font-weight:normal;">— let the AI build it for you</small></header>

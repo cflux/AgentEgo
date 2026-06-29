@@ -294,6 +294,13 @@ async def create_rule(request: Request):
 
     params = _parse_params(rule_type, form)
 
+    # Skip if an identical rule (same type + mood + params) already exists.
+    existing = await _get_rules(profile_name)
+    if _rule_dupe_key(rule_type, mood_id, params) in {
+        _rule_dupe_key(r["rule_type"], r["mood_id"], r["params"]) for r in existing
+    }:
+        return RedirectResponse(f"/moods/rules?profile={profile_name}", status_code=303)
+
     conn = await get_ego_db()
     try:
         await conn.execute(
@@ -424,9 +431,25 @@ _RULE_BUILDER_TAIL = (
     "Map synonyms (flirty/romantic->flirting, coding/technical->work, helping->support, etc.)."
 )
 _RULE_BUILDER_OUTPUT = (
-    '\n\nOutput a JSON object ONLY: {"mood_id": "...", "rule_type": "...", "params": {...}, '
-    '"label": "<short human summary>"}'
+    '\n\nOutput a JSON object ONLY: {"rules": [{"mood_id": "...", "rule_type": "...", '
+    '"params": {...}, "label": "<short human summary>"}, ...]}.\n'
+    "If the description contains multiple distinct conditions (often joined by 'and'/'also'/'plus'), "
+    "output a SEPARATE rule for EACH condition. Do NOT output a rule that duplicates one the agent "
+    "already has — omit it from the array."
 )
+
+
+def _canon_params(rule_type: str, params: dict) -> str:
+    """Canonical string for duplicate detection (order-independent for lists)."""
+    p = dict(params or {})
+    for k in ("emotions", "keywords"):
+        if isinstance(p.get(k), list):
+            p[k] = sorted(str(x).lower() for x in p[k])
+    return json.dumps(p, sort_keys=True)
+
+
+def _rule_dupe_key(rule_type: str, mood_id: str, params: dict) -> tuple:
+    return (rule_type, mood_id, _canon_params(rule_type, params))
 
 
 def _clean_llm_params(rule_type: str, params: dict | None) -> dict:
@@ -507,32 +530,81 @@ async def create_rule_from_text(request: Request, profile_name: str = Form(...),
     except json.JSONDecodeError:
         return _err("Couldn't parse a rule from that — try rephrasing more concretely.")
 
-    rule_type = str(data.get("rule_type", "")).strip()
-    mood_id = str(data.get("mood_id", "")).strip()
-    label = str(data.get("label", "")).strip() or None
-    if rule_type not in VALID_RULE_TYPES:
-        return _err(f"Unrecognized rule type ({rule_type or '—'}).")
-    if mood_id not in mood_ids:
-        return _err(f"Mood '{mood_id or '—'}' doesn't exist — create it on the Moods page first.")
-
-    params = _clean_llm_params(rule_type, data.get("params"))
-    if rule_type in ("sentiment_user", "sentiment_agent", "sentiment_mismatch") and not params.get("emotions"):
-        return _err("No valid emotions recognized — try naming specific feelings.")
-    if rule_type == "topic_keyword" and not params.get("keywords"):
-        return _err("No keywords recognized.")
-
-    conn = await get_ego_db()
-    try:
-        await conn.execute(
-            "INSERT INTO mood_rules (id, profile_name, mood_id, rule_type, params, label, mood_gate, enabled, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
-            (str(uuid4()), profile_name, mood_id, rule_type, json.dumps(params), label, None, time.time()),
+    # The model may return one rule or several.
+    if isinstance(data, dict) and isinstance(data.get("rules"), list):
+        proposed = data["rules"]
+    elif isinstance(data, list):
+        proposed = data
+    elif isinstance(data, dict) and data.get("rule_type"):
+        proposed = [data]
+    else:
+        proposed = []
+    if not proposed:
+        return templates.TemplateResponse(
+            "partials/nl_rule_result.html",
+            {"request": request, "added": [],
+             "skipped": ["nothing to add — it may already exist, or try describing the condition more concretely"]},
         )
-        await conn.commit()
-    finally:
-        await conn.close()
-    # Reload the page so the new rule shows in the list.
-    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+    # Existing rules → duplicate keys.
+    seen = {_rule_dupe_key(r["rule_type"], r["mood_id"], r["params"]) for r in existing}
+
+    added, skipped = [], []
+    for item in proposed[:8]:
+        if not isinstance(item, dict):
+            continue
+        rule_type = str(item.get("rule_type", "")).strip()
+        mood_id = str(item.get("mood_id", "")).strip()
+        label = str(item.get("label", "")).strip() or None
+        if rule_type not in VALID_RULE_TYPES:
+            skipped.append(f"unrecognized rule type ({rule_type or '—'})")
+            continue
+        if mood_id not in mood_ids:
+            skipped.append(f"mood '{mood_id or '—'}' doesn't exist")
+            continue
+        params = _clean_llm_params(rule_type, item.get("params"))
+        if rule_type in ("sentiment_user", "sentiment_agent", "sentiment_mismatch") and not params.get("emotions"):
+            skipped.append(f"{label or rule_type}: no valid emotions")
+            continue
+        if rule_type == "topic_keyword" and not params.get("keywords"):
+            skipped.append(f"{label or rule_type}: no keywords")
+            continue
+        key = _rule_dupe_key(rule_type, mood_id, params)
+        if key in seen:
+            skipped.append(f"{label or rule_type} — already exists (duplicate)")
+            continue
+        seen.add(key)
+        conn = await get_ego_db()
+        try:
+            await conn.execute(
+                "INSERT INTO mood_rules (id, profile_name, mood_id, rule_type, params, label, mood_gate, enabled, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                (str(uuid4()), profile_name, mood_id, rule_type, json.dumps(params), label, None, time.time()),
+            )
+            await conn.commit()
+        finally:
+            await conn.close()
+        summary = _rule_summary({"rule_type": rule_type, "params": params}).replace("<strong>", "").replace("</strong>", "")
+        added.append(f"{label + ' — ' if label else ''}{summary} → {mood_id}")
+
+    headers = {"HX-Trigger": "rulesUpdated"} if added else {}
+    return templates.TemplateResponse(
+        "partials/nl_rule_result.html",
+        {"request": request, "added": added, "skipped": skipped},
+        headers=headers,
+    )
+
+
+@router.get("/partials/mood-rules-list")
+async def mood_rules_list_partial(request: Request, profile: str = "default"):
+    moods = await _get_moods()
+    rules = await _get_rules(profile)
+    for r in rules:
+        r["summary"] = _rule_summary(r)
+    return templates.TemplateResponse(
+        "partials/mood_rules_list.html",
+        {"request": request, "rules": rules, "moods": moods, "active_profile": profile},
+    )
 
 
 @router.get("/partials/mood-badge")

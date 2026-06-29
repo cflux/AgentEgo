@@ -1,0 +1,16 @@
+{# Expects: added (list of strings), skipped (list of strings) #}
+{% if added %}
+<p style="margin:0 0 0.25rem; font-size:0.85rem; color:#4caf50;">✓ Added {{ added|length }} rule{{ 's' if added|length != 1 else '' }}:</p>
+<ul style="margin:0 0 0.4rem; padding-left:1.1rem; font-size:0.82rem;">
+  {% for a in added %}<li>{{ a }}</li>{% endfor %}
+</ul>
+{% endif %}
+{% if skipped %}
+<p style="margin:0 0 0.25rem; font-size:0.85rem; color:#e0a04a;">Skipped {{ skipped|length }}:</p>
+<ul style="margin:0; padding-left:1.1rem; font-size:0.82rem; color:var(--pico-muted-color);">
+  {% for s in skipped %}<li>{{ s }}</li>{% endfor %}
+</ul>
+{% endif %}
+{% if not added and not skipped %}
+<p style="margin:0; font-size:0.85rem; color:var(--pico-muted-color);">No rules were produced — try rephrasing.</p>
+{% endif %}

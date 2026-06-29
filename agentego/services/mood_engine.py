@@ -6,6 +6,16 @@ from ..db.ego import get_ego_db
 _LOOKBACK_MAX = 20
 
 
+def _top_emotions(party: dict, n: int = 3) -> list:
+    """Top-n emotions for a party EXCLUDING neutral, derived from the full scores so
+    neutral (almost always the dominant) doesn't crowd out the real signal."""
+    scores = party.get("scores") or {}
+    if scores:
+        ranked = sorted((e for e in scores if e != "neutral"), key=lambda e: scores[e], reverse=True)
+        return ranked[:n]
+    return [e for e in (party.get("top3") or []) if e != "neutral"][:n]
+
+
 async def _load_defaults(profile_name: str, moods: dict) -> list:
     """Mood ids configured as this profile's resting-mood set (existing moods only)."""
     conn = await get_ego_db()
@@ -242,8 +252,8 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
             "topic": topic_map.get(cid),
             "sentiment_user": user_data.get("dominant"),
             "sentiment_agent": agent_data.get("dominant"),
-            "sentiment_user_top3": user_data.get("top3") or [],
-            "sentiment_agent_top3": agent_data.get("top3") or [],
+            "sentiment_user_top3": _top_emotions(user_data),
+            "sentiment_agent_top3": _top_emotions(agent_data),
         })
 
     vote_map: dict[str, int] = {}
@@ -309,7 +319,7 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
             "id": cid, "title": c.get("title"), "end_ts": c.get("end_ts"),
             "mode": mode_map.get(cid), "topic": topic_map.get(cid),
             "sentiment_user": u.get("dominant"), "sentiment_agent": a.get("dominant"),
-            "sentiment_user_top3": u.get("top3") or [], "sentiment_agent_top3": a.get("top3") or [],
+            "sentiment_user_top3": _top_emotions(u), "sentiment_agent_top3": _top_emotions(a),
         })
 
     def _threshold(mid: str) -> int:

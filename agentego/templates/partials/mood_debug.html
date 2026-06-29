@@ -60,8 +60,8 @@
     <thead><tr><th style="width:2rem;">#</th><th>When</th><th>Mode</th><th>Topic</th><th>User felt</th><th>Agent felt</th></tr></thead>
     <tbody>
       {% for c in d.enriched %}
-      {% set u_emos = c.sentiment_user_top3 | reject('equalto', 'neutral') | list %}
-      {% set a_emos = c.sentiment_agent_top3 | reject('equalto', 'neutral') | list %}
+      {% set u_emos = c.sentiment_user_top3 %}
+      {% set a_emos = c.sentiment_agent_top3 %}
       <tr>
         <td>[{{ loop.index0 }}]</td>
         <td style="white-space:nowrap; color:var(--pico-muted-color);">{{ c.end_ts | ts }}</td>

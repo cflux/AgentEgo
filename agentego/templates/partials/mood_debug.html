@@ -1,0 +1,70 @@
+{# Expects: d (explain_mood result), profile #}
+<article style="padding:1rem 1.25rem; margin:0;">
+  <div style="margin-bottom:0.75rem;">
+    {% if d.winner %}
+      <strong>Result:</strong> <span style="color:#4caf50;">{{ d.winner.name }}</span>
+      ({{ d.winner.votes }} vote{{ 's' if d.winner.votes != 1 else '' }})
+    {% else %}
+      <strong>Result:</strong> <span style="color:var(--pico-muted-color);">No mood</span> — no mood reached its vote threshold.
+    {% endif %}
+    <span style="font-size:0.75rem; color:var(--pico-muted-color); margin-left:0.5rem;">
+      over {{ d.conversation_count }} recent conversation(s){% if d.cached_mood %} · cached: {{ d.cached_mood }}{% endif %}
+    </span>
+  </div>
+
+  {# --- Vote tally --- #}
+  <h6 style="margin:0.5rem 0 0.3rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Vote tally</h6>
+  {% if d.tally %}
+  <table style="margin:0 0 0.75rem; font-size:0.82rem;">
+    <tbody>
+      {% for t in d.tally %}
+      <tr>
+        <td><strong>{{ t.name }}</strong></td>
+        <td>{{ t.votes }} / {{ t.threshold }} votes</td>
+        <td>{% if t.meets %}<span style="color:#4caf50;">✓ meets threshold</span>{% else %}<span style="color:var(--pico-muted-color);">below threshold</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="font-size:0.82rem; color:var(--pico-muted-color); margin:0 0 0.75rem;">No rules fired.</p>
+  {% endif %}
+
+  {# --- Rule firing --- #}
+  <h6 style="margin:0.5rem 0 0.3rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Rules</h6>
+  <table style="margin:0 0 0.75rem; font-size:0.82rem;">
+    <tbody>
+      {% for r in d.rules %}
+      <tr>
+        <td style="width:5rem;">
+          {% if r.fired %}<span style="color:#4caf50;">✓ fired</span>
+          {% elif r.gated %}<span style="color:#e0a04a;">🔒 gated</span>
+          {% else %}<span style="color:var(--pico-muted-color);">✗ no</span>{% endif %}
+        </td>
+        <td>{{ r.label }}</td>
+        <td style="color:var(--pico-muted-color);">→ {{ r.mood_id }}{% if r.gated %} <span style="font-size:0.72rem;">(needs mood: {{ r.mood_gate }})</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# --- Recent conversations the rules evaluate against --- #}
+  <h6 style="margin:0.5rem 0 0.3rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">
+    Recent conversations <span style="text-transform:none; font-weight:normal;">(most recent first — index [0] is the "last session")</span>
+  </h6>
+  <table style="margin:0; font-size:0.8rem;">
+    <thead><tr><th style="width:2rem;">#</th><th>When</th><th>Mode</th><th>Topic</th><th>User</th><th>Agent</th></tr></thead>
+    <tbody>
+      {% for c in d.enriched %}
+      <tr>
+        <td>[{{ loop.index0 }}]</td>
+        <td style="white-space:nowrap; color:var(--pico-muted-color);">{{ c.end_ts | ts }}</td>
+        <td>{% if c.mode %}<span class="mode mode-{{ c.mode }}">{{ c.mode }}</span>{% else %}<span style="color:#e57373;">— none —</span>{% endif %}</td>
+        <td style="color:var(--pico-muted-color);">{{ c.topic or "—" }}</td>
+        <td style="color:var(--pico-muted-color);">{{ c.sentiment_user or "—" }}</td>
+        <td style="color:var(--pico-muted-color);">{{ c.sentiment_agent or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</article>

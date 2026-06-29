@@ -6,6 +6,7 @@ from ..db.hermes import get_recent_sessions, get_session_messages
 from .settings_store import get_setting
 
 CONV_GAP_SECONDS = 7200  # default: 2-hour gap = new conversation
+CONV_SETTLE_SECONDS = 600  # don't re-score a conversation until it's been quiet this long
 
 # Messaging platforms hold continuous chats with only short natural pauses, so they
 # split on a much shorter gap than long-thinking CLI/coding sessions.
@@ -132,7 +133,10 @@ async def sync_session_conversations(
                     (total, part["start_ts"], part["end_ts"], part["msg_count"],
                      part["title"], cid),
                 )
-                if old_count != part["msg_count"]:
+                # Re-enrich a grown part only once it has SETTLED — an actively
+                # growing conversation keeps its current labels (no blank flicker)
+                # until it's been quiet, then gets one re-score on complete content.
+                if old_count != part["msg_count"] and (now - (part["end_ts"] or 0)) >= CONV_SETTLE_SECONDS:
                     stale_ids.append(cid)
             else:
                 await conn.execute(

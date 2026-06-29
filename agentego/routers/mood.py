@@ -2,13 +2,14 @@ import json
 import time
 from uuid import uuid4
 from fastapi import APIRouter, Request, Form
-from fastapi.responses import HTMLResponse, Response, RedirectResponse
+from fastapi.responses import HTMLResponse, Response, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
 from ..db.ego import get_ego_db
-from ..services.mood_engine import evaluate_mood
+from ..services.mood_engine import evaluate_mood, explain_mood
 from ..services.profiles import discover_profiles, resolve_profile
+from ..services.llm_client import chat, LLMError
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -19,6 +20,12 @@ VALID_RULE_TYPES = {
     "topic_keyword",
 }
 VALID_MODES = {"work", "social", "informative", "serious", "flirting", "creative", "support"}
+VALID_EMOTIONS = {
+    "admiration", "amusement", "anger", "annoyance", "approval", "caring", "confusion",
+    "curiosity", "desire", "disappointment", "disapproval", "disgust", "embarrassment",
+    "excitement", "fear", "gratitude", "grief", "joy", "love", "nervousness", "neutral",
+    "optimism", "pride", "realization", "relief", "remorse", "sadness", "surprise",
+}
 
 
 # --- Helpers ---
@@ -382,6 +389,133 @@ async def current_mood_json(profile: str = "default") -> dict:
         "vote_count": mood.get("vote_count", 0),
         "why": mood.get("breakdown") or [],
     }
+
+
+# --- Debug computation ---
+
+@router.get("/partials/mood-debug")
+async def mood_debug_partial(request: Request, profile: str = "default"):
+    data = await explain_mood(profile, db_path=resolve_profile(profile))
+    return templates.TemplateResponse(
+        "partials/mood_debug.html", {"request": request, "d": data, "profile": profile}
+    )
+
+
+# --- Natural-language rule builder (LLM) ---
+
+_RULE_BUILDER_HEAD = (
+    "You convert a plain-English description of an agent 'mood rule' into ONE structured JSON "
+    "rule. When a rule's condition is met it casts a single vote for a mood.\n\n"
+    "Available moods (use the id on the left):\n"
+)
+_RULE_BUILDER_TAIL = (
+    "\n\nChoose exactly ONE rule_type and fill its params:\n"
+    '- mode_streak: {"mode": M, "count": N, "negate": bool} — the last N conversations were ALL in mode M (or all NOT in, if negate).\n'
+    '- mode_count: {"mode": M, "min_count": K, "lookback": N, "negate": bool} — at least K of the last N conversations were in mode M.\n'
+    '- sentiment_user: {"emotions": [...], "lookback": N, "min_count": K} — the USER felt one of these emotions in K+ of the last N.\n'
+    '- sentiment_agent: {"emotions": [...], "lookback": N, "min_count": K} — the AGENT expressed one of these emotions in K+ of the last N.\n'
+    '- sentiment_mismatch: {"emotions": [...], "direction": "either"|"user_only"|"agent_only", "lookback": N, "min_count": K} — emotion present for one party but not the other.\n'
+    '- topic_keyword: {"keywords": [...], "lookback": N, "min_count": K} — the conversation topic contained a keyword.\n\n'
+    "Valid modes: work, social, informative, serious, flirting, creative, support.\n"
+    "Valid emotions: admiration, amusement, anger, annoyance, approval, caring, confusion, "
+    "curiosity, desire, disappointment, disapproval, disgust, embarrassment, excitement, fear, "
+    "gratitude, grief, joy, love, nervousness, neutral, optimism, pride, realization, relief, "
+    "remorse, sadness, surprise.\n\n"
+    "Map synonyms (flirty/romantic->flirting, coding/technical->work, helping->support, etc.).\n"
+    'Output a JSON object ONLY: {"mood_id": "...", "rule_type": "...", "params": {...}, "label": "<short human summary>"}'
+)
+
+
+def _clean_llm_params(rule_type: str, params: dict | None) -> dict:
+    p = params or {}
+
+    def _i(k, d):
+        try:
+            return max(1, int(p.get(k, d)))
+        except (TypeError, ValueError):
+            return d
+
+    def _mode(k, d="work"):
+        m = str(p.get(k, d)).strip().lower()
+        return m if m in VALID_MODES else d
+
+    def _emos():
+        raw = p.get("emotions", [])
+        if isinstance(raw, str):
+            raw = [raw]
+        return [str(e).strip().lower() for e in raw if str(e).strip().lower() in VALID_EMOTIONS]
+
+    if rule_type == "mode_streak":
+        return {"mode": _mode("mode"), "count": _i("count", 3), "negate": bool(p.get("negate", False))}
+    if rule_type == "mode_count":
+        return {"mode": _mode("mode"), "min_count": _i("min_count", 2),
+                "lookback": _i("lookback", 5), "negate": bool(p.get("negate", False))}
+    if rule_type in ("sentiment_user", "sentiment_agent"):
+        return {"emotions": _emos(), "lookback": _i("lookback", 1), "min_count": _i("min_count", 1)}
+    if rule_type == "sentiment_mismatch":
+        d = str(p.get("direction", "either")).strip().lower()
+        if d not in ("either", "user_only", "agent_only"):
+            d = "either"
+        return {"emotions": _emos(), "direction": d, "lookback": _i("lookback", 1), "min_count": _i("min_count", 1)}
+    if rule_type == "topic_keyword":
+        raw = p.get("keywords", [])
+        if isinstance(raw, str):
+            raw = raw.split(",")
+        kws = [str(k).strip() for k in raw if str(k).strip()]
+        return {"keywords": kws, "lookback": _i("lookback", 5), "min_count": _i("min_count", 1)}
+    return {}
+
+
+def _err(msg: str) -> HTMLResponse:
+    return HTMLResponse(f'<p style="color:#e57373; margin:0; font-size:0.85rem;">⚠ {msg}</p>')
+
+
+@router.post("/api/mood/rules/from-text")
+async def create_rule_from_text(request: Request, profile_name: str = Form(...), description: str = Form(...)):
+    description = description.strip()
+    if not description:
+        return _err("Describe a rule first.")
+    moods = await _get_moods()
+    mood_ids = {m["id"] for m in moods}
+    system = _RULE_BUILDER_HEAD + "\n".join(f"- {m['id']}: {m['name']}" for m in moods) + _RULE_BUILDER_TAIL
+
+    try:
+        raw = await chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": description}],
+            response_json=True, max_tokens=1500,
+        )
+        data = json.loads(raw)
+    except LLMError as e:
+        return _err(f"LLM error: {e}")
+    except json.JSONDecodeError:
+        return _err("Couldn't parse a rule from that — try rephrasing more concretely.")
+
+    rule_type = str(data.get("rule_type", "")).strip()
+    mood_id = str(data.get("mood_id", "")).strip()
+    label = str(data.get("label", "")).strip() or None
+    if rule_type not in VALID_RULE_TYPES:
+        return _err(f"Unrecognized rule type ({rule_type or '—'}).")
+    if mood_id not in mood_ids:
+        return _err(f"Mood '{mood_id or '—'}' doesn't exist — create it on the Moods page first.")
+
+    params = _clean_llm_params(rule_type, data.get("params"))
+    if rule_type in ("sentiment_user", "sentiment_agent", "sentiment_mismatch") and not params.get("emotions"):
+        return _err("No valid emotions recognized — try naming specific feelings.")
+    if rule_type == "topic_keyword" and not params.get("keywords"):
+        return _err("No keywords recognized.")
+
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            "INSERT INTO mood_rules (id, profile_name, mood_id, rule_type, params, label, mood_gate, enabled, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            (str(uuid4()), profile_name, mood_id, rule_type, json.dumps(params), label, None, time.time()),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+    # Reload the page so the new rule shows in the list.
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @router.get("/partials/mood-badge")

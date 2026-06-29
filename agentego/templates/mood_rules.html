@@ -32,6 +32,13 @@
   </article>
 </div>
 
+<div style="margin-bottom:1.5rem;">
+  <button class="secondary outline" style="margin:0; padding:0.35rem 0.9rem; font-size:0.82rem;"
+    hx-get="/partials/mood-debug?profile={{ active_profile }}"
+    hx-target="#mood-debug" hx-swap="innerHTML">🔬 Debug mood computation</button>
+  <div id="mood-debug" style="margin-top:0.75rem;"></div>
+</div>
+
 {% if rules %}
 <article style="padding:0; overflow:hidden; margin-bottom:1.5rem;">
 <table style="margin:0;">
@@ -88,7 +95,24 @@
 {% endif %}
 
 <article>
-  <header><strong>Add Rule</strong></header>
+  <header><strong>✨ Describe a rule</strong> <small style="color:var(--pico-muted-color); font-weight:normal;">— let the AI build it for you</small></header>
+  <form hx-post="/api/mood/rules/from-text" hx-target="#nl-result" hx-swap="innerHTML"
+        hx-indicator="#nl-spin" hx-disabled-elt="find button">
+    <input type="hidden" name="profile_name" value="{{ active_profile }}">
+    <div style="display:flex; gap:0.5rem; align-items:flex-start;">
+      <textarea name="description" required rows="2" style="flex:1; margin:0;"
+        placeholder="e.g. When the last 3 conversations were all flirty, make the agent horny"></textarea>
+      <button type="submit" style="margin:0; white-space:nowrap;">Build rule <span id="nl-spin" class="htmx-indicator" aria-busy="true"></span></button>
+    </div>
+  </form>
+  <div id="nl-result" style="margin-top:0.5rem;"></div>
+  <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.5rem 0 0;">
+    The AI maps your description to one of the rule types below and adds it. Review it in the list above and delete if it's off.
+  </p>
+</article>
+
+<article>
+  <header><strong>Add Rule</strong> <small style="color:var(--pico-muted-color); font-weight:normal;">— or build one manually</small></header>
   <form method="post" action="/api/mood/rules">
     <input type="hidden" name="profile_name" value="{{ active_profile }}">
     <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:0.75rem;">

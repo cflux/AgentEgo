@@ -261,6 +261,74 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
     return winner
 
 
+async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
+    """Read-only breakdown of the current mood computation, for debugging:
+    the recent conversations + enrichment, which rules fired, and the vote tally."""
+    moods = await _load_moods()
+    rules = await _load_rules(profile_name)
+    thresholds = await _load_thresholds(profile_name)
+    cached_mood_id = await _load_cached_mood(profile_name)
+
+    from .conversations import sync_recent_conversations, get_recent_conversations
+    await sync_recent_conversations(profile_name, db_path=db_path)
+    conversations = await get_recent_conversations(profile_name, limit=_LOOKBACK_MAX)
+    conv_ids = [c["id"] for c in conversations]
+    sentiment_map, topic_map, mode_map = await _fetch_enrichment(conv_ids)
+
+    enriched = []
+    for c in conversations:
+        cid = c["id"]
+        sdata = sentiment_map.get(cid, {})
+        u = sdata.get("user", {}) if sdata else {}
+        a = sdata.get("agent", {}) if sdata else {}
+        enriched.append({
+            "id": cid, "title": c.get("title"), "end_ts": c.get("end_ts"),
+            "mode": mode_map.get(cid), "topic": topic_map.get(cid),
+            "sentiment_user": u.get("dominant"), "sentiment_agent": a.get("dominant"),
+            "sentiment_user_top3": u.get("top3") or [], "sentiment_agent_top3": a.get("top3") or [],
+        })
+
+    def _threshold(mid: str) -> int:
+        return thresholds.get(mid, moods[mid]["min_votes"] if mid in moods else 1)
+
+    vote_map: dict[str, int] = {}
+    rule_results = []
+    for rule in rules:
+        in_catalog = rule["mood_id"] in moods
+        gated = bool(rule.get("mood_gate") and rule["mood_gate"] != cached_mood_id)
+        fired = in_catalog and not gated and _rule_fires(rule, enriched)
+        if fired:
+            vote_map[rule["mood_id"]] = vote_map.get(rule["mood_id"], 0) + 1
+        rule_results.append({
+            "label": rule.get("label") or _rule_label(rule),
+            "mood_id": rule["mood_id"], "rule_type": rule["rule_type"],
+            "gated": gated, "mood_gate": rule.get("mood_gate"), "fired": fired,
+        })
+
+    tally = []
+    for mid, votes in sorted(vote_map.items(), key=lambda x: -x[1]):
+        th = _threshold(mid)
+        tally.append({
+            "mood_id": mid, "name": moods[mid]["name"] if mid in moods else mid,
+            "votes": votes, "threshold": th, "meets": votes >= th,
+        })
+
+    candidates = [(mid, v) for mid, v in vote_map.items() if v >= _threshold(mid)]
+    winner = None
+    if candidates:
+        wid, wv = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
+        winner = {"id": wid, "name": moods[wid]["name"], "votes": wv}
+
+    return {
+        "enriched": enriched[:12],
+        "rules": rule_results,
+        "tally": tally,
+        "winner": winner,
+        "cached_mood": cached_mood_id,
+        "conversation_count": len(conversations),
+    }
+
+
 def _rule_label(rule: dict) -> str:
     p = rule["params"]
     rt = rule["rule_type"]

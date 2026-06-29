@@ -10,6 +10,7 @@ from ..db.ego import get_ego_db
 from ..services.mood_engine import evaluate_mood, explain_mood
 from ..services.profiles import discover_profiles, resolve_profile
 from ..services.llm_client import chat, LLMError
+from ..services.affinity_engine import get_traits
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -549,6 +550,18 @@ async def create_rule_from_text(request: Request, profile_name: str = Form(...),
     moods = await _get_moods()
     mood_ids = {m["id"] for m in moods}
     system = _RULE_BUILDER_HEAD + "\n".join(f"- {m['id']}: {m['name']}" for m in moods) + _RULE_BUILDER_TAIL
+
+    # Give the LLM the agent's personality so it picks moods/conditions that fit the character.
+    traits = await get_traits(profile_name)
+    if traits and traits.get("current"):
+        cur = traits["current"]
+        bits = []
+        if cur.get("summary"):
+            bits.append(cur["summary"])
+        if cur.get("values"):
+            bits.append("Core values: " + ", ".join(cur["values"]) + ".")
+        if bits:
+            system += "\n\nThis agent's personality (build rules that fit this character):\n" + " ".join(bits)
 
     # Give the LLM the agent's existing rules so it avoids duplicates and complements them.
     existing = await _get_rules(profile_name)

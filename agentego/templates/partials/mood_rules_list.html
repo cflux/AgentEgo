@@ -8,44 +8,12 @@
       <th>Label</th>
       <th>Condition</th>
       <th>Target mood</th>
-      <th style="width:7rem;"></th>
+      <th style="width:9.5rem;"></th>
     </tr>
   </thead>
   <tbody>
   {% for rule in rules %}
-  <tr id="rule-row-{{ rule.id }}">
-    <td>
-      <input type="checkbox" {% if rule.enabled %}checked{% endif %}
-        hx-patch="/api/mood/rules/{{ rule.id }}/toggle"
-        hx-swap="none"
-        style="cursor:pointer; width:1.1rem; height:1.1rem; margin:0;"
-        title="{{ 'Disable' if rule.enabled else 'Enable' }} rule">
-    </td>
-    <td style="font-size:0.85rem;">{{ rule.label or "—" }}</td>
-    <td style="font-size:0.82rem; color:var(--pico-muted-color);">
-      {% if rule.mood_gate %}
-        {% for gm in moods if gm.id == rule.mood_gate %}
-        <span class="mood-badge" style="background:{{ gm.color }}22; border:1px solid {{ gm.color }}; color:{{ gm.color }}; font-size:0.7rem; margin-right:0.3rem;">🔒 while {{ gm.icon }} {{ gm.name }}</span>
-        {% endfor %}
-        <span style="margin-right:0.3rem;">→</span>
-      {% endif %}
-      {{ rule.summary | safe }}
-    </td>
-    <td>
-      {% for m in moods if m.id == rule.mood_id %}
-      <span class="mood-badge" style="background:{{ m.color }}22; border:1px solid {{ m.color }}; color:{{ m.color }}; font-size:0.78rem;">
-        {{ m.icon }} {{ m.name }}
-      </span>
-      {% endfor %}
-    </td>
-    <td>
-      <button class="secondary outline" style="margin:0; padding:0.2rem 0.6rem; font-size:0.78rem; color:#d94f4f; border-color:#d94f4f;"
-        hx-delete="/api/mood/rules/{{ rule.id }}"
-        hx-confirm="Delete this rule?"
-        hx-target="#rule-row-{{ rule.id }}"
-        hx-swap="outerHTML">Delete</button>
-    </td>
-  </tr>
+  {% include "partials/mood_rule_row.html" %}
   {% endfor %}
   </tbody>
 </table>

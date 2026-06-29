@@ -1,0 +1,43 @@
+{# Inline editor for a mood rule. Expects: rule (params as dict), moods. #}
+<tr id="rule-row-{{ rule.id }}">
+  <td colspan="5">
+    <form hx-post="/api/mood/rules/{{ rule.id }}/edit"
+          hx-target="#rule-row-{{ rule.id }}" hx-swap="outerHTML"
+          style="display:grid; gap:0.6rem; padding:0.5rem 0;">
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+        <label style="margin:0; min-width:150px;">
+          Target mood
+          <select name="mood_id" required>
+            {% for m in moods %}
+            <option value="{{ m.id }}" {% if m.id == rule.mood_id %}selected{% endif %}>{{ m.icon }} {{ m.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label style="margin:0; min-width:150px;">
+          Mood gate <small style="color:var(--pico-muted-color); font-size:0.72rem;">(optional)</small>
+          <select name="mood_gate">
+            <option value="">Always evaluate</option>
+            {% for m in moods %}
+            <option value="{{ m.id }}" {% if m.id == rule.mood_gate %}selected{% endif %}>{{ m.icon }} {{ m.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label style="margin:0; flex:1; min-width:160px;">
+          Label
+          <input type="text" name="label" value="{{ rule.label or '' }}">
+        </label>
+        <span style="font-size:0.74rem; color:var(--pico-muted-color); padding-bottom:0.5rem;">type: {{ rule.rule_type }}</span>
+      </div>
+      <div style="padding:0.6rem; background:var(--pico-card-sectioning-background-color); border-radius:var(--pico-border-radius);">
+        {% with params = rule.params %}
+          {% include "partials/rule_params/" ~ rule.rule_type ~ ".html" %}
+        {% endwith %}
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="submit" style="margin:0; padding:0.3rem 0.9rem; font-size:0.82rem;">Save</button>
+        <button type="button" class="secondary outline" style="margin:0; padding:0.3rem 0.9rem; font-size:0.82rem;"
+          hx-get="/api/mood/rules/{{ rule.id }}/row" hx-target="#rule-row-{{ rule.id }}" hx-swap="outerHTML">Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>

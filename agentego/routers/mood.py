@@ -356,6 +356,75 @@ async def toggle_rule(rule_id: str):
     return Response(status_code=200)
 
 
+async def _get_rule(rule_id: str) -> dict | None:
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT id, profile_name, mood_id, rule_type, params, label, enabled, mood_gate "
+            "FROM mood_rules WHERE id = ?",
+            (rule_id,),
+        )
+        r = await cursor.fetchone()
+    finally:
+        await conn.close()
+    if not r:
+        return None
+    return {
+        "id": r[0], "profile_name": r[1], "mood_id": r[2], "rule_type": r[3],
+        "params": json.loads(r[4]), "label": r[5], "enabled": bool(r[6]), "mood_gate": r[7],
+    }
+
+
+@router.get("/api/mood/rules/{rule_id}/edit-form")
+async def rule_edit_form(request: Request, rule_id: str):
+    rule = await _get_rule(rule_id)
+    if not rule:
+        return Response(status_code=404)
+    moods = await _get_moods()
+    return templates.TemplateResponse(
+        "partials/mood_rule_edit_row.html", {"request": request, "rule": rule, "moods": moods}
+    )
+
+
+@router.get("/api/mood/rules/{rule_id}/row")
+async def rule_row(request: Request, rule_id: str):
+    rule = await _get_rule(rule_id)
+    if not rule:
+        return Response(status_code=404)
+    rule["summary"] = _rule_summary(rule)
+    moods = await _get_moods()
+    return templates.TemplateResponse(
+        "partials/mood_rule_row.html", {"request": request, "rule": rule, "moods": moods}
+    )
+
+
+@router.post("/api/mood/rules/{rule_id}/edit")
+async def edit_rule(request: Request, rule_id: str):
+    rule = await _get_rule(rule_id)
+    if not rule:
+        return Response(status_code=404)
+    form = await request.form()
+    mood_id = str(form.get("mood_id", rule["mood_id"]))
+    mood_gate = str(form.get("mood_gate", "")).strip() or None
+    label = str(form.get("label", "")).strip() or None
+    params = _parse_params(rule["rule_type"], form)  # rule_type is fixed on edit
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            "UPDATE mood_rules SET mood_id=?, params=?, label=?, mood_gate=? WHERE id=?",
+            (mood_id, json.dumps(params), label, mood_gate, rule_id),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+    updated = await _get_rule(rule_id)
+    updated["summary"] = _rule_summary(updated)
+    moods = await _get_moods()
+    return templates.TemplateResponse(
+        "partials/mood_rule_row.html", {"request": request, "rule": updated, "moods": moods}
+    )
+
+
 # --- Threshold CRUD ---
 
 @router.post("/api/mood/thresholds")

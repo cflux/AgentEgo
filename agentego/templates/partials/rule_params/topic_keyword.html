@@ -1,15 +1,16 @@
+{% set p = params|default({}) %}
 <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
   <label style="flex:2; min-width:200px; margin:0;">
     Keywords (comma-separated)
-    <input type="text" name="params_keywords" placeholder="work, deadline, bug" required>
+    <input type="text" name="params_keywords" value="{{ (p.get('keywords') or [])|join(', ') }}" placeholder="work, deadline, bug" required>
   </label>
   <label style="width:110px; margin:0;">
     Look back
-    <input type="number" name="params_lookback" value="5" min="1" max="20" required>
+    <input type="number" name="params_lookback" value="{{ p.get('lookback', 5) }}" min="1" max="20" required>
   </label>
   <label style="width:110px; margin:0;">
     Min matches
-    <input type="number" name="params_min_count" value="1" min="1" max="20" required>
+    <input type="number" name="params_min_count" value="{{ p.get('min_count', 1) }}" min="1" max="20" required>
   </label>
 </div>
 <p style="margin:0.4rem 0 0; font-size:0.78rem; color:var(--pico-muted-color);">Fires when any keyword appears in the topic of at least <em>min</em> of the last <em>lookback</em> sessions (case-insensitive substring match).</p>

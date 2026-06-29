@@ -40,10 +40,11 @@
       <span style="font-size:0.82rem; color:var(--pico-muted-color);">Color</span>
       <input type="color" name="color" value="#888888" style="width:2.5rem; height:2.4rem; padding:0.1rem; border-radius:4px; cursor:pointer;">
     </label>
-    <label style="margin:0; width:4rem;">
-      Icon
-      <input type="text" name="icon" placeholder="🎯" maxlength="4" style="font-size:1rem;">
-    </label>
+    <div style="margin:0;">
+      <span style="font-size:0.82rem; color:var(--pico-muted-color); display:block; margin-bottom:0.25rem;">Icon</span>
+      {% set selected = "" %}
+      {% include "partials/icon_picker.html" %}
+    </div>
     <label style="margin:0; flex:1; min-width:100px;">
       ID <small style="color:var(--pico-muted-color); font-size:0.72rem;">(slug, e.g. "tired")</small>
       <input type="text" name="id" required placeholder="tired" pattern="[a-z0-9_]+" title="Lowercase letters, digits, underscores only">

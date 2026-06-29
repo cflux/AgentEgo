@@ -60,6 +60,13 @@
     .profile-tab.active { background:var(--pico-primary-background); border-color:var(--pico-primary-background); color:var(--pico-primary-inverse); }
     /* Mood badge */
     .mood-badge { display:inline-block; padding:0.2em 0.65em; border-radius:999px; font-size:0.82rem; font-weight:600; }
+    /* Emoji icon picker */
+    .icon-picker > summary { list-style:none; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; padding:0.3rem 0.6rem; border:1px solid var(--pico-muted-border-color); border-radius:var(--pico-border-radius); background:var(--pico-card-background-color); font-size:0.82rem; }
+    .icon-picker > summary::-webkit-details-marker { display:none; }
+    .icon-picker .icon-current { font-size:1.2rem; min-width:1.4rem; text-align:center; }
+    .icon-grid { display:flex; flex-wrap:wrap; gap:0.15rem; margin-top:0.4rem; max-width:20rem; padding:0.4rem; border:1px solid var(--pico-muted-border-color); border-radius:var(--pico-border-radius); background:var(--pico-card-background-color); }
+    .icon-opt { font-size:1.3rem; line-height:1; padding:0.25rem; border-radius:6px; cursor:pointer; background:none; border:none; }
+    .icon-opt:hover { background:var(--pico-primary-background); }
   </style>
 </head>
 <body>
@@ -79,5 +86,16 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+  <script>
+    // Emoji icon picker: set the hidden input + summary preview, then collapse.
+    function pickIcon(el, emoji) {
+      var d = el.closest('details');
+      var input = d.querySelector('input[name=icon]');
+      if (input) input.value = emoji;
+      var cur = d.querySelector('.icon-current');
+      if (cur) cur.textContent = emoji;
+      d.open = false;
+    }
+  </script>
 </body>
 </html>

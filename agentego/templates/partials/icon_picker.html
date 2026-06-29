@@ -1,0 +1,21 @@
+{# Emoji icon picker. Expects: selected (current icon, may be empty). Submits as `icon`. #}
+{% set icons = [
+  "🎯","💼","🛠️","📚","🧠","⚙️","💻","📈",
+  "⚡","🔥","✨","💪","🚀","🌟","⭐","💡",
+  "😌","😴","🥱","🌙","☕","🧘","🍵",
+  "😊","😀","😄","🥰","😍","🤗","🎉","💬","🙂",
+  "🔍","🤔","🧐","❓","📖",
+  "😤","😠","😢","😟","😩","😬","💀",
+  "😏","😉","😈","💖","❤️","😻",
+  "🎨","🎭","✏️","🌈","🎵",
+  "🤖","👾","🌀","🐺"
+] %}
+<details class="icon-picker">
+  <summary>Icon: <span class="icon-current">{{ selected or "—" }}</span> ▾</summary>
+  <div class="icon-grid">
+    {% for e in icons %}
+    <button type="button" class="icon-opt" onclick="pickIcon(this, '{{ e }}')">{{ e }}</button>
+    {% endfor %}
+  </div>
+  <input type="hidden" name="icon" value="{{ selected or '' }}">
+</details>

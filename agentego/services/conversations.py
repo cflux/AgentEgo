@@ -37,14 +37,22 @@ def split_messages(messages: list) -> list:
     ]
 
 
-async def _get_synced_session_ids(profile_name: str) -> set:
+async def _get_sync_watermarks(profile_name: str) -> dict:
+    """{session_id: last-synced Hermes message_count} for this profile."""
     conn = await get_ego_db()
     try:
         cursor = await conn.execute(
-            "SELECT DISTINCT session_id FROM conversations WHERE profile_name = ?",
-            (profile_name,),
+            "SELECT key, value FROM module_data WHERE module = '_conv_sync' AND key LIKE ?",
+            (f"{profile_name}|%",),
         )
-        return {row[0] for row in await cursor.fetchall()}
+        out: dict = {}
+        for key, value in await cursor.fetchall():
+            sid = key.split("|", 1)[1]
+            try:
+                out[sid] = int(value)
+            except (TypeError, ValueError):
+                out[sid] = -1
+        return out
     finally:
         await conn.close()
 
@@ -52,18 +60,15 @@ async def _get_synced_session_ids(profile_name: str) -> set:
 async def sync_session_conversations(
     session: dict, profile_name: str, db_path: str | None = None
 ) -> None:
-    """Insert conversations for a Hermes session dict. No-op if already synced."""
+    """Sync a Hermes session into ego.db conversations, idempotently.
+
+    Re-splits the session's messages and reconciles by part_index: existing
+    conversation rows are UPDATED in place (preserving their id, so sentiment/
+    topic enrichment keyed on the conversation id stays valid) and any new
+    segments (e.g. afternoon activity after a gap) are INSERTed. This makes
+    long-running / re-activated sessions keep current instead of freezing at
+    their first sync."""
     session_id = session["id"]
-    conn = await get_ego_db()
-    try:
-        cursor = await conn.execute(
-            "SELECT id FROM conversations WHERE session_id = ? AND profile_name = ? LIMIT 1",
-            (session_id, profile_name),
-        )
-        if await cursor.fetchone():
-            return
-    finally:
-        await conn.close()
 
     msgs = await get_session_messages(session_id, db_path=db_path)
     parts = split_messages(msgs)
@@ -76,37 +81,60 @@ async def sync_session_conversations(
         }]
 
     now = time.time()
+    total = len(parts)
     conn = await get_ego_db()
     try:
+        cursor = await conn.execute(
+            "SELECT part_index, id FROM conversations WHERE session_id = ? AND profile_name = ?",
+            (session_id, profile_name),
+        )
+        existing = {row[0]: row[1] for row in await cursor.fetchall()}
+
         for part in parts:
-            await conn.execute(
-                """
-                INSERT OR IGNORE INTO conversations
-                    (id, session_id, profile_name, part_index, part_total,
-                     start_ts, end_ts, msg_count, title, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(uuid4()), session_id, profile_name,
-                    part["part_index"], part["part_total"],
-                    part["start_ts"], part["end_ts"],
-                    part["msg_count"], part["title"], now,
-                ),
-            )
+            idx = part["part_index"]
+            if idx in existing:
+                await conn.execute(
+                    "UPDATE conversations SET part_total = ?, start_ts = ?, end_ts = ?, "
+                    "msg_count = ?, title = ? WHERE id = ?",
+                    (total, part["start_ts"], part["end_ts"], part["msg_count"],
+                     part["title"], existing[idx]),
+                )
+            else:
+                await conn.execute(
+                    """
+                    INSERT INTO conversations
+                        (id, session_id, profile_name, part_index, part_total,
+                         start_ts, end_ts, msg_count, title, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (str(uuid4()), session_id, profile_name, idx, total,
+                     part["start_ts"], part["end_ts"], part["msg_count"], part["title"], now),
+                )
+
+        # Record the watermark so we only re-sync when message_count changes.
+        await conn.execute(
+            """
+            INSERT INTO module_data (module, key, value, updated_at)
+            VALUES ('_conv_sync', ?, ?, ?)
+            ON CONFLICT(module, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (f"{profile_name}|{session_id}", str(session.get("message_count") or 0), now),
+        )
         await conn.commit()
     finally:
         await conn.close()
 
 
 async def sync_recent_conversations(profile_name: str, db_path: str | None = None) -> None:
-    """Lazily sync conversations for any recent Hermes sessions not yet in ego.db."""
+    """Sync recent Hermes sessions, re-syncing any whose message_count changed."""
     try:
         sessions = await get_recent_sessions(db_path=db_path)
     except Exception:
         return
-    synced = await _get_synced_session_ids(profile_name)
+    watermarks = await _get_sync_watermarks(profile_name)
     for s in sessions:
-        if s["id"] not in synced:
+        mc = int(s.get("message_count") or 0)
+        if watermarks.get(s["id"]) != mc:
             try:
                 await sync_session_conversations(s, profile_name, db_path=db_path)
             except Exception:

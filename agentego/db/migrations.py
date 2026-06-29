@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -71,6 +71,12 @@ CREATE TABLE IF NOT EXISTS mood_thresholds (
     profile_name TEXT NOT NULL,
     mood_id      TEXT NOT NULL,
     min_votes    INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (profile_name, mood_id)
+);
+
+CREATE TABLE IF NOT EXISTS mood_defaults (
+    profile_name TEXT NOT NULL,
+    mood_id      TEXT NOT NULL,
     PRIMARY KEY (profile_name, mood_id)
 );
 
@@ -231,6 +237,10 @@ async def run_migrations(db_path: str) -> None:
                 await conn.execute("ALTER TABLE impulse_actions ADD COLUMN mood_negate INTEGER NOT NULL DEFAULT 0")
             except Exception:
                 pass  # column already exists
+
+        if current_version < 7:
+            # mood_defaults created by DDL above; no ALTER needed
+            pass
 
         if current_version < SCHEMA_VERSION:
             if current_version == 0:

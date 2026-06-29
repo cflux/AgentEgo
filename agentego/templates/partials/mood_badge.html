@@ -14,7 +14,11 @@
       <span class="mood-badge" style="background:{{ mood.color }}22; border:1px solid {{ mood.color }}; color:{{ mood.color }};">
         {{ mood.icon }} {{ mood.name }}
       </span>
+      {% if mood.is_default %}
+      <span style="font-size:0.72rem; color:var(--pico-muted-color);">resting · no rule fired</span>
+      {% else %}
       <span style="font-size:0.75rem; color:var(--pico-muted-color);">{{ mood.vote_count }} rule{{ 's' if mood.vote_count != 1 else '' }} matched</span>
+      {% endif %}
       {% if mood.breakdown %}
       <details style="font-size:0.75rem;">
         <summary style="color:var(--pico-muted-color); cursor:pointer; list-style:none;">▸ why</summary>

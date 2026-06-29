@@ -1,8 +1,21 @@
 import json
 import time
+import random
 from ..db.ego import get_ego_db
 
 _LOOKBACK_MAX = 20
+
+
+async def _load_defaults(profile_name: str, moods: dict) -> list:
+    """Mood ids configured as this profile's resting-mood set (existing moods only)."""
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT mood_id FROM mood_defaults WHERE profile_name = ?", (profile_name,)
+        )
+        return [r[0] for r in await cursor.fetchall() if r[0] in moods]
+    finally:
+        await conn.close()
 
 
 async def _load_moods() -> dict:
@@ -252,8 +265,15 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
     ]
 
     if not candidates:
-        await _cache_result(profile_name, None, 0, [])
-        return None
+        # No rule won — fall back to the profile's default mood set, if any.
+        defaults = await _load_defaults(profile_name, moods)
+        if not defaults:
+            await _cache_result(profile_name, None, 0, [])
+            return None
+        # Stable random: keep the current default if it's still a default, else pick anew.
+        chosen = cached_mood_id if cached_mood_id in defaults else random.choice(defaults)
+        await _cache_result(profile_name, chosen, 0, ["Default mood"])
+        return {**moods[chosen], "vote_count": 0, "breakdown": ["Default mood"], "is_default": True}
 
     winner_id, winner_votes = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
     winner = {**moods[winner_id], "vote_count": winner_votes, "breakdown": breakdown}
@@ -315,15 +335,24 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
 
     candidates = [(mid, v) for mid, v in vote_map.items() if v >= _threshold(mid)]
     winner = None
+    is_default = False
     if candidates:
         wid, wv = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
         winner = {"id": wid, "name": moods[wid]["name"], "votes": wv}
+    else:
+        defaults = await _load_defaults(profile_name, moods)
+        if defaults:
+            chosen = cached_mood_id if cached_mood_id in defaults else defaults[0]
+            winner = {"id": chosen, "name": moods[chosen]["name"], "votes": 0}
+            is_default = True
 
     return {
         "enriched": enriched[:12],
         "rules": rule_results,
         "tally": tally,
         "winner": winner,
+        "is_default": is_default,
+        "default_set": [moods[m]["name"] for m in await _load_defaults(profile_name, moods)],
         "cached_mood": cached_mood_id,
         "conversation_count": len(conversations),
     }

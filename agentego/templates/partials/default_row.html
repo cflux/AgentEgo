@@ -1,0 +1,21 @@
+{# Expects: mood, profile_name, defaults (set of mood ids). Mirrors threshold_row. #}
+{% set is_default = mood.id in defaults %}
+<tr id="default-row-{{ mood.id }}">
+  <td>
+    <span style="display:inline-block; width:0.9rem; height:0.9rem; border-radius:50%; background:{{ mood.color }}; vertical-align:middle; margin-right:0.3rem; border:1px solid rgba(255,255,255,0.15);"></span>
+    {{ mood.icon }} <strong>{{ mood.name }}</strong>
+  </td>
+  <td>
+    <label style="display:inline-flex; align-items:center; gap:0.45rem; cursor:pointer; margin:0;">
+      <input type="checkbox" {% if is_default %}checked{% endif %}
+        hx-post="/api/mood/defaults/toggle"
+        hx-vals='{"profile_name": "{{ profile_name }}", "mood_id": "{{ mood.id }}"}'
+        hx-target="#default-row-{{ mood.id }}"
+        hx-swap="outerHTML"
+        style="margin:0; width:1.1rem; height:1.1rem; cursor:pointer;">
+      <span style="font-size:0.8rem; color:{% if is_default %}{{ mood.color }}{% else %}var(--pico-muted-color){% endif %};">
+        {% if is_default %}resting mood{% else %}—{% endif %}
+      </span>
+    </label>
+  </td>
+</tr>

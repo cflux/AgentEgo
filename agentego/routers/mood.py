@@ -90,6 +90,18 @@ async def _get_thresholds(profile_name: str) -> dict:
         await conn.close()
 
 
+async def _get_defaults(profile_name: str) -> set:
+    """Mood ids in this profile's resting-mood set."""
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT mood_id FROM mood_defaults WHERE profile_name = ?", (profile_name,)
+        )
+        return {r[0] for r in await cursor.fetchall()}
+    finally:
+        await conn.close()
+
+
 def _parse_params(rule_type: str, form) -> dict:
     if rule_type == "mode_streak":
         return {
@@ -180,6 +192,7 @@ async def mood_rules_page(request: Request, profile: str = "default"):
     db_path = resolve_profile(profile)
     current_mood = await evaluate_mood(profile, db_path=db_path)
     thresholds = await _get_thresholds(profile)
+    defaults = await _get_defaults(profile)
     return templates.TemplateResponse(
         "mood_rules.html",
         {
@@ -190,6 +203,7 @@ async def mood_rules_page(request: Request, profile: str = "default"):
             "active_profile": profile,
             "current_mood": current_mood,
             "thresholds": thresholds,
+            "defaults": defaults,
         },
     )
 
@@ -264,6 +278,7 @@ async def delete_mood(mood_id: str):
     try:
         await conn.execute("DELETE FROM mood_rules WHERE mood_id = ?", (mood_id,))
         await conn.execute("DELETE FROM mood_thresholds WHERE mood_id = ?", (mood_id,))
+        await conn.execute("DELETE FROM mood_defaults WHERE mood_id = ?", (mood_id,))
         await conn.execute("DELETE FROM moods WHERE id = ?", (mood_id,))
         await conn.commit()
     finally:
@@ -378,6 +393,36 @@ async def clear_threshold(request: Request, profile_name: str, mood_id: str):
     return templates.TemplateResponse(
         "partials/threshold_row.html",
         {"request": request, "mood": mood, "profile_name": profile_name, "thresholds": thresholds},
+    )
+
+
+# --- Default mood set CRUD ---
+
+@router.post("/api/mood/defaults/toggle")
+async def toggle_default(request: Request, profile_name: str = Form(...), mood_id: str = Form(...)):
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT 1 FROM mood_defaults WHERE profile_name=? AND mood_id=?", (profile_name, mood_id)
+        )
+        exists = await cursor.fetchone()
+        if exists:
+            await conn.execute(
+                "DELETE FROM mood_defaults WHERE profile_name=? AND mood_id=?", (profile_name, mood_id)
+            )
+        else:
+            await conn.execute(
+                "INSERT OR IGNORE INTO mood_defaults (profile_name, mood_id) VALUES (?, ?)",
+                (profile_name, mood_id),
+            )
+        await conn.commit()
+    finally:
+        await conn.close()
+    mood = await _get_mood(mood_id)
+    defaults = await _get_defaults(profile_name)
+    return templates.TemplateResponse(
+        "partials/default_row.html",
+        {"request": request, "mood": mood, "profile_name": profile_name, "defaults": defaults},
     )
 
 

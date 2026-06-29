@@ -1,12 +1,16 @@
 {# Expects: d (explain_mood result), profile #}
 <article style="padding:1rem 1.25rem; margin:0;">
   <div style="margin-bottom:0.75rem;">
-    {% if d.winner %}
+    {% if d.winner and d.is_default %}
+      <strong>Result:</strong> <span style="color:#b47aff;">{{ d.winner.name }}</span>
+      <span style="color:var(--pico-muted-color);">— default (resting) mood; no rule met its threshold</span>
+    {% elif d.winner %}
       <strong>Result:</strong> <span style="color:#4caf50;">{{ d.winner.name }}</span>
       ({{ d.winner.votes }} vote{{ 's' if d.winner.votes != 1 else '' }})
     {% else %}
-      <strong>Result:</strong> <span style="color:var(--pico-muted-color);">No mood</span> — no mood reached its vote threshold.
+      <strong>Result:</strong> <span style="color:var(--pico-muted-color);">No mood</span> — no rule met its threshold{% if d.default_set %} and no default moods are set{% endif %}.
     {% endif %}
+    {% if d.default_set %}<span style="font-size:0.75rem; color:var(--pico-muted-color); margin-left:0.5rem;">defaults: {{ d.default_set | join(', ') }}</span>{% endif %}
     <span style="font-size:0.75rem; color:var(--pico-muted-color); margin-left:0.5rem;">
       over {{ d.conversation_count }} recent conversation(s){% if d.cached_mood %} · cached: {{ d.cached_mood }}{% endif %}
     </span>

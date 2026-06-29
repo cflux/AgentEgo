@@ -13,7 +13,7 @@ from ..db.ego import get_ego_db
 from ..services.profiles import discover_profiles, resolve_profile
 from ..services.conversations import (
     sync_recent_conversations, get_recent_conversations, get_all_recent_conversations,
-    get_conversation, get_first_conv_id_for_session,
+    get_conversation, get_first_conv_id_for_session, sort_conversations_grouped,
 )
 
 router = APIRouter()
@@ -146,17 +146,8 @@ async def sessions_page(request: Request, platform: str = "", user_id: str = "",
             "ended_at": s.get("ended_at"),
         })
 
-    # Keep a session's parts together and in order: most-recently-active session
-    # first, then Part 1, 2, 3… within each session.
-    recency: dict = {}
-    for c in enriched:
-        key = (c["profile_name"], c["session_id"])
-        recency[key] = max(recency.get(key, 0.0), c.get("end_ts") or 0.0)
-    enriched.sort(key=lambda c: (
-        -recency[(c["profile_name"], c["session_id"])],
-        c["session_id"],
-        c.get("part_index") or 0,
-    ))
+    # Keep a session's parts together and in order (shared with the dashboard box).
+    enriched = sort_conversations_grouped(enriched)
     # Mark the first row of each session so the table can separate groups visually.
     prev_key = None
     for c in enriched:

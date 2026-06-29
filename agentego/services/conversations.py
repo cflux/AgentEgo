@@ -173,10 +173,28 @@ async def sync_session_conversations(
         await conn.close()
 
 
-async def invalidate_stale_enrichment(margin: float = 180.0) -> int:
+def sort_conversations_grouped(conversations: list) -> list:
+    """Order conversations so a session's parts stay together and in order:
+    most-recently-active session first, then Part 1, 2, 3… within it. Shared by the
+    sessions page and the dashboard's recent box so the two always agree."""
+    recency: dict = {}
+    for c in conversations:
+        key = (c.get("profile_name"), c.get("session_id"))
+        recency[key] = max(recency.get(key, 0.0), c.get("end_ts") or 0.0)
+    return sorted(conversations, key=lambda c: (
+        -recency[(c.get("profile_name"), c.get("session_id"))],
+        c.get("session_id") or "",
+        c.get("part_index") or 0,
+    ))
+
+
+async def invalidate_stale_enrichment(margin: float = 180.0, settle: float = 600.0) -> int:
     """Clear sentiment/topic/mode for conversations whose content (end_ts) is newer
-    than when they were scored — i.e. they grew after enrichment ran. This drops them
-    back into the workers' "pending" queue so the labels refresh instead of going stale."""
+    than when they were scored — i.e. they grew after enrichment ran — so they get
+    re-scored. Only touches *settled* conversations (no new messages for `settle`
+    seconds); an actively-growing conversation keeps its current labels until it goes
+    quiet, so its tags don't flicker between page loads."""
+    now = time.time()
     conn = await get_ego_db()
     try:
         cursor = await conn.execute(
@@ -185,8 +203,9 @@ async def invalidate_stale_enrichment(margin: float = 180.0) -> int:
             JOIN conversations c ON c.id = m.key
             WHERE m.module IN ('sentiment', 'topic', 'mode')
               AND c.end_ts > m.updated_at + ?
+              AND c.end_ts < ?
             """,
-            (margin,),
+            (margin, now - settle),
         )
         stale = await cursor.fetchall()
         for module, key in stale:
@@ -199,8 +218,12 @@ async def invalidate_stale_enrichment(margin: float = 180.0) -> int:
 
 
 async def sync_recent_conversations(profile_name: str, db_path: str | None = None) -> None:
-    """Sync recent Hermes sessions, re-syncing any whose message_count changed,
-    then invalidate any now-stale enrichment so it gets re-scored."""
+    """Sync recent Hermes sessions, re-syncing any whose message_count changed.
+
+    Enrichment for a changed conversation is invalidated inside
+    sync_session_conversations (once per actual content change, gated by the
+    message_count watermark) — NOT on every read — so a settled conversation's
+    tags stay put and all pages render the same DB state."""
     try:
         sessions = await get_recent_sessions(db_path=db_path)
     except Exception:
@@ -213,10 +236,6 @@ async def sync_recent_conversations(profile_name: str, db_path: str | None = Non
                 await sync_session_conversations(s, profile_name, db_path=db_path)
             except Exception:
                 pass
-    try:
-        await invalidate_stale_enrichment()
-    except Exception:
-        pass
 
 
 async def get_recent_conversations(profile_name: str, limit: int = 100) -> list:

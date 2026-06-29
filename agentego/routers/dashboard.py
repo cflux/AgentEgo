@@ -8,6 +8,7 @@ from ..db.ego import get_ego_db
 from ..services.profiles import discover_profiles, resolve_profile
 from ..services.conversations import (
     sync_recent_conversations, get_recent_conversations, get_all_recent_conversations,
+    sort_conversations_grouped,
 )
 from .sentiment import scoring_status
 from .topic import topic_status
@@ -193,7 +194,7 @@ async def dashboard(request: Request, profile: str = ""):
     gateway_startup = await _get_last_gateway_startup()
     activity = await _get_activity_by_day()
     active_sessions = await _get_active_sessions()
-    recent = await _enrich_conversations(conversations[:10])
+    recent = await _enrich_conversations(sort_conversations_grouped(conversations)[:10])
     status = await scoring_status()
     topic_status_data = await topic_status()
 
@@ -243,10 +244,13 @@ async def recent_sessions_partial(request: Request, profile: str = ""):
     db_path = resolve_profile(profile) if profile else None
     multi = not profile
     if multi:
+        for p in discover_profiles():
+            await sync_recent_conversations(p["name"], p["db_path"])
         conversations = await get_all_recent_conversations()
     else:
+        await sync_recent_conversations(profile, db_path)
         conversations = await get_recent_conversations(profile)
-    recent = await _enrich_conversations(conversations[:10])
+    recent = await _enrich_conversations(sort_conversations_grouped(conversations)[:10])
     return templates.TemplateResponse(
         "partials/recent_sessions.html",
         {"request": request, "recent_sessions": recent, "multi_profile": multi},

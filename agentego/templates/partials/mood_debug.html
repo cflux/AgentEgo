@@ -57,16 +57,18 @@
     Recent conversations <span style="text-transform:none; font-weight:normal;">(most recent first — index [0] is the "last session")</span>
   </h6>
   <table style="margin:0; font-size:0.8rem;">
-    <thead><tr><th style="width:2rem;">#</th><th>When</th><th>Mode</th><th>Topic</th><th>User</th><th>Agent</th></tr></thead>
+    <thead><tr><th style="width:2rem;">#</th><th>When</th><th>Mode</th><th>Topic</th><th>User felt</th><th>Agent felt</th></tr></thead>
     <tbody>
       {% for c in d.enriched %}
+      {% set u_emos = c.sentiment_user_top3 | reject('equalto', 'neutral') | list %}
+      {% set a_emos = c.sentiment_agent_top3 | reject('equalto', 'neutral') | list %}
       <tr>
         <td>[{{ loop.index0 }}]</td>
         <td style="white-space:nowrap; color:var(--pico-muted-color);">{{ c.end_ts | ts }}</td>
         <td>{% if c.mode %}<span class="mode mode-{{ c.mode }}">{{ c.mode }}</span>{% else %}<span style="color:#e57373;">— none —</span>{% endif %}</td>
         <td style="color:var(--pico-muted-color);">{{ c.topic or "—" }}</td>
-        <td style="color:var(--pico-muted-color);">{{ c.sentiment_user or "—" }}</td>
-        <td style="color:var(--pico-muted-color);">{{ c.sentiment_agent or "—" }}</td>
+        <td style="color:var(--pico-muted-color);">{{ u_emos | join(', ') if u_emos else "—" }}</td>
+        <td style="color:var(--pico-muted-color);">{{ a_emos | join(', ') if a_emos else "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>

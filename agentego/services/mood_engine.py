@@ -140,13 +140,17 @@ def _rule_fires(rule: dict, enriched: list) -> bool:
         emotions = set(p.get("emotions", []))
         lookback = max(1, int(p.get("lookback", 1)))
         min_count = max(1, int(p.get("min_count", 1)))
-        return sum(1 for s in enriched[:lookback] if s.get("sentiment_user") in emotions) >= min_count
+        # Match against the top-3 (not just the dominant emotion, which is almost
+        # always 'neutral' and would keep these rules from ever firing).
+        return sum(1 for s in enriched[:lookback]
+                   if emotions & set(s.get("sentiment_user_top3") or [])) >= min_count
 
     elif rt == "sentiment_agent":
         emotions = set(p.get("emotions", []))
         lookback = max(1, int(p.get("lookback", 1)))
         min_count = max(1, int(p.get("min_count", 1)))
-        return sum(1 for s in enriched[:lookback] if s.get("sentiment_agent") in emotions) >= min_count
+        return sum(1 for s in enriched[:lookback]
+                   if emotions & set(s.get("sentiment_agent_top3") or [])) >= min_count
 
     elif rt == "sentiment_mismatch":
         emotions = set(p.get("emotions", []))

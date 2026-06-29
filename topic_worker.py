@@ -26,6 +26,32 @@ POLL_INTERVAL = 60
 
 VALID_MODES = {"work", "social", "informative", "serious", "flirting", "creative", "support"}
 
+# Map common off-list words the model emits to a canonical mode.
+_MODE_SYNONYMS = {
+    "flirty": "flirting", "flirtatious": "flirting", "romantic": "flirting",
+    "romance": "flirting", "intimate": "flirting", "dating": "flirting",
+    "sexual": "flirting", "seductive": "flirting", "playful": "flirting",
+    "casual": "social", "chat": "social", "chatting": "social", "greeting": "social",
+    "friendly": "social", "smalltalk": "social", "conversation": "social", "social": "social",
+    "coding": "work", "technical": "work", "debugging": "work", "development": "work",
+    "programming": "work", "engineering": "work", "task": "work",
+    "question": "informative", "informational": "informative", "educational": "informative",
+    "learning": "informative", "explanation": "informative", "factual": "informative",
+    "help": "support", "helping": "support", "assistance": "support",
+    "troubleshooting": "support", "emotional": "support", "comfort": "support",
+    "art": "creative", "writing": "creative", "design": "creative",
+    "story": "creative", "brainstorm": "creative", "imaginative": "creative",
+}
+
+
+def _canon_mode(word: str) -> str | None:
+    """Resolve a raw word to a canonical mode, via the valid set or synonyms."""
+    if not word:
+        return None
+    if word in VALID_MODES:
+        return word
+    return _MODE_SYNONYMS.get(word)
+
 _SYSTEM = (
     "Classify a conversation by its user messages.\n"
     "Output exactly TWO lines:\n"
@@ -112,17 +138,22 @@ def label_conversation(messages: list, title: str = "") -> tuple[str | None, str
             words = [w for w in words if w][:3]
             topic = " ".join(words) or None
 
-        # Mode: second line, strip any "Mode: " prefix, must be a known mode
+        # Mode: second line, strip any "Mode: " prefix, mapped to a known mode
         mode = None
         if len(lines) > 1:
             candidate = re.sub(r"[^a-z]", "", _strip_prefix(lines[1]).lower())
-            mode = candidate if candidate in VALID_MODES else None
-        # Fallback: scan entire raw output for any valid mode word
+            mode = _canon_mode(candidate)
+        # Fallback: scan entire raw output for any recognizable mode word
         if mode is None:
             for word in re.findall(r"[a-z]+", raw.lower()):
-                if word in VALID_MODES:
-                    mode = word
+                m = _canon_mode(word)
+                if m:
+                    mode = m
                     break
+        # Guarantee a valid mode when there's a topic, so a conversation can never
+        # get stuck "unanalyzed" just because the model used an off-list word.
+        if mode is None and topic:
+            mode = "social"
 
         return topic, mode
     except Exception as e:

@@ -70,6 +70,12 @@ async def get_pending_sessions() -> list[dict]:
 @router.post("/topic/score", status_code=202)
 async def save_topic(result: TopicResult):
     now = time.time()
+    # A conversation is "analyzed" only when it has BOTH topic and mode. If the
+    # worker found a topic but couldn't map a mode (off-list word), default the
+    # mode so the conversation can't get stuck perpetually "unanalyzed".
+    mode = result.mode
+    if result.topic is not None and not mode:
+        mode = "social"
     conn = await get_ego_db()
     try:
         if result.topic is not None:
@@ -81,14 +87,14 @@ async def save_topic(result: TopicResult):
                 """,
                 (result.session_id, result.topic, now),
             )
-        if result.mode is not None:
+        if mode is not None:
             await conn.execute(
                 """
                 INSERT INTO module_data (module, key, value, updated_at)
                 VALUES ('mode', ?, ?, ?)
                 ON CONFLICT(module, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
                 """,
-                (result.session_id, result.mode, now),
+                (result.session_id, mode, now),
             )
         await conn.commit()
     finally:

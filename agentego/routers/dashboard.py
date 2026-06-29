@@ -92,7 +92,7 @@ async def _enrich_conversations(conversations: list) -> list:
         result.append({
             **c,
             "platform_name": src.get("platform") or "console",
-            "user_display": src.get("user_name") or src.get("user_id", ""),
+            "user_display": src.get("user_name") or src.get("user_id") or s.get("user_id") or "",
             "model": s.get("model", ""),
             "sentiment_user": _first_non_neutral(s_data.get("user") or {}),
             "sentiment_agent": _first_non_neutral(s_data.get("agent") or {}),

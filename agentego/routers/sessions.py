@@ -200,7 +200,7 @@ async def conversation_detail(request: Request, conv_id: str):
 
     src = _parse_source(session.get("source"))
     session["platform_name"] = src.get("platform") or "console"
-    session["user_display"] = src.get("user_name") or src.get("user_id", "")
+    session["user_display"] = src.get("user_name") or src.get("user_id") or session.get("user_id") or ""
     session["chat_name"] = src.get("chat_name", src.get("chat_id", ""))
     session["profile_name"] = profile_name
 

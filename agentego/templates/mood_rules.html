@@ -100,9 +100,9 @@
         hx-indicator="#nl-spin" hx-disabled-elt="find button">
     <input type="hidden" name="profile_name" value="{{ active_profile }}">
     <div style="display:flex; gap:0.5rem; align-items:flex-start;">
-      <textarea name="description" required rows="2" style="flex:1; margin:0;"
+      <textarea name="description" required rows="2" style="flex:1 1 auto; min-width:0; margin:0;"
         placeholder="e.g. When the last 3 conversations were all flirty, make the agent horny"></textarea>
-      <button type="submit" style="margin:0; white-space:nowrap;">Build rule <span id="nl-spin" class="htmx-indicator" aria-busy="true"></span></button>
+      <button type="submit" style="margin:0; width:auto; flex:0 0 auto; white-space:nowrap; align-self:stretch;">Build rule <span id="nl-spin" class="htmx-indicator" aria-busy="true"></span></button>
     </div>
   </form>
   <div id="nl-result" style="margin-top:0.5rem;"></div>

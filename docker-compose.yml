@@ -15,6 +15,8 @@ services:
       - EGO_EGO_DB_PATH=/data/ego.db
       - EGO_RETENTION_DAYS=7
       - EGO_LOG_LEVEL=info
+      - EGO_DISPLAY_TIMEZONE=America/Los_Angeles
+      - TZ=America/Los_Angeles
     user: "1000:1000"
 
 volumes:

@@ -14,7 +14,7 @@
 {% endif %}
 
 {% if gateway_startup %}
-<p style="font-size:0.82rem; color:var(--pico-muted-color);">Gateway last started: <strong>{{ gateway_startup }}</strong></p>
+<p style="font-size:0.82rem; color:var(--pico-muted-color);">Gateway last started: <strong>{{ gateway_startup | ts }}</strong></p>
 {% endif %}
 
 <div class="stat-grid">

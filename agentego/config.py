@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8765
     log_level: str = "info"
+    display_timezone: str = "America/Los_Angeles"
 
     model_config = {"env_prefix": "EGO_", "env_file": ".env"}
 

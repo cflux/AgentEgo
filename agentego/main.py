@@ -1,7 +1,8 @@
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -15,14 +16,31 @@ from .modules import load_modules
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
 
+try:
+    _DISPLAY_TZ = ZoneInfo(settings.display_timezone)
+except Exception:
+    _DISPLAY_TZ = timezone.utc
 
-def _fmt_ts(value, fmt="%Y-%m-%d %H:%M:%S") -> str:
-    if value is None:
+
+def _fmt_ts(value, fmt=None) -> str:
+    """Render a Unix timestamp in the display timezone, human-friendly:
+    'Today, 1:41 PM' / 'Yesterday, 9:30 AM' / 'Jun 27, 3:00 PM' / 'Jun 27, 2025, 3:00 PM'."""
+    if value is None or value == "":
         return "—"
     try:
-        return datetime.fromtimestamp(float(value)).strftime(fmt)
-    except Exception:
+        dt = datetime.fromtimestamp(float(value), _DISPLAY_TZ)
+    except (TypeError, ValueError, OverflowError, OSError):
         return str(value)[:19]
+    now = datetime.now(_DISPLAY_TZ)
+    t = dt.strftime("%-I:%M %p")
+    days = (now.date() - dt.date()).days
+    if days == 0:
+        return f"Today, {t}"
+    if days == 1:
+        return f"Yesterday, {t}"
+    if dt.year == now.year:
+        return f"{dt.strftime('%b %-d')}, {t}"
+    return f"{dt.strftime('%b %-d, %Y')}, {t}"
 
 
 @asynccontextmanager

@@ -130,10 +130,7 @@ async def _get_last_gateway_startup() -> str | None:
             """
         )
         row = await cursor.fetchone()
-        if row:
-            import datetime
-            return datetime.datetime.fromtimestamp(row[0]).strftime("%Y-%m-%d %H:%M:%S")
-        return None
+        return row[0] if row else None  # raw ts; rendered via the `ts` filter in the template
     finally:
         await conn.close()
 

@@ -125,8 +125,34 @@ async def sync_session_conversations(
         await conn.close()
 
 
+async def invalidate_stale_enrichment(margin: float = 180.0) -> int:
+    """Clear sentiment/topic/mode for conversations whose content (end_ts) is newer
+    than when they were scored — i.e. they grew after enrichment ran. This drops them
+    back into the workers' "pending" queue so the labels refresh instead of going stale."""
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            """
+            SELECT m.module, m.key FROM module_data m
+            JOIN conversations c ON c.id = m.key
+            WHERE m.module IN ('sentiment', 'topic', 'mode')
+              AND c.end_ts > m.updated_at + ?
+            """,
+            (margin,),
+        )
+        stale = await cursor.fetchall()
+        for module, key in stale:
+            await conn.execute("DELETE FROM module_data WHERE module = ? AND key = ?", (module, key))
+        if stale:
+            await conn.commit()
+        return len(stale)
+    finally:
+        await conn.close()
+
+
 async def sync_recent_conversations(profile_name: str, db_path: str | None = None) -> None:
-    """Sync recent Hermes sessions, re-syncing any whose message_count changed."""
+    """Sync recent Hermes sessions, re-syncing any whose message_count changed,
+    then invalidate any now-stale enrichment so it gets re-scored."""
     try:
         sessions = await get_recent_sessions(db_path=db_path)
     except Exception:
@@ -139,6 +165,10 @@ async def sync_recent_conversations(profile_name: str, db_path: str | None = Non
                 await sync_session_conversations(s, profile_name, db_path=db_path)
             except Exception:
                 pass
+    try:
+        await invalidate_stale_enrichment()
+    except Exception:
+        pass
 
 
 async def get_recent_conversations(profile_name: str, limit: int = 100) -> list:

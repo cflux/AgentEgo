@@ -146,6 +146,24 @@ async def sessions_page(request: Request, platform: str = "", user_id: str = "",
             "ended_at": s.get("ended_at"),
         })
 
+    # Keep a session's parts together and in order: most-recently-active session
+    # first, then Part 1, 2, 3… within each session.
+    recency: dict = {}
+    for c in enriched:
+        key = (c["profile_name"], c["session_id"])
+        recency[key] = max(recency.get(key, 0.0), c.get("end_ts") or 0.0)
+    enriched.sort(key=lambda c: (
+        -recency[(c["profile_name"], c["session_id"])],
+        c["session_id"],
+        c.get("part_index") or 0,
+    ))
+    # Mark the first row of each session so the table can separate groups visually.
+    prev_key = None
+    for c in enriched:
+        key = (c["profile_name"], c["session_id"])
+        c["is_session_start"] = key != prev_key
+        prev_key = key
+
     conv_ids = [c["id"] for c in enriched]
     topics = await _get_topics_batch(conv_ids)
     modes = await _get_modes_batch(conv_ids)

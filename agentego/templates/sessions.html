@@ -53,7 +53,7 @@
   </thead>
   <tbody>
   {% for s in sessions %}
-    <tr>
+    <tr{% if s.is_session_start and not loop.first %} style="border-top:2px solid var(--pico-primary-background);"{% endif %}>
       <td style="white-space:nowrap; font-size:0.8rem;">
         {{ s.start_ts | ts }}
         {% if s.part_total > 1 %}

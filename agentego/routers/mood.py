@@ -421,8 +421,11 @@ _RULE_BUILDER_TAIL = (
     "curiosity, desire, disappointment, disapproval, disgust, embarrassment, excitement, fear, "
     "gratitude, grief, joy, love, nervousness, neutral, optimism, pride, realization, relief, "
     "remorse, sadness, surprise.\n\n"
-    "Map synonyms (flirty/romantic->flirting, coding/technical->work, helping->support, etc.).\n"
-    'Output a JSON object ONLY: {"mood_id": "...", "rule_type": "...", "params": {...}, "label": "<short human summary>"}'
+    "Map synonyms (flirty/romantic->flirting, coding/technical->work, helping->support, etc.)."
+)
+_RULE_BUILDER_OUTPUT = (
+    '\n\nOutput a JSON object ONLY: {"mood_id": "...", "rule_type": "...", "params": {...}, '
+    '"label": "<short human summary>"}'
 )
 
 
@@ -478,6 +481,20 @@ async def create_rule_from_text(request: Request, profile_name: str = Form(...),
     moods = await _get_moods()
     mood_ids = {m["id"] for m in moods}
     system = _RULE_BUILDER_HEAD + "\n".join(f"- {m['id']}: {m['name']}" for m in moods) + _RULE_BUILDER_TAIL
+
+    # Give the LLM the agent's existing rules so it avoids duplicates and complements them.
+    existing = await _get_rules(profile_name)
+    if existing:
+        lines = []
+        for r in existing:
+            state = "" if r.get("enabled", True) else " [disabled]"
+            summary = _rule_summary(r).replace("<strong>", "").replace("</strong>", "")
+            lines.append(f"- votes for {r['mood_id']}: {summary}{state}")
+        system += (
+            "\n\nThis agent ALREADY has these rules — do NOT create a duplicate; "
+            "prefer a rule that complements them:\n" + "\n".join(lines)
+        )
+    system += _RULE_BUILDER_OUTPUT
 
     try:
         raw = await chat(

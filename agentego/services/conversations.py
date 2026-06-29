@@ -1,20 +1,50 @@
+import json
 import time
 from uuid import uuid4
 from ..db.ego import get_ego_db
 from ..db.hermes import get_recent_sessions, get_session_messages
+from .settings_store import get_setting
 
-CONV_GAP_SECONDS = 7200  # 2-hour gap = new conversation
+CONV_GAP_SECONDS = 7200  # default: 2-hour gap = new conversation
+
+# Messaging platforms hold continuous chats with only short natural pauses, so they
+# split on a much shorter gap than long-thinking CLI/coding sessions.
+_CHAT_PLATFORMS = {"telegram", "discord", "signal", "whatsapp", "slack", "messenger"}
 
 
-def split_messages(messages: list) -> list:
-    """Split a sorted message list into conversation segments on gaps >= CONV_GAP_SECONDS."""
+def _platform_of(source) -> str:
+    """Extract a platform name from a session 'source' (JSON object or plain string)."""
+    if not source:
+        return ""
+    try:
+        data = json.loads(source)
+        if isinstance(data, dict):
+            return (data.get("platform") or "").lower()
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return str(source).strip().lower()
+
+
+async def _gap_for_source(source) -> float:
+    """Resolve the split-gap (seconds) for a session, by platform, from settings."""
+    chat = _platform_of(source) in _CHAT_PLATFORMS
+    key = "conv_gap_chat_minutes" if chat else "conv_gap_minutes"
+    default = "30" if chat else "120"
+    try:
+        return float(await get_setting(key, default)) * 60.0
+    except (TypeError, ValueError):
+        return float(default) * 60.0
+
+
+def split_messages(messages: list, gap_seconds: float = CONV_GAP_SECONDS) -> list:
+    """Split a sorted message list into conversation segments on gaps >= gap_seconds."""
     if not messages:
         return []
     segments: list[list] = []
     current = [messages[0]]
     for msg in messages[1:]:
         gap = (msg.get("timestamp") or 0) - (current[-1].get("timestamp") or 0)
-        if gap >= CONV_GAP_SECONDS:
+        if gap >= gap_seconds:
             segments.append(current)
             current = []
         current.append(msg)
@@ -71,7 +101,8 @@ async def sync_session_conversations(
     session_id = session["id"]
 
     msgs = await get_session_messages(session_id, db_path=db_path)
-    parts = split_messages(msgs)
+    gap = await _gap_for_source(session.get("source"))
+    parts = split_messages(msgs, gap_seconds=gap)
     if not parts:
         started = session.get("started_at") or 0.0
         parts = [{
@@ -85,20 +116,24 @@ async def sync_session_conversations(
     conn = await get_ego_db()
     try:
         cursor = await conn.execute(
-            "SELECT part_index, id FROM conversations WHERE session_id = ? AND profile_name = ?",
+            "SELECT part_index, id, msg_count FROM conversations WHERE session_id = ? AND profile_name = ?",
             (session_id, profile_name),
         )
-        existing = {row[0]: row[1] for row in await cursor.fetchall()}
+        existing = {row[0]: (row[1], row[2]) for row in await cursor.fetchall()}
+        stale_ids: list[str] = []  # conversations whose content changed → re-enrich
 
         for part in parts:
             idx = part["part_index"]
             if idx in existing:
+                cid, old_count = existing[idx]
                 await conn.execute(
                     "UPDATE conversations SET part_total = ?, start_ts = ?, end_ts = ?, "
                     "msg_count = ?, title = ? WHERE id = ?",
                     (total, part["start_ts"], part["end_ts"], part["msg_count"],
-                     part["title"], existing[idx]),
+                     part["title"], cid),
                 )
+                if old_count != part["msg_count"]:
+                    stale_ids.append(cid)
             else:
                 await conn.execute(
                     """
@@ -110,6 +145,19 @@ async def sync_session_conversations(
                     (str(uuid4()), session_id, profile_name, idx, total,
                      part["start_ts"], part["end_ts"], part["msg_count"], part["title"], now),
                 )
+
+        # Re-splitting (e.g. a smaller gap) can leave orphaned higher-index parts.
+        for idx, (cid, _) in existing.items():
+            if idx >= total:
+                await conn.execute("DELETE FROM conversations WHERE id = ?", (cid,))
+                stale_ids.append(cid)
+
+        # Drop now-mismatched enrichment so the workers re-score the changed parts.
+        for cid in stale_ids:
+            await conn.execute(
+                "DELETE FROM module_data WHERE key = ? AND module IN ('sentiment','topic','mode')",
+                (cid,),
+            )
 
         # Record the watermark so we only re-sync when message_count changes.
         await conn.execute(

@@ -21,6 +21,8 @@ DEFAULTS = {
     "impulse_restraint_weight": "0.5",
     "taste_pool_size": "15",
     "taste_sample_size": "5",
+    "conv_gap_minutes": "120",
+    "conv_gap_chat_minutes": "30",
 }
 
 

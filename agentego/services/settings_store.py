@@ -23,7 +23,14 @@ DEFAULTS = {
     "taste_sample_size": "5",
     "conv_gap_minutes": "120",
     "conv_gap_chat_minutes": "30",
+    "low_signal_emotions": "neutral,approval",
 }
+
+
+async def get_low_signal_emotions() -> set:
+    """Emotions filtered out of the 'top' emotions (dominant GoEmotions noise)."""
+    raw = await get_setting("low_signal_emotions", DEFAULTS["low_signal_emotions"])
+    return {e.strip().lower() for e in (raw or "").split(",") if e.strip()}
 
 
 async def get_all_settings() -> dict:

@@ -16,15 +16,22 @@ from .topic import topic_status
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
-_SKIP_EMOTIONS = {"neutral", "approval"}  # low-signal GoEmotions defaults
+_SKIP_EMOTIONS = {"neutral", "approval"}  # fallback if the setting is unavailable
 
 
-def _first_non_neutral(sdata: dict) -> str | None:
+def _first_non_neutral(sdata: dict, skip: set | None = None) -> str | None:
+    skip = skip if skip is not None else _SKIP_EMOTIONS
+    # Prefer the strongest non-low-signal emotion from the full scores.
+    scores = sdata.get("scores") or {}
+    if scores:
+        ranked = sorted((e for e in scores if e not in skip), key=lambda e: scores[e], reverse=True)
+        if ranked:
+            return ranked[0]
     dominant = sdata.get("dominant")
-    if dominant and dominant not in _SKIP_EMOTIONS:
+    if dominant and dominant not in skip:
         return dominant
     for e in sdata.get("top3") or []:
-        if e not in _SKIP_EMOTIONS:
+        if e not in skip:
             return e
     return None
 
@@ -84,6 +91,9 @@ async def _enrich_conversations(conversations: list) -> list:
             except Exception:
                 pass
 
+    from ..services.settings_store import get_low_signal_emotions
+    low_signal = await get_low_signal_emotions()
+
     result = []
     for c in conversations:
         s = session_meta.get(c["session_id"], {})
@@ -94,8 +104,8 @@ async def _enrich_conversations(conversations: list) -> list:
             "platform_name": src.get("platform") or "console",
             "user_display": src.get("user_name") or src.get("user_id") or s.get("user_id") or "",
             "model": s.get("model", ""),
-            "sentiment_user": _first_non_neutral(s_data.get("user") or {}),
-            "sentiment_agent": _first_non_neutral(s_data.get("agent") or {}),
+            "sentiment_user": _first_non_neutral(s_data.get("user") or {}, low_signal),
+            "sentiment_agent": _first_non_neutral(s_data.get("agent") or {}, low_signal),
             "topic": topic_map.get(c["id"]),
             "mode": mode_map.get(c["id"]),
         })

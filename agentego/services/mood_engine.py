@@ -6,19 +6,20 @@ from ..db.ego import get_ego_db
 _LOOKBACK_MAX = 20
 
 
-# Low-signal emotions that dominate GoEmotions output and crowd out the real signal.
+# Fallback if the configurable setting is unavailable.
 LOW_SIGNAL_EMOTIONS = {"neutral", "approval"}
 
 
-def _top_emotions(party: dict, n: int = 3) -> list:
-    """Top-n emotions for a party EXCLUDING low-signal ones (neutral, approval),
-    derived from the full scores so the real signal isn't crowded out."""
+def _top_emotions(party: dict, low_signal: set | None = None, n: int = 3) -> list:
+    """Top-n emotions for a party EXCLUDING low-signal ones (configurable, e.g.
+    neutral/approval), derived from the full scores so real signal isn't crowded out."""
+    skip = low_signal if low_signal is not None else LOW_SIGNAL_EMOTIONS
     scores = party.get("scores") or {}
     if scores:
-        ranked = sorted((e for e in scores if e not in LOW_SIGNAL_EMOTIONS),
+        ranked = sorted((e for e in scores if e not in skip),
                         key=lambda e: scores[e], reverse=True)
         return ranked[:n]
-    return [e for e in (party.get("top3") or []) if e not in LOW_SIGNAL_EMOTIONS][:n]
+    return [e for e in (party.get("top3") or []) if e not in skip][:n]
 
 
 async def _load_defaults(profile_name: str, moods: dict) -> list:
@@ -244,6 +245,8 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
 
     conv_ids = [c["id"] for c in conversations]
     sentiment_map, topic_map, mode_map = await _fetch_enrichment(conv_ids)
+    from .settings_store import get_low_signal_emotions
+    low_signal = await get_low_signal_emotions()
 
     enriched = []
     for c in conversations:
@@ -257,8 +260,8 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
             "topic": topic_map.get(cid),
             "sentiment_user": user_data.get("dominant"),
             "sentiment_agent": agent_data.get("dominant"),
-            "sentiment_user_top3": _top_emotions(user_data),
-            "sentiment_agent_top3": _top_emotions(agent_data),
+            "sentiment_user_top3": _top_emotions(user_data, low_signal),
+            "sentiment_agent_top3": _top_emotions(agent_data, low_signal),
         })
 
     vote_map: dict[str, int] = {}
@@ -313,6 +316,8 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
     conversations = await get_recent_conversations(profile_name, limit=_LOOKBACK_MAX)
     conv_ids = [c["id"] for c in conversations]
     sentiment_map, topic_map, mode_map = await _fetch_enrichment(conv_ids)
+    from .settings_store import get_low_signal_emotions
+    low_signal = await get_low_signal_emotions()
 
     enriched = []
     for c in conversations:
@@ -324,7 +329,8 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
             "id": cid, "title": c.get("title"), "end_ts": c.get("end_ts"),
             "mode": mode_map.get(cid), "topic": topic_map.get(cid),
             "sentiment_user": u.get("dominant"), "sentiment_agent": a.get("dominant"),
-            "sentiment_user_top3": _top_emotions(u), "sentiment_agent_top3": _top_emotions(a),
+            "sentiment_user_top3": _top_emotions(u, low_signal),
+            "sentiment_agent_top3": _top_emotions(a, low_signal),
         })
 
     def _threshold(mid: str) -> int:

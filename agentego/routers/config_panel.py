@@ -48,7 +48,10 @@ async def update_model_config(
     evolution_alpha: str = Form("0.2"),
     seed_deviation_band: str = Form("0.35"),
     trait_drift_delta: str = Form("0.1"),
+    low_signal_emotions: str = Form("neutral,approval"),
 ):
+    # Normalize the emotion list to clean comma-separated lowercase.
+    emos = ",".join(e.strip().lower() for e in low_signal_emotions.split(",") if e.strip())
     updates = {
         "llm_backend": llm_backend.strip(),
         "llm_base_url": llm_base_url.strip(),
@@ -57,6 +60,7 @@ async def update_model_config(
         "evolution_alpha": evolution_alpha.strip(),
         "seed_deviation_band": seed_deviation_band.strip(),
         "trait_drift_delta": trait_drift_delta.strip(),
+        "low_signal_emotions": emos,
     }
     # Only overwrite the API key when a new value is submitted (blank = keep existing).
     if llm_api_key.strip():

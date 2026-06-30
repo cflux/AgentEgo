@@ -52,6 +52,16 @@
         α = how fast affinities move per observation · seed band = max drift for SOUL-seeded likes (prevents flips) · trait drift = max OCEAN drift from baseline.
       </p>
 
+      <hr style="margin:1rem 0;">
+      <strong style="font-size:0.85rem;">Sentiment</strong>
+      <label style="margin:0.5rem 0 0; display:block;">
+        Low-signal emotions <small style="color:var(--pico-muted-color); font-weight:normal;">(comma-separated, filtered out of top emotions)</small>
+        <input type="text" name="low_signal_emotions" value="{{ settings.low_signal_emotions }}" placeholder="neutral,approval">
+      </label>
+      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
+        GoEmotions surfaces these on almost every message; excluding them lets the distinctive emotions drive moods and show in the UI. Mood rules that target a filtered emotion won't match it.
+      </p>
+
       <div style="display:flex; gap:0.6rem; margin-top:1rem;">
         <button type="submit" style="margin:0; padding:0.45rem 1.2rem;">Save</button>
         <button type="button" class="secondary outline" style="margin:0; padding:0.45rem 1.2rem;"

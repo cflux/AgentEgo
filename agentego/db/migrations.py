@@ -197,6 +197,7 @@ _DEFAULT_SETTINGS = {
     "taste_sample_size": "5",
     "conv_gap_minutes": "120",
     "conv_gap_chat_minutes": "30",
+    "low_signal_emotions": "neutral,approval",
 }
 
 

@@ -193,13 +193,67 @@ async def _build_round_enriched(profile_name: str, db_path: str | None) -> list:
         u = sdata.get("user", {}) if sdata else {}
         a = sdata.get("agent", {}) if sdata else {}
         enriched.append({
-            "id": r["id"], "conversation_id": cid, "end_ts": r.get("end_ts"),
+            "id": r["id"], "conversation_id": cid,
+            "round_index": r.get("round_index"),
+            "start_ts": r.get("start_ts"), "end_ts": r.get("end_ts"),
+            "msg_count": r.get("msg_count"),
             "mode": mode_map.get(cid), "topic": topic_map.get(cid),
             "sentiment_user": u.get("dominant"), "sentiment_agent": a.get("dominant"),
             "sentiment_user_top3": _top_emotions(u, low_signal),
             "sentiment_agent_top3": _top_emotions(a, low_signal),
+            "user_scores": u.get("scores") or {}, "agent_scores": a.get("scores") or {},
+            "user_msg_count": u.get("message_count"), "agent_msg_count": a.get("message_count"),
         })
     return enriched
+
+
+def _rule_item_predicate(rule: dict):
+    """Per-round predicate `(round) -> bool` for the per-item rule types — the exact
+    per-round condition `_rule_fires` aggregates over a window. Returns None for rule
+    types that aren't a per-round signal (currently only prev_mood, which depends on the
+    cached mood, not on any single round). Shared so per-round match display and the real
+    firing logic can't diverge."""
+    p = rule["params"]
+    rt = rule["rule_type"]
+
+    if rt in ("mode_streak", "mode_count"):
+        target = p.get("mode", "")
+        negate = bool(p.get("negate", False))
+        return lambda s: (s.get("mode") != target) if negate else (s.get("mode") == target)
+
+    elif rt == "sentiment_user":
+        # Match against the top-3 (not just the dominant emotion, which is almost
+        # always 'neutral' and would keep these rules from ever firing).
+        emotions = set(p.get("emotions", []))
+        return lambda s: bool(emotions & set(s.get("sentiment_user_top3") or []))
+
+    elif rt == "sentiment_agent":
+        emotions = set(p.get("emotions", []))
+        return lambda s: bool(emotions & set(s.get("sentiment_agent_top3") or []))
+
+    elif rt == "sentiment_mismatch":
+        emotions = set(p.get("emotions", []))
+        direction = p.get("direction", "either")
+
+        def _mismatches(s: dict) -> bool:
+            u3 = set(s.get("sentiment_user_top3") or [])
+            a3 = set(s.get("sentiment_agent_top3") or [])
+            if direction == "user_only":
+                return bool(emotions & (u3 - a3))
+            elif direction == "agent_only":
+                return bool(emotions & (a3 - u3))
+            else:  # either
+                return bool(emotions & (u3 - a3)) or bool(emotions & (a3 - u3))
+
+        return _mismatches
+
+    elif rt == "topic_keyword":
+        keywords = [k.lower() for k in p.get("keywords", [])]
+        if not keywords:
+            return lambda s: False
+        return lambda s: bool(s.get("topic") and any(kw in s["topic"].lower() for kw in keywords))
+
+    return None
 
 
 def _rule_fires(rule: dict, enriched: list, cached_mood_id: str | None = None) -> bool:
@@ -213,72 +267,45 @@ def _rule_fires(rule: dict, enriched: list, cached_mood_id: str | None = None) -
         in_set = cached_mood_id in target
         return (not in_set) if bool(p.get("negate", False)) else in_set
 
+    pred = _rule_item_predicate(rule)
+    if pred is None:
+        return False
+
     if rt == "mode_streak":
-        target = p.get("mode", "")
         count = max(1, int(p.get("count", 3)))
-        negate = bool(p.get("negate", False))
         window = enriched[:count]
         if len(window) < count:
             return False
-        return all((s.get("mode") != target) if negate else (s.get("mode") == target) for s in window)
+        return all(pred(s) for s in window)
 
-    elif rt == "mode_count":
-        target = p.get("mode", "")
-        min_count = max(1, int(p.get("min_count", 2)))
-        lookback = max(1, int(p.get("lookback", 5)))
-        negate = bool(p.get("negate", False))
-        matches = sum(
-            1 for s in enriched[:lookback]
-            if (s.get("mode") != target if negate else s.get("mode") == target)
-        )
-        return matches >= min_count
+    # mode_count, sentiment_user, sentiment_agent, sentiment_mismatch, topic_keyword:
+    # count how many of the last `lookback` rounds satisfy the per-item predicate.
+    default_lookback = 5 if rt in ("mode_count", "topic_keyword") else 1
+    default_min = 2 if rt == "mode_count" else 1
+    lookback = max(1, int(p.get("lookback", default_lookback)))
+    min_count = max(1, int(p.get("min_count", default_min)))
+    return sum(1 for s in enriched[:lookback] if pred(s)) >= min_count
 
-    elif rt == "sentiment_user":
-        emotions = set(p.get("emotions", []))
-        lookback = max(1, int(p.get("lookback", 1)))
-        min_count = max(1, int(p.get("min_count", 1)))
-        # Match against the top-3 (not just the dominant emotion, which is almost
-        # always 'neutral' and would keep these rules from ever firing).
-        return sum(1 for s in enriched[:lookback]
-                   if emotions & set(s.get("sentiment_user_top3") or [])) >= min_count
 
-    elif rt == "sentiment_agent":
-        emotions = set(p.get("emotions", []))
-        lookback = max(1, int(p.get("lookback", 1)))
-        min_count = max(1, int(p.get("min_count", 1)))
-        return sum(1 for s in enriched[:lookback]
-                   if emotions & set(s.get("sentiment_agent_top3") or [])) >= min_count
-
-    elif rt == "sentiment_mismatch":
-        emotions = set(p.get("emotions", []))
-        direction = p.get("direction", "either")
-        lookback = max(1, int(p.get("lookback", 1)))
-        min_count = max(1, int(p.get("min_count", 1)))
-
-        def _mismatches(s: dict) -> bool:
-            u3 = set(s.get("sentiment_user_top3") or [])
-            a3 = set(s.get("sentiment_agent_top3") or [])
-            if direction == "user_only":
-                return bool(emotions & (u3 - a3))
-            elif direction == "agent_only":
-                return bool(emotions & (a3 - u3))
-            else:  # either
-                return bool(emotions & (u3 - a3)) or bool(emotions & (a3 - u3))
-
-        return sum(1 for s in enriched[:lookback] if _mismatches(s)) >= min_count
-
-    elif rt == "topic_keyword":
-        keywords = [k.lower() for k in p.get("keywords", [])]
-        lookback = max(1, int(p.get("lookback", 5)))
-        min_count = max(1, int(p.get("min_count", 1)))
-        if not keywords:
-            return False
-        return sum(
-            1 for s in enriched[:lookback]
-            if s.get("topic") and any(kw in s["topic"].lower() for kw in keywords)
-        ) >= min_count
-
-    return False
+def _round_matched_rules(rules: list, round_enriched: dict, moods: dict,
+                         cached_mood_id: str | None = None) -> list:
+    """Which active rules' per-round signal THIS single round satisfies, for the debug
+    expansion. Excludes prev_mood (not a per-round signal). Each entry: {label, mood_name}."""
+    matched = []
+    for rule in rules:
+        pred = _rule_item_predicate(rule)
+        if pred is None:
+            continue
+        try:
+            if pred(round_enriched):
+                mid = rule["mood_id"]
+                matched.append({
+                    "label": rule.get("label") or _rule_label(rule),
+                    "mood_name": moods[mid]["name"] if mid in moods else mid,
+                })
+        except Exception:
+            pass
+    return matched
 
 
 async def _cache_result(profile_name: str, mood_id, votes: int, breakdown: list) -> None:
@@ -371,6 +398,11 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
 
     enriched = await _build_round_enriched(profile_name, db_path)
 
+    from .settings_store import get_low_signal_emotions
+    low_signal = sorted(await get_low_signal_emotions())
+    for r in enriched:
+        r["matched_rules"] = _round_matched_rules(rules, r, moods, cached_mood_id)
+
     def _threshold(mid: str) -> int:
         return thresholds.get(mid, moods[mid]["min_votes"] if mid in moods else 1)
 
@@ -418,6 +450,7 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
         "default_set": [moods[m]["name"] for m in await _load_defaults(profile_name, moods)],
         "cached_mood": cached_mood_id,
         "conversation_count": len(enriched),
+        "low_signal": low_signal,
     }
 
 

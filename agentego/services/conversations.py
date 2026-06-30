@@ -366,12 +366,13 @@ async def get_recent_rounds(profile_name: str, limit: int = 20) -> list:
     conn = await get_ego_db()
     try:
         cursor = await conn.execute(
-            "SELECT id, conversation_id, start_ts, end_ts, msg_count FROM rounds "
+            "SELECT id, conversation_id, round_index, start_ts, end_ts, msg_count FROM rounds "
             "WHERE profile_name = ? ORDER BY end_ts DESC LIMIT ?",
             (profile_name, limit),
         )
         return [
-            {"id": r[0], "conversation_id": r[1], "start_ts": r[2], "end_ts": r[3], "msg_count": r[4]}
+            {"id": r[0], "conversation_id": r[1], "round_index": r[2],
+             "start_ts": r[3], "end_ts": r[4], "msg_count": r[5]}
             for r in await cursor.fetchall()
         ]
     finally:

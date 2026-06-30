@@ -52,25 +52,85 @@
     </tbody>
   </table>
 
-  {# --- Recent conversations the rules evaluate against --- #}
+  {# --- Recent rounds the rules evaluate against (expandable) --- #}
   <h6 style="margin:0.5rem 0 0.3rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">
-    Recent rounds <span style="text-transform:none; font-weight:normal;">(most recent first — index [0] is the latest exchange group; topic/mode from the parent conversation)</span>
+    Recent rounds <span style="text-transform:none; font-weight:normal;">(most recent first — index [0] is the latest exchange group; topic/mode from the parent conversation · click a row to expand)</span>
   </h6>
-  <table style="margin:0; font-size:0.8rem;">
-    <thead><tr><th style="width:2rem;">#</th><th>When</th><th>Mode</th><th>Topic</th><th>User felt</th><th>Agent felt</th></tr></thead>
-    <tbody>
-      {% for c in d.enriched %}
-      {% set u_emos = c.sentiment_user_top3 %}
-      {% set a_emos = c.sentiment_agent_top3 %}
-      <tr>
-        <td>[{{ loop.index0 }}]</td>
-        <td style="white-space:nowrap; color:var(--pico-muted-color);">{{ c.end_ts | ts }}</td>
-        <td>{% if c.mode %}<span class="mode mode-{{ c.mode }}">{{ c.mode }}</span>{% else %}<span style="color:#e57373;">— none —</span>{% endif %}</td>
-        <td style="color:var(--pico-muted-color);">{{ c.topic or "—" }}</td>
-        <td style="color:var(--pico-muted-color);">{{ u_emos | join(', ') if u_emos else "—" }}</td>
-        <td style="color:var(--pico-muted-color);">{{ a_emos | join(', ') if a_emos else "—" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+
+  {# column header for the collapsed summaries #}
+  <div style="display:flex; gap:0.6rem; font-size:0.7rem; color:var(--pico-muted-color); text-transform:uppercase; letter-spacing:0.05em; padding:0 1.6rem 0.2rem;">
+    <span style="width:2rem;">#</span>
+    <span style="width:9rem;">When</span>
+    <span style="width:5rem;">Mode</span>
+    <span style="flex:1;">Topic</span>
+    <span style="flex:1.2;">User felt</span>
+    <span style="flex:1.2;">Agent felt</span>
+  </div>
+
+  {% for c in d.enriched %}
+  {% set u_emos = c.sentiment_user_top3 %}
+  {% set a_emos = c.sentiment_agent_top3 %}
+  <details style="border-top:1px solid var(--pico-muted-border-color); font-size:0.8rem;">
+    <summary style="cursor:pointer; padding:0.35rem 0.5rem; list-style-position:inside;">
+      <span style="display:inline-flex; gap:0.6rem; width:calc(100% - 1.2rem); vertical-align:top;">
+        <span style="width:2rem;">[{{ loop.index0 }}]</span>
+        <span style="width:9rem; white-space:nowrap; color:var(--pico-muted-color);">{{ c.end_ts | ts }}</span>
+        <span style="width:5rem;">{% if c.mode %}<span class="mode mode-{{ c.mode }}">{{ c.mode }}</span>{% else %}<span style="color:#e57373;">—</span>{% endif %}</span>
+        <span style="flex:1; color:var(--pico-muted-color);">{{ c.topic or "—" }}</span>
+        <span style="flex:1.2; color:var(--pico-muted-color);">{{ u_emos | join(', ') if u_emos else "—" }}</span>
+        <span style="flex:1.2; color:var(--pico-muted-color);">{{ a_emos | join(', ') if a_emos else "—" }}</span>
+      </span>
+    </summary>
+
+    <div style="padding:0.4rem 0.75rem 0.9rem 2rem;">
+      {# metadata #}
+      <p style="font-size:0.74rem; color:var(--pico-muted-color); margin:0 0 0.6rem;">
+        round&nbsp;#{{ c.round_index if c.round_index is not none else "?" }} ·
+        {{ c.start_ts | ts }} → {{ c.end_ts | ts }} ·
+        {{ c.msg_count or 0 }} msgs ·
+        topic: {{ c.topic or "—" }} · mode: {{ c.mode or "—" }} ·
+        conv {{ c.conversation_id[:8] }}
+      </p>
+
+      {# full emotion distributions #}
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+        {% for party, scores, dom, top3, mc in [
+            ('User', c.user_scores, c.sentiment_user, c.sentiment_user_top3, c.user_msg_count),
+            ('Agent', c.agent_scores, c.sentiment_agent, c.sentiment_agent_top3, c.agent_msg_count)] %}
+        <div>
+          <div style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--pico-muted-color); margin-bottom:0.25rem;">
+            {{ party }} <span style="text-transform:none;">({{ mc or 0 }} msg)</span>
+          </div>
+          {% if scores %}
+            {% for emo, val in scores | dictsort(by='value', reverse=true) %}
+            {% set is_low = emo in d.low_signal %}
+            <div style="display:flex; align-items:center; gap:0.4rem; margin:1px 0; {% if is_low %}opacity:0.45;{% endif %}">
+              <span style="width:6.5rem; flex-shrink:0; {% if emo == dom %}font-weight:700;{% elif emo in top3 %}font-weight:600;{% endif %} {% if is_low %}text-decoration:line-through;{% endif %}">{{ emo }}</span>
+              <span style="flex:1; background:var(--pico-muted-border-color); border-radius:2px; height:0.55rem; overflow:hidden;">
+                <span style="display:block; height:100%; width:{{ (val * 100) | round | int }}%; background:{% if emo == dom %}#4caf50{% elif is_low %}#9e9e9e{% else %}#7e8aff{% endif %};"></span>
+              </span>
+              <span style="width:2.6rem; text-align:right; color:var(--pico-muted-color); font-variant-numeric:tabular-nums;">{{ '%.2f' | format(val) }}</span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <p style="color:var(--pico-muted-color); margin:0;">— not scored yet —</p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      {# which rules this round matches #}
+      <div style="margin-top:0.7rem;">
+        <div style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--pico-muted-color); margin-bottom:0.25rem;">Matched rules</div>
+        {% if c.matched_rules %}
+          {% for m in c.matched_rules %}
+          <div style="font-size:0.78rem;"><span style="color:#4caf50;">✓</span> {{ m.label }} <span style="color:var(--pico-muted-color);">→ {{ m.mood_name }}</span></div>
+          {% endfor %}
+        {% else %}
+          <p style="font-size:0.78rem; color:var(--pico-muted-color); margin:0;">No matching rules.</p>
+        {% endif %}
+      </div>
+    </div>
+  </details>
+  {% endfor %}
 </article>

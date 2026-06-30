@@ -3,7 +3,16 @@ import time
 import random
 from ..db.ego import get_ego_db
 
-_LOOKBACK_MAX = 20
+_LOOKBACK_MAX = 20  # fallback if the configurable setting is unavailable
+
+
+async def _lookback_rounds() -> int:
+    """How many recent rounds the mood engine evaluates (configurable)."""
+    from .settings_store import get_setting
+    try:
+        return max(1, int(await get_setting("mood_lookback_rounds", str(_LOOKBACK_MAX))))
+    except (TypeError, ValueError):
+        return _LOOKBACK_MAX
 
 
 # Fallback if the configurable setting is unavailable.
@@ -169,7 +178,7 @@ async def _build_round_enriched(profile_name: str, db_path: str | None) -> list:
     from .conversations import sync_recent_conversations, get_recent_rounds
     from .settings_store import get_low_signal_emotions
     await sync_recent_conversations(profile_name, db_path=db_path)
-    rounds = await get_recent_rounds(profile_name, limit=_LOOKBACK_MAX)
+    rounds = await get_recent_rounds(profile_name, limit=await _lookback_rounds())
     if not rounds:
         return []
     round_ids = [r["id"] for r in rounds]
@@ -401,7 +410,7 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
             is_default = True
 
     return {
-        "enriched": enriched[:12],
+        "enriched": enriched,
         "rules": rule_results,
         "tally": tally,
         "winner": winner,

@@ -25,6 +25,7 @@ DEFAULTS = {
     "conv_gap_chat_minutes": "30",
     "low_signal_emotions": "neutral,approval",
     "round_exchanges": "3",
+    "mood_lookback_rounds": "20",
 }
 
 

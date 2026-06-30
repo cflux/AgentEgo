@@ -61,6 +61,7 @@ async def update_model_config(
     seed_deviation_band: str = Form("0.35"),
     trait_drift_delta: str = Form("0.1"),
     round_exchanges: str = Form("3"),
+    mood_lookback_rounds: str = Form("20"),
 ):
     # Low-signal emotions come from checkboxes (zero or more 'low_signal' values).
     form = await request.form()
@@ -75,6 +76,7 @@ async def update_model_config(
         "trait_drift_delta": trait_drift_delta.strip(),
         "low_signal_emotions": emos,
         "round_exchanges": round_exchanges.strip(),
+        "mood_lookback_rounds": mood_lookback_rounds.strip(),
     }
     # Only overwrite the API key when a new value is submitted (blank = keep existing).
     if llm_api_key.strip():

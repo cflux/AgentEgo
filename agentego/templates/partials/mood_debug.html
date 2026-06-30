@@ -12,7 +12,7 @@
     {% endif %}
     {% if d.default_set %}<span style="font-size:0.75rem; color:var(--pico-muted-color); margin-left:0.5rem;">defaults: {{ d.default_set | join(', ') }}</span>{% endif %}
     <span style="font-size:0.75rem; color:var(--pico-muted-color); margin-left:0.5rem;">
-      over {{ d.conversation_count }} recent conversation(s){% if d.cached_mood %} · cached: {{ d.cached_mood }}{% endif %}
+      over {{ d.conversation_count }} recent round(s){% if d.cached_mood %} · cached: {{ d.cached_mood }}{% endif %}
     </span>
   </div>
 
@@ -54,7 +54,7 @@
 
   {# --- Recent conversations the rules evaluate against --- #}
   <h6 style="margin:0.5rem 0 0.3rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">
-    Recent conversations <span style="text-transform:none; font-weight:normal;">(most recent first — index [0] is the "last session")</span>
+    Recent rounds <span style="text-transform:none; font-weight:normal;">(most recent first — index [0] is the latest exchange group; topic/mode from the parent conversation)</span>
   </h6>
   <table style="margin:0; font-size:0.8rem;">
     <thead><tr><th style="width:2rem;">#</th><th>When</th><th>Mode</th><th>Topic</th><th>User felt</th><th>Agent felt</th></tr></thead>

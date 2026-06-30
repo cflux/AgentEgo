@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -85,6 +85,19 @@ CREATE TABLE IF NOT EXISTS topic_aliases (
     canonical  TEXT NOT NULL,
     created_at REAL
 );
+
+CREATE TABLE IF NOT EXISTS rounds (
+    id              TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    profile_name    TEXT NOT NULL,
+    round_index     INTEGER NOT NULL,
+    start_ts        REAL NOT NULL,
+    end_ts          REAL NOT NULL,
+    msg_count       INTEGER NOT NULL,
+    created_at      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rounds_profile ON rounds(profile_name, end_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_rounds_conv ON rounds(conversation_id);
 
 CREATE TABLE IF NOT EXISTS conversations (
     id           TEXT PRIMARY KEY,
@@ -204,6 +217,7 @@ _DEFAULT_SETTINGS = {
     "conv_gap_minutes": "120",
     "conv_gap_chat_minutes": "30",
     "low_signal_emotions": "neutral,approval",
+    "round_exchanges": "3",
 }
 
 
@@ -251,6 +265,10 @@ async def run_migrations(db_path: str) -> None:
 
         if current_version < 8:
             # topic_aliases created by DDL above; no ALTER needed
+            pass
+
+        if current_version < 9:
+            # rounds created by DDL above; no ALTER needed
             pass
 
         if current_version < SCHEMA_VERSION:

@@ -12,6 +12,18 @@ from ..services.conversations import get_conversation, get_all_recent_conversati
 router = APIRouter(prefix="/api")
 
 
+async def _get_round(round_id: str) -> dict | None:
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT conversation_id, start_ts, end_ts FROM rounds WHERE id = ?", (round_id,)
+        )
+        row = await cursor.fetchone()
+        return {"conversation_id": row[0], "start_ts": row[1], "end_ts": row[2]} if row else None
+    finally:
+        await conn.close()
+
+
 class SentimentScore(BaseModel):
     dominant: str
     top3: list[str]
@@ -25,24 +37,29 @@ class SentimentResult(BaseModel):
     agent: Optional[SentimentScore] = None
 
 
-@router.get("/sentiment/pending")
-async def get_pending_sessions() -> list[str]:
-    """Return conversation UUIDs that have no sentiment score yet."""
+async def _pending_sentiment_ids() -> list[str]:
+    """Conversations AND rounds that still need a sentiment score (newest first)."""
     conversations = await get_all_recent_conversations()
-    if not conversations:
-        return []
-    conv_ids = [c["id"] for c in conversations]
     conn = await get_ego_db()
     try:
-        ph = ",".join("?" * len(conv_ids))
+        cutoff = time.time() - 7 * 86400
         cursor = await conn.execute(
-            f"SELECT key FROM module_data WHERE module='sentiment' AND key IN ({ph})",
-            conv_ids,
+            "SELECT id FROM rounds WHERE end_ts >= ? ORDER BY end_ts DESC LIMIT 500", (cutoff,)
         )
-        already_scored = {row[0] for row in await cursor.fetchall()}
+        round_ids = [r[0] for r in await cursor.fetchall()]
+        cursor = await conn.execute("SELECT key FROM module_data WHERE module='sentiment'")
+        scored = {row[0] for row in await cursor.fetchall()}
     finally:
         await conn.close()
-    return [c["id"] for c in conversations if c["id"] not in already_scored]
+    pending = [c["id"] for c in conversations if c["id"] not in scored]
+    pending += [rid for rid in round_ids if rid not in scored]
+    return pending
+
+
+@router.get("/sentiment/pending")
+async def get_pending_sessions() -> list[str]:
+    """Conversation and round UUIDs that have no sentiment score yet."""
+    return await _pending_sentiment_ids()
 
 
 @router.post("/sentiment/score", status_code=202)
@@ -78,6 +95,15 @@ async def get_messages_json(conv_or_session_id: str, profile: str = "") -> list[
         rows = await get_session_messages_in_range(
             conv["session_id"], conv["start_ts"], conv["end_ts"], db_path=db_path
         )
+    elif (rnd := await _get_round(conv_or_session_id)):
+        parent = await get_conversation(rnd["conversation_id"])
+        if parent:
+            db_path = resolve_profile(parent["profile_name"])
+            rows = await get_session_messages_in_range(
+                parent["session_id"], rnd["start_ts"], rnd["end_ts"], db_path=db_path
+            )
+        else:
+            rows = []
     else:
         # Legacy fallback: treat as raw session_id
         from ..db.hermes import find_session_messages
@@ -185,18 +211,10 @@ async def clear_trigger():
 @router.get("/sentiment/status")
 async def scoring_status() -> dict:
     """Return pending count, trigger state, worker health, and active progress."""
-    conversations = await get_all_recent_conversations()
-    conv_ids = [c["id"] for c in conversations]
+    pending_count = len(await _pending_sentiment_ids())
 
     conn = await get_ego_db()
     try:
-        ph = ",".join("?" * len(conv_ids)) if conv_ids else "''"
-        cursor = await conn.execute(
-            f"SELECT key FROM module_data WHERE module='sentiment' AND key IN ({ph})",
-            conv_ids,
-        )
-        already_scored = {row[0] for row in await cursor.fetchall()}
-
         cursor = await conn.execute(
             "SELECT value, updated_at FROM module_data WHERE module='_system' AND key='sentiment_trigger'"
         )
@@ -249,7 +267,7 @@ async def scoring_status() -> dict:
         await conn.close()
 
     return {
-        "pending": len([c for c in conversations if c["id"] not in already_scored]),
+        "pending": pending_count,
         "triggered": triggered,
         "last_run": last_run,
         "worker_online": worker_online,

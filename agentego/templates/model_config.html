@@ -53,6 +53,16 @@
       </p>
 
       <hr style="margin:1rem 0;">
+      <strong style="font-size:0.85rem;">Mood granularity</strong>
+      <label style="margin:0.5rem 0 0; width:14rem;">
+        Round size <small style="color:var(--pico-muted-color); font-weight:normal;">(exchanges per mood data point)</small>
+        <input type="number" name="round_exchanges" value="{{ settings.round_exchanges }}" min="1" max="50">
+      </label>
+      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
+        The mood engine scores small "rounds" of ~this many user↔agent exchanges, so mood responds within a chat instead of treating a whole sitting as one point. Smaller = faster/twitchier, larger = smoother. Applies to newly-synced activity.
+      </p>
+
+      <hr style="margin:1rem 0;">
       <strong style="font-size:0.85rem;">Low-signal emotions</strong>
       <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.25rem 0 0.5rem;">
         Check emotions to filter OUT of the top emotions (GoEmotions surfaces some on nearly every

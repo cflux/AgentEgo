@@ -128,6 +128,71 @@ async def _fetch_enrichment(session_ids: list) -> tuple[dict, dict, dict]:
         await conn.close()
 
 
+async def _fetch_round_enrichment(round_ids: list, conv_ids: list) -> tuple[dict, dict, dict]:
+    """Sentiment keyed by ROUND id; topic & mode keyed by the parent CONVERSATION id."""
+    sentiment_map: dict = {}
+    topic_map: dict = {}
+    mode_map: dict = {}
+    conn = await get_ego_db()
+    try:
+        if round_ids:
+            ph = ",".join("?" * len(round_ids))
+            cursor = await conn.execute(
+                f"SELECT key, value FROM module_data WHERE module='sentiment' AND key IN ({ph})",
+                round_ids,
+            )
+            for row in await cursor.fetchall():
+                try:
+                    sentiment_map[row[0]] = json.loads(row[1])
+                except Exception:
+                    pass
+        if conv_ids:
+            ph = ",".join("?" * len(conv_ids))
+            cursor = await conn.execute(
+                f"SELECT key, value FROM module_data WHERE module='topic' AND key IN ({ph})", conv_ids
+            )
+            for row in await cursor.fetchall():
+                topic_map[row[0]] = row[1]
+            cursor = await conn.execute(
+                f"SELECT key, value FROM module_data WHERE module='mode' AND key IN ({ph})", conv_ids
+            )
+            for row in await cursor.fetchall():
+                mode_map[row[0]] = row[1]
+    finally:
+        await conn.close()
+    return sentiment_map, topic_map, mode_map
+
+
+async def _build_round_enriched(profile_name: str, db_path: str | None) -> list:
+    """Recent rounds as mood data points: each round's own sentiment + its parent
+    conversation's topic & mode (inherited). Newest first."""
+    from .conversations import sync_recent_conversations, get_recent_rounds
+    from .settings_store import get_low_signal_emotions
+    await sync_recent_conversations(profile_name, db_path=db_path)
+    rounds = await get_recent_rounds(profile_name, limit=_LOOKBACK_MAX)
+    if not rounds:
+        return []
+    round_ids = [r["id"] for r in rounds]
+    conv_ids = list({r["conversation_id"] for r in rounds})
+    sentiment_map, topic_map, mode_map = await _fetch_round_enrichment(round_ids, conv_ids)
+    low_signal = await get_low_signal_emotions()
+
+    enriched = []
+    for r in rounds:
+        cid = r["conversation_id"]
+        sdata = sentiment_map.get(r["id"], {})
+        u = sdata.get("user", {}) if sdata else {}
+        a = sdata.get("agent", {}) if sdata else {}
+        enriched.append({
+            "id": r["id"], "conversation_id": cid, "end_ts": r.get("end_ts"),
+            "mode": mode_map.get(cid), "topic": topic_map.get(cid),
+            "sentiment_user": u.get("dominant"), "sentiment_agent": a.get("dominant"),
+            "sentiment_user_top3": _top_emotions(u, low_signal),
+            "sentiment_agent_top3": _top_emotions(a, low_signal),
+        })
+    return enriched
+
+
 def _rule_fires(rule: dict, enriched: list, cached_mood_id: str | None = None) -> bool:
     p = rule["params"]
     rt = rule["rule_type"]
@@ -243,33 +308,10 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
     thresholds = await _load_thresholds(profile_name)
     cached_mood_id = await _load_cached_mood(profile_name)
 
-    from .conversations import sync_recent_conversations, get_recent_conversations
-    await sync_recent_conversations(profile_name, db_path=db_path)
-    conversations = await get_recent_conversations(profile_name, limit=_LOOKBACK_MAX)
-    if not conversations:
+    enriched = await _build_round_enriched(profile_name, db_path)
+    if not enriched:
         await _cache_result(profile_name, None, 0, [])
         return None
-
-    conv_ids = [c["id"] for c in conversations]
-    sentiment_map, topic_map, mode_map = await _fetch_enrichment(conv_ids)
-    from .settings_store import get_low_signal_emotions
-    low_signal = await get_low_signal_emotions()
-
-    enriched = []
-    for c in conversations:
-        cid = c["id"]
-        sdata = sentiment_map.get(cid, {})
-        user_data = sdata.get("user", {}) if sdata else {}
-        agent_data = sdata.get("agent", {}) if sdata else {}
-        enriched.append({
-            "id": cid,
-            "mode": mode_map.get(cid),
-            "topic": topic_map.get(cid),
-            "sentiment_user": user_data.get("dominant"),
-            "sentiment_agent": agent_data.get("dominant"),
-            "sentiment_user_top3": _top_emotions(user_data, low_signal),
-            "sentiment_agent_top3": _top_emotions(agent_data, low_signal),
-        })
 
     vote_map: dict[str, int] = {}
     breakdown: list[str] = []
@@ -318,27 +360,7 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
     thresholds = await _load_thresholds(profile_name)
     cached_mood_id = await _load_cached_mood(profile_name)
 
-    from .conversations import sync_recent_conversations, get_recent_conversations
-    await sync_recent_conversations(profile_name, db_path=db_path)
-    conversations = await get_recent_conversations(profile_name, limit=_LOOKBACK_MAX)
-    conv_ids = [c["id"] for c in conversations]
-    sentiment_map, topic_map, mode_map = await _fetch_enrichment(conv_ids)
-    from .settings_store import get_low_signal_emotions
-    low_signal = await get_low_signal_emotions()
-
-    enriched = []
-    for c in conversations:
-        cid = c["id"]
-        sdata = sentiment_map.get(cid, {})
-        u = sdata.get("user", {}) if sdata else {}
-        a = sdata.get("agent", {}) if sdata else {}
-        enriched.append({
-            "id": cid, "title": c.get("title"), "end_ts": c.get("end_ts"),
-            "mode": mode_map.get(cid), "topic": topic_map.get(cid),
-            "sentiment_user": u.get("dominant"), "sentiment_agent": a.get("dominant"),
-            "sentiment_user_top3": _top_emotions(u, low_signal),
-            "sentiment_agent_top3": _top_emotions(a, low_signal),
-        })
+    enriched = await _build_round_enriched(profile_name, db_path)
 
     def _threshold(mid: str) -> int:
         return thresholds.get(mid, moods[mid]["min_votes"] if mid in moods else 1)
@@ -386,7 +408,7 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
         "is_default": is_default,
         "default_set": [moods[m]["name"] for m in await _load_defaults(profile_name, moods)],
         "cached_mood": cached_mood_id,
-        "conversation_count": len(conversations),
+        "conversation_count": len(enriched),
     }
 
 

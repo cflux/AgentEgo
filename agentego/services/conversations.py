@@ -58,6 +58,7 @@ def split_messages(messages: list, gap_seconds: float = CONV_GAP_SECONDS) -> lis
             "start_ts": seg[0].get("timestamp") or 0.0,
             "end_ts": seg[-1].get("timestamp") or 0.0,
             "msg_count": len(seg),
+            "messages": seg,
             "title": next(
                 (m["content"][:120] for m in seg
                  if m.get("role") == "user" and m.get("content")),
@@ -66,6 +67,85 @@ def split_messages(messages: list, gap_seconds: float = CONV_GAP_SECONDS) -> lis
         }
         for i, seg in enumerate(segments)
     ]
+
+
+ROUND_BUILD_WINDOW = 2 * 86400  # only maintain rounds for conversations active within ~2 days
+
+
+async def _round_exchanges() -> int:
+    try:
+        return max(1, int(await get_setting("round_exchanges", "3")))
+    except (TypeError, ValueError):
+        return 3
+
+
+def split_into_rounds(messages: list, exchanges_per_round: int = 3) -> list:
+    """Group a conversation's messages into 'rounds' of ~N exchanges. An exchange is a
+    contiguous run of user message(s) followed by a contiguous run of agent message(s);
+    a new exchange begins when the user speaks again after the agent replied."""
+    if not messages:
+        return []
+    exchanges: list[list] = []
+    cur: list = []
+    seen_agent = False
+    for m in messages:
+        if m.get("role") == "user" and seen_agent and cur:
+            exchanges.append(cur)
+            cur = []
+            seen_agent = False
+        cur.append(m)
+        if m.get("role") == "assistant":
+            seen_agent = True
+    if cur:
+        exchanges.append(cur)
+
+    rounds = []
+    for i in range(0, len(exchanges), exchanges_per_round):
+        bundle = [m for ex in exchanges[i:i + exchanges_per_round] for m in ex]
+        rounds.append({
+            "round_index": len(rounds),
+            "start_ts": bundle[0].get("timestamp") or 0.0,
+            "end_ts": bundle[-1].get("timestamp") or 0.0,
+            "msg_count": len(bundle),
+        })
+    return rounds
+
+
+async def _sync_rounds(conn, conversation_id: str, profile_name: str,
+                       messages: list, exchanges_per_round: int, now: float) -> None:
+    """Build/reconcile a conversation's rounds, mirroring the conversation reconcile:
+    preserve round ids (so round sentiment stays valid), settle-aware re-enrichment."""
+    rounds = split_into_rounds(messages, exchanges_per_round)
+    cursor = await conn.execute(
+        "SELECT round_index, id, msg_count FROM rounds WHERE conversation_id = ?",
+        (conversation_id,),
+    )
+    existing = {r[0]: (r[1], r[2]) for r in await cursor.fetchall()}
+    total = len(rounds)
+    stale: list[str] = []
+    for rd in rounds:
+        idx = rd["round_index"]
+        if idx in existing:
+            rid, old = existing[idx]
+            await conn.execute(
+                "UPDATE rounds SET start_ts = ?, end_ts = ?, msg_count = ? WHERE id = ?",
+                (rd["start_ts"], rd["end_ts"], rd["msg_count"], rid),
+            )
+            if old != rd["msg_count"] and (now - (rd["end_ts"] or 0)) >= CONV_SETTLE_SECONDS:
+                stale.append(rid)
+        else:
+            await conn.execute(
+                "INSERT INTO rounds (id, conversation_id, profile_name, round_index, "
+                "start_ts, end_ts, msg_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (str(uuid4()), conversation_id, profile_name, idx,
+                 rd["start_ts"], rd["end_ts"], rd["msg_count"], now),
+            )
+    for idx, (rid, _) in existing.items():
+        if idx >= total:
+            await conn.execute("DELETE FROM rounds WHERE id = ?", (rid,))
+            stale.append(rid)
+    for rid in stale:
+        await conn.execute("DELETE FROM module_data WHERE key = ? AND module = 'sentiment'", (rid,))
 
 
 async def _get_sync_watermarks(profile_name: str) -> dict:
@@ -114,6 +194,7 @@ async def sync_session_conversations(
 
     now = time.time()
     total = len(parts)
+    exchanges_per_round = await _round_exchanges()
     conn = await get_ego_db()
     try:
         cursor = await conn.execute(
@@ -139,6 +220,7 @@ async def sync_session_conversations(
                 if old_count != part["msg_count"] and (now - (part["end_ts"] or 0)) >= CONV_SETTLE_SECONDS:
                     stale_ids.append(cid)
             else:
+                cid = str(uuid4())
                 await conn.execute(
                     """
                     INSERT INTO conversations
@@ -146,13 +228,22 @@ async def sync_session_conversations(
                          start_ts, end_ts, msg_count, title, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (str(uuid4()), session_id, profile_name, idx, total,
+                    (cid, session_id, profile_name, idx, total,
                      part["start_ts"], part["end_ts"], part["msg_count"], part["title"], now),
                 )
+            # Maintain rounds for recent conversations only (mood reads recent rounds).
+            if (now - (part["end_ts"] or 0)) < ROUND_BUILD_WINDOW:
+                await _sync_rounds(conn, cid, profile_name, part.get("messages") or [],
+                                   exchanges_per_round, now)
 
         # Re-splitting (e.g. a smaller gap) can leave orphaned higher-index parts.
         for idx, (cid, _) in existing.items():
             if idx >= total:
+                rids = [r[0] for r in await (await conn.execute(
+                    "SELECT id FROM rounds WHERE conversation_id = ?", (cid,))).fetchall()]
+                for rid in rids:
+                    await conn.execute("DELETE FROM module_data WHERE key = ? AND module = 'sentiment'", (rid,))
+                await conn.execute("DELETE FROM rounds WHERE conversation_id = ?", (cid,))
                 await conn.execute("DELETE FROM conversations WHERE id = ?", (cid,))
                 stale_ids.append(cid)
 
@@ -264,6 +355,23 @@ async def get_recent_conversations(profile_name: str, limit: int = 100) -> list:
                 "start_ts": r[5], "end_ts": r[6],
                 "msg_count": r[7], "title": r[8],
             }
+            for r in await cursor.fetchall()
+        ]
+    finally:
+        await conn.close()
+
+
+async def get_recent_rounds(profile_name: str, limit: int = 20) -> list:
+    """Fetch the most recent rounds (mood data points) for a profile, newest first."""
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT id, conversation_id, start_ts, end_ts, msg_count FROM rounds "
+            "WHERE profile_name = ? ORDER BY end_ts DESC LIMIT ?",
+            (profile_name, limit),
+        )
+        return [
+            {"id": r[0], "conversation_id": r[1], "start_ts": r[2], "end_ts": r[3], "msg_count": r[4]}
             for r in await cursor.fetchall()
         ]
     finally:

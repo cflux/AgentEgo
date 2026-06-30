@@ -53,6 +53,45 @@
   {% include "partials/mood_rules_list.html" %}
 </div>
 
+<details style="margin-bottom:1rem;">
+  <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; padding:0.35rem 0;">📖 Reference: modes &amp; emotions</summary>
+  <article style="padding:1rem 1.25rem; margin-top:0.5rem;">
+    <strong style="font-size:0.85rem;">Conversation modes</strong>
+    <p style="font-size:0.78rem; color:var(--pico-muted-color); margin:0.25rem 0 0.5rem;">
+      One mode is assigned per conversation (used by the mode-streak / mode-count rules).
+    </p>
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:0.3rem 1rem; font-size:0.82rem;">
+      <div><span class="mode mode-work">work</span> &nbsp;coding / tasks / technical</div>
+      <div><span class="mode mode-social">social</span> &nbsp;casual chat, greetings, banter</div>
+      <div><span class="mode mode-informative">informative</span> &nbsp;questions, explanations, learning</div>
+      <div><span class="mode mode-serious">serious</span> &nbsp;weighty or focused discussion</div>
+      <div><span class="mode mode-flirting">flirting</span> &nbsp;flirty / romantic</div>
+      <div><span class="mode mode-creative">creative</span> &nbsp;creative or generative work</div>
+      <div><span class="mode mode-support">support</span> &nbsp;help, troubleshooting, emotional support</div>
+    </div>
+
+    <strong style="font-size:0.85rem; display:block; margin-top:1rem;">Emotions <small style="color:var(--pico-muted-color); font-weight:normal;">(GoEmotions — used by the sentiment rules)</small></strong>
+    <p style="font-size:0.78rem; color:var(--pico-muted-color); margin:0.25rem 0 0.5rem;">
+      Rules match against a conversation's top emotions. Low-signal ones (neutral, approval by default)
+      are filtered out — adjust on the <a href="/config">config page</a>.
+    </p>
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.5rem; font-size:0.8rem;">
+      <div>
+        <span style="font-size:0.72rem; color:var(--pico-muted-color); text-transform:uppercase; letter-spacing:0.05em;">Positive</span>
+        <div style="color:var(--pico-muted-color);">admiration, amusement, approval, caring, desire, excitement, gratitude, joy, love, optimism, pride, relief</div>
+      </div>
+      <div>
+        <span style="font-size:0.72rem; color:var(--pico-muted-color); text-transform:uppercase; letter-spacing:0.05em;">Negative</span>
+        <div style="color:var(--pico-muted-color);">anger, annoyance, disappointment, disapproval, disgust, embarrassment, fear, grief, nervousness, remorse, sadness</div>
+      </div>
+      <div>
+        <span style="font-size:0.72rem; color:var(--pico-muted-color); text-transform:uppercase; letter-spacing:0.05em;">Other</span>
+        <div style="color:var(--pico-muted-color);">confusion, curiosity, realization, surprise, neutral</div>
+      </div>
+    </div>
+  </article>
+</details>
+
 <article>
   <header><strong>✨ Describe a rule</strong> <small style="color:var(--pico-muted-color); font-weight:normal;">— let the AI build it for you</small></header>
   <form hx-post="/api/mood/rules/from-text" hx-target="#nl-result" hx-swap="innerHTML"

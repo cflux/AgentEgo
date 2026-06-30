@@ -183,12 +183,25 @@ async def moods_page(request: Request):
     return templates.TemplateResponse("moods.html", {"request": request, "moods": moods})
 
 
+def _sort_and_group(rules: list, moods: list) -> list:
+    """Group rules by target mood (sorted by mood name), flagging each group's first
+    row so the table can draw a separator. Stable sort keeps creation order within a mood."""
+    name_by_id = {m["id"]: m["name"] for m in moods}
+    rules.sort(key=lambda r: name_by_id.get(r["mood_id"], r["mood_id"]).lower())
+    prev = None
+    for i, r in enumerate(rules):
+        r["is_group_start"] = (r["mood_id"] != prev) and i > 0
+        prev = r["mood_id"]
+    return rules
+
+
 @router.get("/moods/rules")
 async def mood_rules_page(request: Request, profile: str = "default"):
     moods = await _get_moods()
     rules = await _get_rules(profile)
     for r in rules:
         r["summary"] = _rule_summary(r)
+    _sort_and_group(rules, moods)
     profiles = discover_profiles()
     db_path = resolve_profile(profile)
     current_mood = await evaluate_mood(profile, db_path=db_path)
@@ -728,6 +741,7 @@ async def mood_rules_list_partial(request: Request, profile: str = "default"):
     rules = await _get_rules(profile)
     for r in rules:
         r["summary"] = _rule_summary(r)
+    _sort_and_group(rules, moods)
     return templates.TemplateResponse(
         "partials/mood_rules_list.html",
         {"request": request, "rules": rules, "moods": moods, "active_profile": profile},

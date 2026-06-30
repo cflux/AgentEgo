@@ -1,5 +1,5 @@
 {# A single mood-rule row. Expects: rule (with .summary), moods. #}
-<tr id="rule-row-{{ rule.id }}">
+<tr id="rule-row-{{ rule.id }}"{% if rule.is_group_start %} style="border-top:2px solid var(--pico-primary-background);"{% endif %}>
   <td>
     <input type="checkbox" {% if rule.enabled %}checked{% endif %}
       hx-patch="/api/mood/rules/{{ rule.id }}/toggle"

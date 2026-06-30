@@ -6,14 +6,19 @@ from ..db.ego import get_ego_db
 _LOOKBACK_MAX = 20
 
 
+# Low-signal emotions that dominate GoEmotions output and crowd out the real signal.
+LOW_SIGNAL_EMOTIONS = {"neutral", "approval"}
+
+
 def _top_emotions(party: dict, n: int = 3) -> list:
-    """Top-n emotions for a party EXCLUDING neutral, derived from the full scores so
-    neutral (almost always the dominant) doesn't crowd out the real signal."""
+    """Top-n emotions for a party EXCLUDING low-signal ones (neutral, approval),
+    derived from the full scores so the real signal isn't crowded out."""
     scores = party.get("scores") or {}
     if scores:
-        ranked = sorted((e for e in scores if e != "neutral"), key=lambda e: scores[e], reverse=True)
+        ranked = sorted((e for e in scores if e not in LOW_SIGNAL_EMOTIONS),
+                        key=lambda e: scores[e], reverse=True)
         return ranked[:n]
-    return [e for e in (party.get("top3") or []) if e != "neutral"][:n]
+    return [e for e in (party.get("top3") or []) if e not in LOW_SIGNAL_EMOTIONS][:n]
 
 
 async def _load_defaults(profile_name: str, moods: dict) -> list:

@@ -16,7 +16,7 @@ from .topic import topic_status
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
-_SKIP_EMOTIONS = {"neutral"}
+_SKIP_EMOTIONS = {"neutral", "approval"}  # low-signal GoEmotions defaults
 
 
 def _first_non_neutral(sdata: dict) -> str | None:

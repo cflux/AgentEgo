@@ -20,12 +20,24 @@ def _mask_key(key: str) -> str:
     return f"{key[:4]}…{key[-4:]}"
 
 
+# GoEmotions labels, grouped for the checkbox UI.
+EMOTION_GROUPS = {
+    "Positive": ["admiration", "amusement", "approval", "caring", "desire", "excitement",
+                 "gratitude", "joy", "love", "optimism", "pride", "relief"],
+    "Negative": ["anger", "annoyance", "disappointment", "disapproval", "disgust",
+                 "embarrassment", "fear", "grief", "nervousness", "remorse", "sadness"],
+    "Other": ["confusion", "curiosity", "realization", "surprise", "neutral"],
+}
+
+
 @router.get("/config")
 async def config_page(request: Request):
     settings = await settings_store.get_all_settings()
+    low_signal = await settings_store.get_low_signal_emotions()
     return templates.TemplateResponse(
         "model_config.html",
-        {"request": request, "settings": settings, "masked_key": _mask_key(settings.get("llm_api_key", ""))},
+        {"request": request, "settings": settings, "masked_key": _mask_key(settings.get("llm_api_key", "")),
+         "emotion_groups": EMOTION_GROUPS, "low_signal": low_signal},
     )
 
 
@@ -48,10 +60,10 @@ async def update_model_config(
     evolution_alpha: str = Form("0.2"),
     seed_deviation_band: str = Form("0.35"),
     trait_drift_delta: str = Form("0.1"),
-    low_signal_emotions: str = Form("neutral,approval"),
 ):
-    # Normalize the emotion list to clean comma-separated lowercase.
-    emos = ",".join(e.strip().lower() for e in low_signal_emotions.split(",") if e.strip())
+    # Low-signal emotions come from checkboxes (zero or more 'low_signal' values).
+    form = await request.form()
+    emos = ",".join(e.strip().lower() for e in form.getlist("low_signal") if e.strip())
     updates = {
         "llm_backend": llm_backend.strip(),
         "llm_base_url": llm_base_url.strip(),

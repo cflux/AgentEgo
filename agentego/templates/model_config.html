@@ -53,14 +53,26 @@
       </p>
 
       <hr style="margin:1rem 0;">
-      <strong style="font-size:0.85rem;">Sentiment</strong>
-      <label style="margin:0.5rem 0 0; display:block;">
-        Low-signal emotions <small style="color:var(--pico-muted-color); font-weight:normal;">(comma-separated, filtered out of top emotions)</small>
-        <input type="text" name="low_signal_emotions" value="{{ settings.low_signal_emotions }}" placeholder="neutral,approval">
-      </label>
-      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
-        GoEmotions surfaces these on almost every message; excluding them lets the distinctive emotions drive moods and show in the UI. Mood rules that target a filtered emotion won't match it.
+      <strong style="font-size:0.85rem;">Low-signal emotions</strong>
+      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.25rem 0 0.5rem;">
+        Check emotions to filter OUT of the top emotions (GoEmotions surfaces some on nearly every
+        message). Excluding them lets the distinctive emotions drive moods. A mood rule targeting a
+        checked emotion won't match it.
       </p>
+      {% for group, emos in emotion_groups.items() %}
+      <div style="margin-bottom:0.4rem;">
+        <span style="font-size:0.72rem; color:var(--pico-muted-color); text-transform:uppercase; letter-spacing:0.05em;">{{ group }}</span>
+        <div style="display:flex; flex-wrap:wrap; gap:0.4rem 0.9rem; margin-top:0.2rem;">
+          {% for e in emos %}
+          <label style="display:inline-flex; align-items:center; gap:0.3rem; margin:0; font-size:0.82rem; cursor:pointer;">
+            <input type="checkbox" name="low_signal" value="{{ e }}" {% if e in low_signal %}checked{% endif %}
+                   style="width:0.95rem; height:0.95rem; margin:0;">
+            {{ e }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
 
       <div style="display:flex; gap:0.6rem; margin-top:1rem;">
         <button type="submit" style="margin:0; padding:0.45rem 1.2rem;">Save</button>

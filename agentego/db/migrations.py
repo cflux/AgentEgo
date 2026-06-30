@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -78,6 +78,12 @@ CREATE TABLE IF NOT EXISTS mood_defaults (
     profile_name TEXT NOT NULL,
     mood_id      TEXT NOT NULL,
     PRIMARY KEY (profile_name, mood_id)
+);
+
+CREATE TABLE IF NOT EXISTS topic_aliases (
+    raw        TEXT PRIMARY KEY,
+    canonical  TEXT NOT NULL,
+    created_at REAL
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -241,6 +247,10 @@ async def run_migrations(db_path: str) -> None:
 
         if current_version < 7:
             # mood_defaults created by DDL above; no ALTER needed
+            pass
+
+        if current_version < 8:
+            # topic_aliases created by DDL above; no ALTER needed
             pass
 
         if current_version < SCHEMA_VERSION:

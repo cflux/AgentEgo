@@ -70,6 +70,13 @@ async def get_pending_sessions() -> list[dict]:
 @router.post("/topic/score", status_code=202)
 async def save_topic(result: TopicResult):
     now = time.time()
+    # Collapse near-duplicate topics to a canonical label (new concepts pass through).
+    if result.topic:
+        try:
+            from ..services.topic_normalize import canonicalize_topic
+            result.topic = await canonicalize_topic(result.topic)
+        except Exception:
+            pass
     # A conversation is "analyzed" only when it has BOTH topic and mode. If the
     # worker found a topic but couldn't map a mode (off-list word), default the
     # mode so the conversation can't get stuck perpetually "unanalyzed".

@@ -1,0 +1,15 @@
+{% set p = params|default({}) %}
+{% set sel = p.get('moods') or [] %}
+<label style="margin:0;">
+  Previous mood is one of <small style="color:var(--pico-muted-color); font-size:0.72rem;">(hold Ctrl/Cmd for multiple)</small>
+  <select name="params_moods" multiple size="5" required style="height:auto;">
+    {% for m in moods %}
+    <option value="{{ m.id }}" {% if m.id in sel %}selected{% endif %}>{{ m.icon }} {{ m.name }}</option>
+    {% endfor %}
+  </select>
+</label>
+<label style="display:inline-flex; align-items:center; gap:0.5rem; margin:0.5rem 0 0; cursor:pointer; font-size:0.88rem;">
+  <input type="checkbox" name="params_negate" value="1" {% if p.get('negate') %}checked{% endif %} style="width:1rem; height:1rem; margin:0;">
+  Negate — previous mood is <em>not</em> one of these
+</label>
+<p style="margin:0.4rem 0 0; font-size:0.78rem; color:var(--pico-muted-color);">Fires based on the mood from the previous evaluation — useful for momentum or transitions (e.g. previous mood was flirting → vote for horny).</p>

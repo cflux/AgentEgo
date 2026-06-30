@@ -18,7 +18,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 VALID_RULE_TYPES = {
     "mode_streak", "mode_count",
     "sentiment_user", "sentiment_agent", "sentiment_mismatch",
-    "topic_keyword",
+    "topic_keyword", "prev_mood",
 }
 VALID_MODES = {"work", "social", "informative", "serious", "flirting", "creative", "support"}
 VALID_EMOTIONS = {
@@ -104,6 +104,11 @@ async def _get_defaults(profile_name: str) -> set:
 
 
 def _parse_params(rule_type: str, form) -> dict:
+    if rule_type == "prev_mood":
+        raw = form.getlist("params_moods") if hasattr(form, "getlist") else []
+        if isinstance(raw, str):
+            raw = [raw]
+        return {"moods": [m for m in raw if m], "negate": form.get("params_negate") == "1"}
     if rule_type == "mode_streak":
         return {
             "mode": str(form.get("params_mode", "work")),
@@ -150,6 +155,10 @@ def _parse_params(rule_type: str, form) -> dict:
 def _rule_summary(rule: dict) -> str:
     p = rule["params"]
     rt = rule["rule_type"]
+    if rt == "prev_mood":
+        op = "is not" if p.get("negate") else "is"
+        ms = ", ".join(f"<strong>{m}</strong>" for m in p.get("moods", [])[:4]) or "—"
+        return f"Previous mood {op} {ms}"
     if rt == "mode_streak":
         op = "not in" if p.get("negate") else "all in"
         return f"Last {p.get('count', 3)} sessions {op} <strong>{p.get('mode', '?')}</strong> mode"
@@ -306,7 +315,10 @@ async def delete_mood(mood_id: str):
 async def rule_params_partial(request: Request, rule_type: str = ""):
     if rule_type not in VALID_RULE_TYPES:
         return HTMLResponse('<p style="color:var(--pico-muted-color); font-size:0.85rem;">Select a rule type above.</p>')
-    return templates.TemplateResponse(f"partials/rule_params/{rule_type}.html", {"request": request})
+    moods = await _get_moods()  # needed by the prev_mood selector
+    return templates.TemplateResponse(
+        f"partials/rule_params/{rule_type}.html", {"request": request, "moods": moods}
+    )
 
 
 @router.post("/api/mood/rules")
@@ -550,7 +562,8 @@ _RULE_BUILDER_TAIL = (
     '- sentiment_user: {"emotions": [...], "lookback": N, "min_count": K} — the USER felt one of these emotions in K+ of the last N.\n'
     '- sentiment_agent: {"emotions": [...], "lookback": N, "min_count": K} — the AGENT expressed one of these emotions in K+ of the last N.\n'
     '- sentiment_mismatch: {"emotions": [...], "direction": "either"|"user_only"|"agent_only", "lookback": N, "min_count": K} — emotion present for one party but not the other.\n'
-    '- topic_keyword: {"keywords": [...], "lookback": N, "min_count": K} — the conversation topic contained a keyword.\n\n'
+    '- topic_keyword: {"keywords": [...], "lookback": N, "min_count": K} — the conversation topic contained a keyword.\n'
+    '- prev_mood: {"moods": [<mood_id>...], "negate": bool} — the mood from the PREVIOUS evaluation is (or is not) one of these mood ids. Good for momentum/transitions.\n\n'
     "Valid modes: work, social, informative, serious, flirting, creative, support.\n"
     "Valid emotions: admiration, amusement, anger, annoyance, approval, caring, confusion, "
     "curiosity, desire, disappointment, disapproval, disgust, embarrassment, excitement, fear, "
@@ -570,7 +583,7 @@ _RULE_BUILDER_OUTPUT = (
 def _canon_params(rule_type: str, params: dict) -> str:
     """Canonical string for duplicate detection (order-independent for lists)."""
     p = dict(params or {})
-    for k in ("emotions", "keywords"):
+    for k in ("emotions", "keywords", "moods"):
         if isinstance(p.get(k), list):
             p[k] = sorted(str(x).lower() for x in p[k])
     return json.dumps(p, sort_keys=True)
@@ -599,6 +612,11 @@ def _clean_llm_params(rule_type: str, params: dict | None) -> dict:
             raw = [raw]
         return [str(e).strip().lower() for e in raw if str(e).strip().lower() in VALID_EMOTIONS]
 
+    if rule_type == "prev_mood":
+        raw = p.get("moods", [])
+        if isinstance(raw, str):
+            raw = [raw]
+        return {"moods": [str(m).strip() for m in raw if str(m).strip()], "negate": bool(p.get("negate", False))}
     if rule_type == "mode_streak":
         return {"mode": _mode("mode"), "count": _i("count", 3), "negate": bool(p.get("negate", False))}
     if rule_type == "mode_count":
@@ -709,6 +727,11 @@ async def create_rule_from_text(request: Request, profile_name: str = Form(...),
         if rule_type == "topic_keyword" and not params.get("keywords"):
             skipped.append(f"{label or rule_type}: no keywords")
             continue
+        if rule_type == "prev_mood":
+            params["moods"] = [m for m in params.get("moods", []) if m in mood_ids]
+            if not params["moods"]:
+                skipped.append(f"{label or rule_type}: no valid previous moods")
+                continue
         key = _rule_dupe_key(rule_type, mood_id, params)
         if key in seen:
             skipped.append(f"{label or rule_type} — already exists (duplicate)")

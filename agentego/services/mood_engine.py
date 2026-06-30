@@ -128,9 +128,16 @@ async def _fetch_enrichment(session_ids: list) -> tuple[dict, dict, dict]:
         await conn.close()
 
 
-def _rule_fires(rule: dict, enriched: list) -> bool:
+def _rule_fires(rule: dict, enriched: list, cached_mood_id: str | None = None) -> bool:
     p = rule["params"]
     rt = rule["rule_type"]
+
+    if rt == "prev_mood":
+        target = set(p.get("moods", []))
+        if not target:
+            return False
+        in_set = cached_mood_id in target
+        return (not in_set) if bool(p.get("negate", False)) else in_set
 
     if rt == "mode_streak":
         target = p.get("mode", "")
@@ -272,7 +279,7 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
         # Mood gate: skip rule if current cached mood doesn't match
         if rule.get("mood_gate") and rule["mood_gate"] != cached_mood_id:
             continue
-        if _rule_fires(rule, enriched):
+        if _rule_fires(rule, enriched, cached_mood_id):
             vote_map[rule["mood_id"]] = vote_map.get(rule["mood_id"], 0) + 1
             label = rule.get("label") or _rule_label(rule)
             breakdown.append(label)
@@ -341,7 +348,7 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
     for rule in rules:
         in_catalog = rule["mood_id"] in moods
         gated = bool(rule.get("mood_gate") and rule["mood_gate"] != cached_mood_id)
-        fired = in_catalog and not gated and _rule_fires(rule, enriched)
+        fired = in_catalog and not gated and _rule_fires(rule, enriched, cached_mood_id)
         if fired:
             vote_map[rule["mood_id"]] = vote_map.get(rule["mood_id"], 0) + 1
         rule_results.append({
@@ -387,6 +394,9 @@ def _rule_label(rule: dict) -> str:
     p = rule["params"]
     rt = rule["rule_type"]
     gate = f"[while {rule['mood_gate']}] " if rule.get("mood_gate") else ""
+    if rt == "prev_mood":
+        op = "is not" if p.get("negate") else "is"
+        return f"{gate}Previous mood {op} {', '.join(p.get('moods', [])[:3])}"
     if rt == "mode_streak":
         op = "not in" if p.get("negate") else "all in"
         return f"{gate}Last {p.get('count',3)} sessions {op} {p.get('mode','?')} mode"

@@ -232,6 +232,21 @@ _DEFAULT_SETTINGS = {
     "llm_mood_votes_enabled": "1",
     "llm_mood_threshold": "6",
     "llm_mood_weight": "1",
+    "mood_transitions_enabled": "1",
+    "mood_inertia_bonus": "2",
+    "mood_jump_penalty": "3",
+    "mood_adjacency": (
+        '{"content":["social","curious","flirty","tired","sad","frustrated"],'
+        '"social":["content","flirty","curious"],'
+        '"flirty":["horny","content","social","curious"],'
+        '"horny":["content","tired","flirty"],'
+        '"curious":["content","social","focused","creative","flirty"],'
+        '"focused":["curious","creative","tired","frustrated","content"],'
+        '"creative":["curious","focused","content"],'
+        '"tired":["content","sad","focused"],'
+        '"frustrated":["content","tired","focused"],'
+        '"sad":["content","tired"]}'
+    ),
 }
 
 

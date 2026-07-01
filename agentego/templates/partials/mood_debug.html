@@ -23,12 +23,14 @@
     <tbody>
       {% for t in d.tally %}
       <tr>
-        <td><strong>{{ t.name }}</strong></td>
-        <td>{{ t.votes }} / {{ t.threshold }} votes</td>
+        <td><strong>{{ t.name }}</strong>{% if t.mood_id == d.cached_mood %} <span style="font-size:0.68rem; color:#e0a04a;">● now</span>{% endif %}</td>
+        <td>{{ t.effective if t.effective is defined else t.votes }} / {{ t.threshold }}{% if t.effective is defined and t.effective != t.votes %} <span style="color:var(--pico-muted-color); font-size:0.72rem;">(raw {{ t.votes }})</span>{% endif %}</td>
         <td style="color:var(--pico-muted-color); font-size:0.76rem;">
-          {%- if t.rule_votes is defined and (t.rule_votes or t.llm_votes) -%}
+          {%- if t.rule_votes or t.llm_votes -%}
             {{ t.rule_votes }} rule{% if t.llm_votes %} <span style="color:#b47aff;">+ {{ t.llm_votes }} LLM</span>{% endif %}
           {%- endif -%}
+          {% if t.inertia %} <span style="color:#e0a04a;">+ {{ t.inertia }} inertia</span>{% endif %}
+          {% if t.penalized %} <span style="color:#e57373;">− {{ d.jump_penalty }} jump</span>{% endif %}
         </td>
         <td>{% if t.meets %}<span style="color:#4caf50;">✓ meets threshold</span>{% else %}<span style="color:var(--pico-muted-color);">below threshold</span>{% endif %}</td>
       </tr>
@@ -36,8 +38,14 @@
     </tbody>
   </table>
   {% if d.llm_votes_enabled %}
-  <p style="font-size:0.72rem; color:#b47aff; margin:-0.4rem 0 0.75rem;">
+  <p style="font-size:0.72rem; color:#b47aff; margin:-0.4rem 0 0.4rem;">
     LLM mood votes on (score ≥ {{ d.llm_threshold | round | int }}){% if d.llm_breakdown %}: {{ d.llm_breakdown | join(' · ') }}{% else %} — no mood cleared the threshold in the window{% endif %}
+  </p>
+  {% endif %}
+  {% if d.transitions_enabled %}
+  <p style="font-size:0.72rem; color:#e0a04a; margin:0 0 0.75rem;">
+    Transitions on — inertia +{{ d.inertia_bonus }} on <strong>{{ d.cached_mood or '—' }}</strong>, jump penalty −{{ d.jump_penalty }}.
+    {% if d.allowed_moves %}Can move to: {{ d.allowed_moves | join(', ') }}.{% endif %}
   </p>
   {% endif %}
   {% else %}

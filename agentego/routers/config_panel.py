@@ -69,6 +69,9 @@ async def update_model_config(
     sentiment_llm_model: str = Form(""),
     llm_mood_threshold: str = Form("6"),
     llm_mood_weight: str = Form("1"),
+    mood_inertia_bonus: str = Form("2"),
+    mood_jump_penalty: str = Form("3"),
+    mood_adjacency: str = Form(""),
 ):
     # Low-signal emotions come from checkboxes (zero or more 'low_signal' values).
     form = await request.form()
@@ -95,7 +98,18 @@ async def update_model_config(
         "llm_mood_votes_enabled": "1" if form.get("llm_mood_votes_enabled") else "0",
         "llm_mood_threshold": llm_mood_threshold.strip(),
         "llm_mood_weight": llm_mood_weight.strip(),
+        "mood_transitions_enabled": "1" if form.get("mood_transitions_enabled") else "0",
+        "mood_inertia_bonus": mood_inertia_bonus.strip(),
+        "mood_jump_penalty": mood_jump_penalty.strip(),
     }
+    # Only overwrite the adjacency graph if valid JSON was submitted (avoid clobbering with junk).
+    if mood_adjacency.strip():
+        import json as _json
+        try:
+            _json.loads(mood_adjacency)
+            updates["mood_adjacency"] = mood_adjacency.strip()
+        except ValueError:
+            pass
     # Only overwrite the API key when a new value is submitted (blank = keep existing).
     if llm_api_key.strip():
         updates["llm_api_key"] = llm_api_key.strip()

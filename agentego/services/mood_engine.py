@@ -355,6 +355,28 @@ def _llm_mood_votes(enriched: list, moods: dict, threshold: float, weight: int) 
     return votes, breakdown
 
 
+def _transition_effective(vote_map: dict, moods: dict, cached_mood_id, tcfg: dict) -> tuple[dict, set | None, dict]:
+    """Natural-transition shaping. Adds an inertia bonus to the incumbent mood (mutates
+    vote_map) and computes *effective* votes where moods not adjacent to the current mood are
+    penalized — so the mood steps to a neighbor (or stays) unless a far mood's signal clearly
+    overpowers it. Returns (effective_votes, allowed_set_or_None, info)."""
+    inertia = tcfg.get("inertia", 0)
+    penalty = tcfg.get("penalty", 0)
+    allowed = None
+    applied = 0
+    if tcfg.get("enabled") and cached_mood_id in moods:
+        if inertia:
+            vote_map[cached_mood_id] = vote_map.get(cached_mood_id, 0) + inertia
+            applied = inertia
+        allowed = set(tcfg.get("adjacency", {}).get(cached_mood_id, set())) | {cached_mood_id}
+    effective = {}
+    for mid, v in vote_map.items():
+        pen = penalty if (allowed is not None and mid not in allowed) else 0
+        effective[mid] = v - pen
+    return effective, allowed, {"inertia": applied, "penalty": penalty, "cached": cached_mood_id,
+                                "enabled": bool(allowed is not None)}
+
+
 async def _cache_result(profile_name: str, mood_id, votes: int, breakdown: list) -> None:
     conn = await get_ego_db()
     try:
@@ -417,13 +439,20 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
             vote_map[mid] = vote_map.get(mid, 0) + v
         breakdown += llm_breakdown
 
+    # Natural transitions: incumbent inertia + penalty for non-adjacent "jumps".
+    from .settings_store import get_transition_config
+    tcfg = await get_transition_config()
+    effective, _allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg)
+    if tinfo["inertia"] and cached_mood_id in moods:
+        breakdown.append(f"Inertia +{tinfo['inertia']} (staying {moods[cached_mood_id]['name']})")
+
     def _threshold(mid: str) -> int:
         return thresholds.get(mid, moods[mid]["min_votes"])
 
     candidates = [
-        (mid, votes)
-        for mid, votes in vote_map.items()
-        if votes >= _threshold(mid)
+        (mid, effective[mid])
+        for mid in vote_map
+        if effective[mid] >= _threshold(mid)
     ]
 
     if not candidates:
@@ -437,7 +466,9 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
         await _cache_result(profile_name, chosen, 0, ["Default mood"])
         return {**moods[chosen], "vote_count": 0, "breakdown": ["Default mood"], "is_default": True}
 
-    winner_id, winner_votes = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
+    # Rank by effective votes; report the raw count (incl. inertia) for the winner.
+    winner_id, _eff = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
+    winner_votes = vote_map[winner_id]
     winner = {**moods[winner_id], "vote_count": winner_votes, "breakdown": breakdown}
     await _cache_result(profile_name, winner_id, winner_votes, breakdown)
     return winner
@@ -482,22 +513,31 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
     for mid, v in llm_votes.items():
         vote_map[mid] = vote_map.get(mid, 0) + v
 
+    # Natural transitions: inertia on the incumbent + non-adjacent penalty (effective votes).
+    from .settings_store import get_transition_config
+    tcfg = await get_transition_config()
+    effective, allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg)
+
     tally = []
-    for mid, votes in sorted(vote_map.items(), key=lambda x: -x[1]):
+    for mid, votes in sorted(vote_map.items(), key=lambda x: -effective[x[0]]):
         th = _threshold(mid)
         lv = llm_votes.get(mid, 0)
+        inertia_here = tinfo["inertia"] if (mid == cached_mood_id and tinfo["inertia"]) else 0
+        penalized = allowed is not None and mid not in allowed
         tally.append({
             "mood_id": mid, "name": moods[mid]["name"] if mid in moods else mid,
-            "votes": votes, "threshold": th, "meets": votes >= th,
-            "rule_votes": votes - lv, "llm_votes": lv,
+            "votes": votes, "effective": effective[mid], "threshold": th,
+            "meets": effective[mid] >= th,
+            "rule_votes": votes - lv - inertia_here, "llm_votes": lv,
+            "inertia": inertia_here, "penalized": penalized,
         })
 
-    candidates = [(mid, v) for mid, v in vote_map.items() if v >= _threshold(mid)]
+    candidates = [(mid, effective[mid]) for mid in vote_map if effective[mid] >= _threshold(mid)]
     winner = None
     is_default = False
     if candidates:
-        wid, wv = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
-        winner = {"id": wid, "name": moods[wid]["name"], "votes": wv}
+        wid, _eff = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
+        winner = {"id": wid, "name": moods[wid]["name"], "votes": vote_map[wid]}
     else:
         defaults = await _load_defaults(profile_name, moods)
         if defaults:
@@ -518,6 +558,10 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
         "llm_votes_enabled": llm_enabled,
         "llm_breakdown": llm_breakdown,
         "llm_threshold": llm_thr,
+        "transitions_enabled": tinfo["enabled"],
+        "inertia_bonus": tinfo["inertia"],
+        "jump_penalty": tinfo["penalty"],
+        "allowed_moves": sorted(moods[m]["name"] for m in allowed if m in moods) if allowed else [],
     }
 
 

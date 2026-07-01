@@ -115,6 +115,31 @@
       </p>
 
       <hr style="margin:1rem 0;">
+      <strong style="font-size:0.85rem;">Natural transitions</strong>
+      <div style="display:grid; grid-template-columns:auto 1fr 1fr; gap:0.6rem; align-items:end; margin-top:0.5rem;">
+        <label style="display:inline-flex; align-items:center; gap:0.35rem; margin:0; font-size:0.82rem; cursor:pointer;">
+          <input type="checkbox" name="mood_transitions_enabled" value="1" {% if settings.mood_transitions_enabled == '1' %}checked{% endif %}
+                 style="width:0.95rem; height:0.95rem; margin:0;">
+          Enabled
+        </label>
+        <label style="margin:0; font-size:0.82rem;">Inertia <small style="color:var(--pico-muted-color); font-weight:normal;">(stickiness)</small>
+          <input type="number" name="mood_inertia_bonus" value="{{ settings.mood_inertia_bonus }}" min="0" max="20" step="1">
+        </label>
+        <label style="margin:0; font-size:0.82rem;">Jump penalty <small style="color:var(--pico-muted-color); font-weight:normal;">(non-adjacent)</small>
+          <input type="number" name="mood_jump_penalty" value="{{ settings.mood_jump_penalty }}" min="0" max="20" step="1">
+        </label>
+      </div>
+      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
+        The current mood gets <em>inertia</em> bonus votes so it persists until clearly beaten (no flip-flopping),
+        and moods not adjacent to it in the graph below lose <em>jump penalty</em> votes — so the mood steps to a
+        neighbour (or stays) rather than teleporting across the graph.
+      </p>
+      <label style="margin:0.6rem 0 0; font-size:0.82rem; display:block;">Adjacency graph
+        <small style="color:var(--pico-muted-color); font-weight:normal;">(JSON: mood → reachable neighbours; treated as undirected)</small>
+        <textarea name="mood_adjacency" rows="6" style="font-size:0.74rem; font-family:monospace;">{{ settings.mood_adjacency }}</textarea>
+      </label>
+
+      <hr style="margin:1rem 0;">
       <strong style="font-size:0.85rem;">Low-signal emotions</strong>
       <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.25rem 0 0.5rem;">
         Check emotions to filter OUT of the top emotions (some surface on nearly every message).

@@ -189,6 +189,23 @@
         still be reached, but only when their signal is strong enough to beat the <strong>jump resistance</strong> above.
       </p>
       <textarea name="mood_adjacency" rows="8" style="font-size:0.74rem; font-family:monospace;">{{ settings.mood_adjacency }}</textarea>
+
+      <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.9rem;">
+        <label style="display:inline-flex; align-items:center; gap:0.35rem; margin:0; font-size:0.82rem; cursor:pointer;">
+          <input type="checkbox" name="mood_cascade_enabled" value="1" {% if settings.mood_cascade_enabled == '1' %}checked{% endif %}
+                 style="width:0.95rem; height:0.95rem; margin:0;">
+          Cascades on
+        </label>
+        <strong style="font-size:0.85rem;">Intensity cascades</strong>
+      </div>
+      <p class="cfg-help" style="margin:0.35rem 0 0.5rem;">
+        When a mood wins by a big margin, its <em>intensity</em> tips it into the next mood up — so sustained
+        <em>Flirty</em> escalates to <em>Horny</em> rather than just staying very-flirty. JSON: each mood maps to a
+        target and the vote count that triggers it. Example: <code>{"flirty": {"to": "horny", "at": 12}}</code> —
+        if Flirty wins with 12+ votes it becomes Horny. Chains follow through (flirty→horny→…) as each step's
+        <em>at</em> is cleared.
+      </p>
+      <textarea name="mood_cascade" rows="4" style="font-size:0.74rem; font-family:monospace;">{{ settings.mood_cascade }}</textarea>
     </article>
 
     {# ---------------- Low-signal emotions (full width) ---------------- #}

@@ -60,6 +60,10 @@ DEFAULTS = {
         '"frustrated":["content","tired","focused"],'
         '"sad":["content","tired"]}'
     ),
+    # Cascade: when a mood wins with effective votes >= "at", its intensity escalates it into
+    # "to" (e.g. sustained Flirty -> Horny). {mood: {"to": mood_id, "at": votes}}.
+    "mood_cascade_enabled": "1",
+    "mood_cascade": '{"flirty":{"to":"horny","at":12},"curious":{"to":"focused","at":10}}',
 }
 
 
@@ -94,6 +98,26 @@ async def get_transition_config() -> dict:
         penalty = 3
     adjacency = await get_mood_adjacency()
     return {"enabled": enabled, "inertia": inertia, "penalty": penalty, "adjacency": adjacency}
+
+
+async def get_mood_cascade() -> tuple[bool, dict]:
+    """(enabled, {mood_id: {"to": mood_id, "at": int}}). A mood winning with effective votes
+    >= 'at' escalates its intensity into 'to'."""
+    import json
+    enabled = (await get_setting("mood_cascade_enabled", "1")) == "1"
+    raw = await get_setting("mood_cascade", DEFAULTS["mood_cascade"])
+    try:
+        data = json.loads(raw or "{}")
+    except (ValueError, TypeError):
+        data = {}
+    out: dict = {}
+    for m, c in (data.items() if isinstance(data, dict) else []):
+        if isinstance(c, dict) and c.get("to"):
+            try:
+                out[str(m)] = {"to": str(c["to"]), "at": int(c.get("at", 99))}
+            except (TypeError, ValueError):
+                pass
+    return enabled, out
 
 
 async def get_emotion_taxonomy() -> list:

@@ -258,6 +258,8 @@ _DEFAULT_SETTINGS = {
         '"frustrated":["content","tired","focused"],'
         '"sad":["content","tired"]}'
     ),
+    "mood_cascade_enabled": "1",
+    "mood_cascade": '{"flirty":{"to":"horny","at":12},"curious":{"to":"focused","at":10}}',
 }
 
 

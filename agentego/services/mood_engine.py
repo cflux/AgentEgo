@@ -377,6 +377,24 @@ def _transition_effective(vote_map: dict, moods: dict, cached_mood_id, tcfg: dic
                                 "enabled": bool(allowed is not None)}
 
 
+def _apply_cascade(winner_id, effective: dict, moods: dict, cascade: dict) -> tuple:
+    """Escalate the winner along its cascade chain while its intensity (effective votes)
+    clears each step's 'at'. e.g. sustained Flirty -> Horny. Returns (final_id, notes)."""
+    cur = winner_id
+    seen: set = set()
+    notes: list = []
+    while cur in cascade and cur not in seen:
+        seen.add(cur)
+        c = cascade[cur]
+        tgt = c.get("to")
+        if tgt in moods and effective.get(cur, 0) >= c.get("at", 99):
+            notes.append(f"{moods[cur]['name']} ({effective.get(cur, 0)}≥{c['at']}) → {moods[tgt]['name']}")
+            cur = tgt
+        else:
+            break
+    return cur, notes
+
+
 async def _cache_result(profile_name: str, mood_id, votes: int, breakdown: list) -> None:
     conn = await get_ego_db()
     try:
@@ -481,6 +499,16 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
     # Rank by effective votes; report the raw count (incl. inertia) for the winner.
     winner_id, _eff = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
     winner_votes = vote_map[winner_id]
+
+    # Cascade: a mood winning intensely escalates into its next mood (e.g. Flirty -> Horny).
+    from .settings_store import get_mood_cascade
+    casc_enabled, cascade = await get_mood_cascade()
+    if casc_enabled:
+        final_id, casc_notes = _apply_cascade(winner_id, effective, moods, cascade)
+        if final_id != winner_id:
+            breakdown.append("Cascade: " + " → ".join(casc_notes))
+            winner_id = final_id
+
     winner = {**moods[winner_id], "vote_count": winner_votes, "breakdown": breakdown}
     await _cache_result(profile_name, winner_id, winner_votes, breakdown)
     return winner
@@ -547,9 +575,15 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
     candidates = [(mid, effective[mid]) for mid in vote_map if effective[mid] >= _threshold(mid)]
     winner = None
     is_default = False
+    cascade_notes: list = []
     if candidates:
         wid, _eff = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
-        winner = {"id": wid, "name": moods[wid]["name"], "votes": vote_map[wid]}
+        source_votes = vote_map.get(wid, 0)
+        from .settings_store import get_mood_cascade
+        casc_enabled, cascade = await get_mood_cascade()
+        if casc_enabled:
+            wid, cascade_notes = _apply_cascade(wid, effective, moods, cascade)
+        winner = {"id": wid, "name": moods[wid]["name"], "votes": source_votes}
     else:
         defaults = await _load_defaults(profile_name, moods)
         if defaults:
@@ -574,6 +608,7 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
         "inertia_bonus": tinfo["inertia"],
         "jump_penalty": tinfo["penalty"],
         "allowed_moves": sorted(moods[m]["name"] for m in allowed if m in moods) if allowed else [],
+        "cascade": cascade_notes,
     }
 
 

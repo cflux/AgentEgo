@@ -14,6 +14,9 @@
     <span style="font-size:0.75rem; color:var(--pico-muted-color); margin-left:0.5rem;">
       over {{ d.conversation_count }} recent round(s){% if d.cached_mood %} · cached: {{ d.cached_mood }}{% endif %}
     </span>
+    {% if d.cascade %}
+    <div style="font-size:0.78rem; color:#ff9f4a; margin-top:0.3rem;">⚡ Cascade: {{ d.cascade | join(' → ') }}</div>
+    {% endif %}
   </div>
 
   {# --- Vote tally --- #}

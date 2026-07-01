@@ -17,6 +17,11 @@
     {% if d.cascade %}
     <div style="font-size:0.78rem; color:#ff9f4a; margin-top:0.3rem;">⚡ Cascade: {{ d.cascade | join(' → ') }}</div>
     {% endif %}
+    {% if d.decay_enabled %}
+    <div style="font-size:0.76rem; color:var(--pico-muted-color); margin-top:0.3rem;">
+      🕓 Held {{ d.tenure }} round(s){% if d.decay %} · <span style="color:#e57373;">fading −{{ d.decay }}</span> on {{ d.decayed_chain | join(', ') }}{% endif %}{% if d.cooldown_moods %} · cooldown: {{ d.cooldown_moods | join(', ') }}{% endif %}
+    </div>
+    {% endif %}
   </div>
 
   {# --- Vote tally --- #}

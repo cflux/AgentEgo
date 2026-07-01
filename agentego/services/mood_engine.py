@@ -377,6 +377,100 @@ def _transition_effective(vote_map: dict, moods: dict, cached_mood_id, tcfg: dic
                                 "enabled": bool(allowed is not None)}
 
 
+def _reverse_cascade_chain(target, cascade: dict) -> set:
+    """All moods whose cascade chain resolves INTO `target` (plus target itself). Flirty->Horny
+    means Flirty *drives* Horny, so decaying Horny must also decay Flirty or it just re-cascades."""
+    result = {target}
+    changed = True
+    while changed:
+        changed = False
+        for m, c in cascade.items():
+            if c.get("to") in result and m not in result:
+                result.add(m)
+                changed = True
+    return result
+
+
+async def _rounds_since(profile_name: str, ts) -> int:
+    if not ts:
+        return 0
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT COUNT(*) FROM rounds WHERE profile_name = ? AND end_ts > ?", (profile_name, ts)
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+    finally:
+        await conn.close()
+
+
+async def _mood_change_at(profile_name: str):
+    """Timestamp the current mood was set (latest mood_history change)."""
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT changed_at FROM mood_history WHERE profile_name = ? ORDER BY changed_at DESC LIMIT 1",
+            (profile_name,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+    finally:
+        await conn.close()
+
+
+async def _get_mood_cooldown(profile_name: str) -> dict | None:
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT value FROM module_data WHERE module = '_mood_cooldown' AND key = ?", (profile_name,)
+        )
+        row = await cursor.fetchone()
+        return json.loads(row[0]) if row else None
+    finally:
+        await conn.close()
+
+
+async def _set_mood_cooldown(profile_name: str, mood_id: str) -> None:
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            "INSERT INTO module_data (module, key, value, updated_at) VALUES ('_mood_cooldown', ?, ?, ?) "
+            "ON CONFLICT(module, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (profile_name, json.dumps({"mood": mood_id, "at": time.time()}), time.time()),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def _decay_state(profile_name: str, effective: dict, cached_mood_id, decay_cfg: dict,
+                       cascade: dict) -> dict:
+    """Homeostatic anti-stuck decay. Mutates `effective`: as the current mood's tenure (rounds
+    since it was set) grows past the grace period, discount it AND its reverse-cascade chain so a
+    fresh mood can take over. Also computes the cooldown exclusion (a just-vacated mood + its chain
+    barred from returning for a few rounds). Returns diagnostics for the debug view."""
+    info = {"tenure": 0, "decay": 0, "decayed_chain": set(), "cooldown_excluded": set()}
+    if not decay_cfg.get("enabled") or not cached_mood_id:
+        return info
+    changed_at = await _mood_change_at(profile_name)
+    tenure = await _rounds_since(profile_name, changed_at)
+    info["tenure"] = tenure
+    decay = max(0, tenure - decay_cfg["grace"]) * decay_cfg["rate"]
+    if decay > 0:
+        chain = _reverse_cascade_chain(cached_mood_id, cascade)
+        for x in chain:
+            if x in effective:
+                effective[x] -= decay
+        info["decay"] = decay
+        info["decayed_chain"] = chain
+    cd = await _get_mood_cooldown(profile_name)
+    if cd and cd.get("mood"):
+        if await _rounds_since(profile_name, cd.get("at", 0)) < decay_cfg["cooldown"]:
+            info["cooldown_excluded"] = _reverse_cascade_chain(cd["mood"], cascade)
+    return info
+
+
 def _apply_cascade(winner_id, effective: dict, moods: dict, cascade: dict) -> tuple:
     """Escalate the winner along its cascade chain while its intensity (effective votes)
     clears each step's 'at'. e.g. sustained Flirty -> Horny. Returns (final_id, notes)."""
@@ -404,7 +498,8 @@ async def _cache_result(profile_name: str, mood_id, votes: int, breakdown: list)
         )
         row = await cursor.fetchone()
         prev_mood_id = row[0] if row else None
-        if mood_id != prev_mood_id and not (mood_id is None and prev_mood_id is None):
+        changed = mood_id != prev_mood_id and not (mood_id is None and prev_mood_id is None)
+        if changed:
             await conn.execute(
                 "INSERT INTO mood_history (profile_name, prev_mood_id, mood_id, vote_count, breakdown, changed_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
@@ -425,6 +520,36 @@ async def _cache_result(profile_name: str, mood_id, votes: int, breakdown: list)
         await conn.commit()
     finally:
         await conn.close()
+    # Optional: write the disposition block to a file on mood change (blank setting = HTTP-only).
+    if changed:
+        await _write_directive_file(profile_name, mood_id)
+
+
+async def _write_directive_file(profile_name: str, mood_id) -> None:
+    """Best-effort: on a mood change, write the guardrailed disposition block to the configured
+    file so a file-based Hermes prompt can include it. No-op unless mood_directive_file is set."""
+    from .settings_store import get_setting
+    path = (await get_setting("mood_directive_file", "") or "").strip()
+    if not path or (await get_setting("mood_directive_enabled", "1")) != "1":
+        return
+    try:
+        if not mood_id:
+            body = ""
+        else:
+            conn = await get_ego_db()
+            try:
+                cursor = await conn.execute("SELECT name, description FROM moods WHERE id = ?", (mood_id,))
+                row = await cursor.fetchone()
+            finally:
+                await conn.close()
+            name, desc = (row[0], row[1]) if row else (mood_id, "")
+            template = await get_setting("mood_directive_template", "")
+            body = (template or "").replace("{mood}", name or "").replace("{description}", desc or "").strip()
+        import os
+        with open(os.path.expanduser(path), "w") as f:
+            f.write(body + ("\n" if body else ""))
+    except Exception:
+        pass
 
 
 async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict | None:
@@ -470,11 +595,19 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
         breakdown += llm_breakdown
 
     # Natural transitions: incumbent inertia + penalty for non-adjacent "jumps".
-    from .settings_store import get_transition_config
+    from .settings_store import get_transition_config, get_mood_cascade, get_mood_decay_config
     tcfg = await get_transition_config()
     effective, _allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg)
     if tinfo["inertia"] and cached_mood_id in moods:
         breakdown.append(f"Inertia +{tinfo['inertia']} (staying {moods[cached_mood_id]['name']})")
+
+    casc_enabled, cascade = await get_mood_cascade()
+
+    # Homeostatic decay: fade a long-held mood (+ its cascade feeders) so it can't lock in.
+    decay_cfg = await get_mood_decay_config()
+    dstate = await _decay_state(profile_name, effective, cached_mood_id, decay_cfg, cascade)
+    if dstate["decay"] and cached_mood_id in moods:
+        breakdown.append(f"Decay -{dstate['decay']} (held {moods[cached_mood_id]['name']} {dstate['tenure']} rounds)")
 
     def _threshold(mid: str) -> int:
         return thresholds.get(mid, moods[mid]["min_votes"])
@@ -482,7 +615,7 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
     candidates = [
         (mid, effective[mid])
         for mid in vote_map
-        if effective[mid] >= _threshold(mid)
+        if effective[mid] >= _threshold(mid) and mid not in dstate["cooldown_excluded"]
     ]
 
     if not candidates:
@@ -501,13 +634,16 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
     winner_votes = vote_map[winner_id]
 
     # Cascade: a mood winning intensely escalates into its next mood (e.g. Flirty -> Horny).
-    from .settings_store import get_mood_cascade
-    casc_enabled, cascade = await get_mood_cascade()
     if casc_enabled:
         final_id, casc_notes = _apply_cascade(winner_id, effective, moods, cascade)
         if final_id != winner_id:
             breakdown.append("Cascade: " + " → ".join(casc_notes))
             winner_id = final_id
+
+    # If decay pushed us off the current mood, put the vacated chain on cooldown so it can't
+    # immediately bounce back (prevents Horny<->Affectionate ping-pong).
+    if dstate["decay"] and cached_mood_id and winner_id not in dstate["decayed_chain"]:
+        await _set_mood_cooldown(profile_name, cached_mood_id)
 
     winner = {**moods[winner_id], "vote_count": winner_votes, "breakdown": breakdown}
     await _cache_result(profile_name, winner_id, winner_votes, breakdown)
@@ -554,9 +690,14 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
         vote_map[mid] = vote_map.get(mid, 0) + v
 
     # Natural transitions: inertia on the incumbent + non-adjacent penalty (effective votes).
-    from .settings_store import get_transition_config
+    from .settings_store import get_transition_config, get_mood_cascade, get_mood_decay_config
     tcfg = await get_transition_config()
     effective, allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg)
+
+    # Homeostatic decay (read-only mirror of evaluate_mood; does not set the cooldown).
+    _casc_enabled, cascade = await get_mood_cascade()
+    decay_cfg = await get_mood_decay_config()
+    dstate = await _decay_state(profile_name, effective, cached_mood_id, decay_cfg, cascade)
 
     tally = []
     for mid, votes in sorted(vote_map.items(), key=lambda x: -effective[x[0]]):
@@ -564,24 +705,26 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
         lv = llm_votes.get(mid, 0)
         inertia_here = tinfo["inertia"] if (mid == cached_mood_id and tinfo["inertia"]) else 0
         penalized = allowed is not None and mid not in allowed
+        decayed_here = mid in dstate["decayed_chain"]
+        on_cooldown = mid in dstate["cooldown_excluded"]
         tally.append({
             "mood_id": mid, "name": moods[mid]["name"] if mid in moods else mid,
             "votes": votes, "effective": effective[mid], "threshold": th,
-            "meets": effective[mid] >= th,
+            "meets": effective[mid] >= th and not on_cooldown,
             "rule_votes": votes - lv - inertia_here, "llm_votes": lv,
             "inertia": inertia_here, "penalized": penalized,
+            "decayed": decayed_here, "on_cooldown": on_cooldown,
         })
 
-    candidates = [(mid, effective[mid]) for mid in vote_map if effective[mid] >= _threshold(mid)]
+    candidates = [(mid, effective[mid]) for mid in vote_map
+                  if effective[mid] >= _threshold(mid) and mid not in dstate["cooldown_excluded"]]
     winner = None
     is_default = False
     cascade_notes: list = []
     if candidates:
         wid, _eff = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
         source_votes = vote_map.get(wid, 0)
-        from .settings_store import get_mood_cascade
-        casc_enabled, cascade = await get_mood_cascade()
-        if casc_enabled:
+        if _casc_enabled:
             wid, cascade_notes = _apply_cascade(wid, effective, moods, cascade)
         winner = {"id": wid, "name": moods[wid]["name"], "votes": source_votes}
     else:
@@ -609,6 +752,11 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
         "jump_penalty": tinfo["penalty"],
         "allowed_moves": sorted(moods[m]["name"] for m in allowed if m in moods) if allowed else [],
         "cascade": cascade_notes,
+        "decay_enabled": decay_cfg["enabled"],
+        "tenure": dstate["tenure"],
+        "decay": dstate["decay"],
+        "decayed_chain": sorted(moods[m]["name"] for m in dstate["decayed_chain"] if m in moods),
+        "cooldown_moods": sorted(moods[m]["name"] for m in dstate["cooldown_excluded"] if m in moods),
     }
 
 

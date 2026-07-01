@@ -64,6 +64,19 @@ DEFAULTS = {
     # "to" (e.g. sustained Flirty -> Horny). {mood: {"to": mood_id, "at": votes}}.
     "mood_cascade_enabled": "1",
     "mood_cascade": '{"flirty":{"to":"horny","at":12},"curious":{"to":"focused","at":10},"lonely":{"to":"sad","at":8},"frustrated":{"to":"tired","at":9},"bored":{"to":"tired","at":8},"jealous":{"to":"frustrated","at":8}}',
+    # Homeostatic decay: a mood held for many rounds fades so it can't lock in (anti-stuck).
+    "mood_decay_enabled": "1",
+    "mood_decay_grace": "5",      # rounds a mood holds before it starts to fade
+    "mood_decay_rate": "3",       # votes shed per round after the grace period
+    "mood_decay_cooldown": "4",   # rounds a just-vacated mood is barred from returning
+    # Agent-facing disposition block (injected into the system prompt each turn).
+    "mood_directive_enabled": "1",
+    "mood_directive_template": (
+        "## Current disposition\n"
+        "You've recently been feeling **{mood}** ({description}). Let it colour your tone, but follow "
+        "the user's lead and let it pass naturally — don't force it or escalate it."
+    ),
+    "mood_directive_file": "",    # optional: write the block here on mood change (blank = HTTP only)
 }
 
 
@@ -118,6 +131,21 @@ async def get_mood_cascade() -> tuple[bool, dict]:
             except (TypeError, ValueError):
                 pass
     return enabled, out
+
+
+async def get_mood_decay_config() -> dict:
+    """(enabled, grace, rate, cooldown) for homeostatic mood decay, all in rounds/votes."""
+    async def _i(key: str, default: int) -> int:
+        try:
+            return max(0, int(float(await get_setting(key, str(default)))))
+        except (TypeError, ValueError):
+            return default
+    return {
+        "enabled": (await get_setting("mood_decay_enabled", "1")) == "1",
+        "grace": await _i("mood_decay_grace", 5),
+        "rate": await _i("mood_decay_rate", 3),
+        "cooldown": await _i("mood_decay_cooldown", 4),
+    }
 
 
 async def get_emotion_taxonomy() -> list:

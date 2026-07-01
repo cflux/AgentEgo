@@ -260,6 +260,17 @@ _DEFAULT_SETTINGS = {
     ),
     "mood_cascade_enabled": "1",
     "mood_cascade": '{"flirty":{"to":"horny","at":12},"curious":{"to":"focused","at":10},"lonely":{"to":"sad","at":8},"frustrated":{"to":"tired","at":9},"bored":{"to":"tired","at":8},"jealous":{"to":"frustrated","at":8}}',
+    "mood_decay_enabled": "1",
+    "mood_decay_grace": "5",
+    "mood_decay_rate": "3",
+    "mood_decay_cooldown": "4",
+    "mood_directive_enabled": "1",
+    "mood_directive_template": (
+        "## Current disposition\n"
+        "You've recently been feeling **{mood}** ({description}). Let it colour your tone, but follow "
+        "the user's lead and let it pass naturally — don't force it or escalate it."
+    ),
+    "mood_directive_file": "",
 }
 
 

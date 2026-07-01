@@ -73,6 +73,11 @@ async def update_model_config(
     mood_jump_penalty: str = Form("3"),
     mood_adjacency: str = Form(""),
     mood_cascade: str = Form(""),
+    mood_decay_grace: str = Form("5"),
+    mood_decay_rate: str = Form("3"),
+    mood_decay_cooldown: str = Form("4"),
+    mood_directive_template: str = Form(""),
+    mood_directive_file: str = Form(""),
 ):
     # Low-signal emotions come from checkboxes (zero or more 'low_signal' values).
     form = await request.form()
@@ -103,6 +108,13 @@ async def update_model_config(
         "mood_inertia_bonus": mood_inertia_bonus.strip(),
         "mood_jump_penalty": mood_jump_penalty.strip(),
         "mood_cascade_enabled": "1" if form.get("mood_cascade_enabled") else "0",
+        "mood_decay_enabled": "1" if form.get("mood_decay_enabled") else "0",
+        "mood_decay_grace": mood_decay_grace.strip(),
+        "mood_decay_rate": mood_decay_rate.strip(),
+        "mood_decay_cooldown": mood_decay_cooldown.strip(),
+        "mood_directive_enabled": "1" if form.get("mood_directive_enabled") else "0",
+        "mood_directive_template": mood_directive_template,
+        "mood_directive_file": mood_directive_file.strip(),
     }
     # Only overwrite JSON graph/cascade if valid JSON was submitted (avoid clobbering with junk).
     import json as _json

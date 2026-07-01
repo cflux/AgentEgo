@@ -2,7 +2,7 @@ import json
 import time
 from uuid import uuid4
 from fastapi import APIRouter, Request, Form
-from fastapi.responses import HTMLResponse, Response, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, Response, RedirectResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
@@ -587,6 +587,27 @@ async def current_mood_json(profile: str = "default") -> dict:
         "vote_count": mood.get("vote_count", 0),
         "why": mood.get("breakdown") or [],
     }
+
+
+def render_mood_directive(template: str, name: str, description: str) -> str:
+    """Fill the disposition template. Plain replace (not str.format) so stray braces are safe."""
+    return (template or "").replace("{mood}", name or "").replace("{description}", description or "")
+
+
+@router.get("/api/mood/directive", response_class=PlainTextResponse)
+async def mood_directive(profile: str = "default"):
+    """Agent-facing: the guardrailed disposition block to inject into the system prompt each turn.
+    Empty when disabled or no mood. A per-turn fetch is stable until the mood changes."""
+    from ..services import settings_store
+    if (await settings_store.get_setting("mood_directive_enabled", "1")) != "1":
+        return PlainTextResponse("")
+    mood = await evaluate_mood(profile, db_path=resolve_profile(profile))
+    if not mood:
+        return PlainTextResponse("")
+    full = await _get_mood(mood["id"])
+    template = await settings_store.get_setting("mood_directive_template", "")
+    text = render_mood_directive(template, mood["name"], (full or {}).get("description", ""))
+    return PlainTextResponse(text.strip())
 
 
 # --- Debug computation ---

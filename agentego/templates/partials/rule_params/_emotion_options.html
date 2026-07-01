@@ -1,0 +1,8 @@
+{# Emotion <optgroup> options driven by the configured taxonomy. Expects: emotion_groups, sel #}
+{% for gname, emos in emotion_groups %}
+<optgroup label="{{ gname }}">
+  {% for e in emos %}
+  <option value="{{ e }}" {% if e in sel %}selected{% endif %}>{{ e }}</option>
+  {% endfor %}
+</optgroup>
+{% endfor %}

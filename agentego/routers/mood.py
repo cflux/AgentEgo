@@ -28,6 +28,34 @@ VALID_EMOTIONS = {
     "optimism", "pride", "realization", "relief", "remorse", "sadness", "surprise",
 }
 
+# Base GoEmotions grouping for the rule-builder select; anything in the configured taxonomy
+# that isn't one of these lands in an "Extended" group so custom emotions always show up.
+_EMOTION_GROUPING = {
+    "Positive": ["admiration", "amusement", "approval", "caring", "desire", "excitement",
+                 "gratitude", "joy", "love", "optimism", "pride", "relief"],
+    "Negative": ["anger", "annoyance", "disappointment", "disapproval", "disgust",
+                 "embarrassment", "fear", "grief", "nervousness", "remorse", "sadness"],
+    "Other": ["confusion", "curiosity", "realization", "surprise", "neutral"],
+}
+
+
+async def _emotion_groups() -> list:
+    """[(group_name, [emotions])] built from the live taxonomy so the rule-builder select
+    always matches the configured emotion vocabulary (incl. custom additions)."""
+    from ..services.settings_store import get_emotion_taxonomy
+    taxonomy = await get_emotion_taxonomy()
+    tax_order = {e: i for i, e in enumerate(taxonomy)}
+    groups, used = [], set()
+    for name, base in _EMOTION_GROUPING.items():
+        items = [e for e in base if e in tax_order]
+        if items:
+            groups.append((name, items))
+            used.update(items)
+    extra = [e for e in taxonomy if e not in used]
+    if extra:
+        groups.append(("Extended", extra))
+    return groups
+
 
 # --- Helpers ---
 
@@ -338,7 +366,8 @@ async def rule_params_partial(request: Request, rule_type: str = ""):
         return HTMLResponse('<p style="color:var(--pico-muted-color); font-size:0.85rem;">Select a rule type above.</p>')
     moods = await _get_moods()  # needed by the prev_mood selector
     return templates.TemplateResponse(
-        f"partials/rule_params/{rule_type}.html", {"request": request, "moods": moods}
+        f"partials/rule_params/{rule_type}.html",
+        {"request": request, "moods": moods, "emotion_groups": await _emotion_groups()},
     )
 
 
@@ -428,7 +457,8 @@ async def rule_edit_form(request: Request, rule_id: str):
         return Response(status_code=404)
     moods = await _get_moods()
     return templates.TemplateResponse(
-        "partials/mood_rule_edit_row.html", {"request": request, "rule": rule, "moods": moods}
+        "partials/mood_rule_edit_row.html",
+        {"request": request, "rule": rule, "moods": moods, "emotion_groups": await _emotion_groups()},
     )
 
 
@@ -586,10 +616,7 @@ _RULE_BUILDER_TAIL = (
     '- topic_keyword: {"keywords": [...], "lookback": N, "min_count": K} — the conversation topic contained a keyword.\n'
     '- prev_mood: {"moods": [<mood_id>...], "negate": bool} — the mood from the PREVIOUS evaluation is (or is not) one of these mood ids. Good for momentum/transitions.\n\n'
     "Valid modes: work, social, informative, serious, flirting, creative, support.\n"
-    "Valid emotions: admiration, amusement, anger, annoyance, approval, caring, confusion, "
-    "curiosity, desire, disappointment, disapproval, disgust, embarrassment, excitement, fear, "
-    "gratitude, grief, joy, love, nervousness, neutral, optimism, pride, realization, relief, "
-    "remorse, sadness, surprise.\n\n"
+    "{emotion_line}"
     "Map synonyms (flirty/romantic->flirting, coding/technical->work, helping->support, etc.)."
 )
 _RULE_BUILDER_OUTPUT = (
@@ -614,8 +641,9 @@ def _rule_dupe_key(rule_type: str, mood_id: str, params: dict) -> tuple:
     return (rule_type, mood_id, _canon_params(rule_type, params))
 
 
-def _clean_llm_params(rule_type: str, params: dict | None) -> dict:
+def _clean_llm_params(rule_type: str, params: dict | None, valid_emotions: set | None = None) -> dict:
     p = params or {}
+    allowed_emotions = valid_emotions or VALID_EMOTIONS
 
     def _i(k, d):
         try:
@@ -631,7 +659,7 @@ def _clean_llm_params(rule_type: str, params: dict | None) -> dict:
         raw = p.get("emotions", [])
         if isinstance(raw, str):
             raw = [raw]
-        return [str(e).strip().lower() for e in raw if str(e).strip().lower() in VALID_EMOTIONS]
+        return [str(e).strip().lower() for e in raw if str(e).strip().lower() in allowed_emotions]
 
     if rule_type == "prev_mood":
         raw = p.get("moods", [])
@@ -670,7 +698,12 @@ async def create_rule_from_text(request: Request, profile_name: str = Form(...),
         return _err("Describe a rule first.")
     moods = await _get_moods()
     mood_ids = {m["id"] for m in moods}
-    system = _RULE_BUILDER_HEAD + "\n".join(f"- {m['id']}: {m['name']}" for m in moods) + _RULE_BUILDER_TAIL
+    from ..services.settings_store import get_emotion_taxonomy
+    taxonomy = await get_emotion_taxonomy()
+    valid_emotions = set(taxonomy)
+    emotion_line = "Valid emotions: " + ", ".join(taxonomy) + ".\n\n"
+    tail = _RULE_BUILDER_TAIL.replace("{emotion_line}", emotion_line)
+    system = _RULE_BUILDER_HEAD + "\n".join(f"- {m['id']}: {m['name']}" for m in moods) + tail
 
     # Give the LLM the agent's personality so it picks moods/conditions that fit the character.
     traits = await get_traits(profile_name)
@@ -741,7 +774,7 @@ async def create_rule_from_text(request: Request, profile_name: str = Form(...),
         if mood_id not in mood_ids:
             skipped.append(f"mood '{mood_id or '—'}' doesn't exist")
             continue
-        params = _clean_llm_params(rule_type, item.get("params"))
+        params = _clean_llm_params(rule_type, item.get("params"), valid_emotions)
         if rule_type in ("sentiment_user", "sentiment_agent", "sentiment_mismatch") and not params.get("emotions"):
             skipped.append(f"{label or rule_type}: no valid emotions")
             continue

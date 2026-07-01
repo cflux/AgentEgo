@@ -13,21 +13,7 @@
   <label style="flex:2; min-width:200px; margin:0;">
     Emotions to watch (hold Ctrl/Cmd for multiple)
     <select name="params_emotions" multiple size="8" required style="height:auto;">
-      <optgroup label="Positive">
-        {% for e in ["admiration","amusement","approval","caring","desire","excitement","gratitude","joy","love","optimism","pride","relief"] %}
-        <option value="{{ e }}" {% if e in sel %}selected{% endif %}>{{ e }}</option>
-        {% endfor %}
-      </optgroup>
-      <optgroup label="Negative">
-        {% for e in ["anger","annoyance","disappointment","disapproval","disgust","embarrassment","fear","grief","nervousness","remorse","sadness"] %}
-        <option value="{{ e }}" {% if e in sel %}selected{% endif %}>{{ e }}</option>
-        {% endfor %}
-      </optgroup>
-      <optgroup label="Other">
-        {% for e in ["confusion","curiosity","realization","surprise","neutral"] %}
-        <option value="{{ e }}" {% if e in sel %}selected{% endif %}>{{ e }}</option>
-        {% endfor %}
-      </optgroup>
+      {% include "partials/rule_params/_emotion_options.html" %}
     </select>
   </label>
   <div style="display:flex; flex-direction:column; gap:0.6rem;">

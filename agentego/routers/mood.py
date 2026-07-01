@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
 from ..db.ego import get_ego_db
-from ..services.mood_engine import evaluate_mood, explain_mood
+from ..services.mood_engine import evaluate_mood, explain_mood, get_cached_mood
 from ..services.profiles import discover_profiles, resolve_profile
 from ..services.llm_client import chat, LLMError
 from ..services.affinity_engine import get_traits
@@ -576,8 +576,9 @@ async def toggle_default(request: Request, profile_name: str = Form(...), mood_i
 
 @router.get("/api/mood/current")
 async def current_mood_json(profile: str = "default") -> dict:
-    """Agent-facing: the profile's current mood + why it's in that mood."""
-    mood = await evaluate_mood(profile, db_path=resolve_profile(profile))
+    """Agent-facing: the profile's current mood + why. Pure read of the cached value — the mood is
+    recomputed on a schedule (refresh_all_moods), decoupled from this fetch."""
+    mood = await get_cached_mood(profile)
     if not mood:
         return {"profile": profile, "mood": None, "mood_id": None, "vote_count": 0, "why": []}
     return {
@@ -597,16 +598,16 @@ def render_mood_directive(template: str, name: str, description: str) -> str:
 @router.get("/api/mood/directive", response_class=PlainTextResponse)
 async def mood_directive(profile: str = "default"):
     """Agent-facing: the guardrailed disposition block to inject into the system prompt each turn.
-    Empty when disabled or no mood. A per-turn fetch is stable until the mood changes."""
+    Pure read of the cached mood (recomputed on a schedule, decoupled from this fetch) — cheap to
+    hit every turn. Empty when disabled or no mood."""
     from ..services import settings_store
     if (await settings_store.get_setting("mood_directive_enabled", "1")) != "1":
         return PlainTextResponse("")
-    mood = await evaluate_mood(profile, db_path=resolve_profile(profile))
+    mood = await get_cached_mood(profile)
     if not mood:
         return PlainTextResponse("")
-    full = await _get_mood(mood["id"])
     template = await settings_store.get_setting("mood_directive_template", "")
-    text = render_mood_directive(template, mood["name"], (full or {}).get("description", ""))
+    text = render_mood_directive(template, mood["name"], mood.get("description", ""))
     return PlainTextResponse(text.strip())
 
 

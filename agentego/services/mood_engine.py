@@ -552,6 +552,41 @@ async def _write_directive_file(profile_name: str, mood_id) -> None:
         pass
 
 
+async def refresh_all_moods() -> None:
+    """Recompute + cache every profile's mood on a schedule, so the agent-facing endpoints
+    (`/api/mood/directive`, `/api/mood/current`) are pure reads of the cached value — compute is
+    decoupled from the fetch. Round-based decay/tenure means the cadence only needs to keep pace
+    with new rounds, not with how often the agent looks."""
+    from .profiles import discover_profiles
+    for p in discover_profiles():
+        try:
+            await evaluate_mood(p["name"], db_path=p["db_path"])
+        except Exception:
+            pass
+
+
+async def get_cached_mood(profile_name: str) -> dict | None:
+    """The last computed mood for a profile (pure read of agent_moods; no recompute)."""
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT am.mood_id, am.vote_count, am.breakdown, m.name, m.description, m.color, m.icon "
+            "FROM agent_moods am LEFT JOIN moods m ON m.id = am.mood_id WHERE am.profile_name = ?",
+            (profile_name,),
+        )
+        row = await cursor.fetchone()
+    finally:
+        await conn.close()
+    if not row or not row[0]:
+        return None
+    try:
+        breakdown = json.loads(row[2]) if row[2] else []
+    except Exception:
+        breakdown = []
+    return {"id": row[0], "vote_count": row[1] or 0, "breakdown": breakdown,
+            "name": row[3] or row[0], "description": row[4] or "", "color": row[5], "icon": row[6]}
+
+
 async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict | None:
     """
     Evaluate mood rules for a profile using threshold voting.

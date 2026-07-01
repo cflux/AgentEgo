@@ -47,6 +47,8 @@ async def aggregate_platform_stats() -> None:
 
 
 def start_scheduler() -> AsyncIOScheduler:
+    from .mood_engine import refresh_all_moods
+
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         aggregate_platform_stats,
@@ -54,6 +56,17 @@ def start_scheduler() -> AsyncIOScheduler:
         minutes=15,
         id="platform_stats",
         max_instances=1,
+    )
+    # Recompute moods on a schedule so the agent-facing endpoints are pure cached reads
+    # (mood computed independent of the fetch). Runs shortly after startup, then every 90s.
+    scheduler.add_job(
+        refresh_all_moods,
+        "interval",
+        seconds=90,
+        id="refresh_moods",
+        max_instances=1,
+        coalesce=True,
+        next_run_time=datetime.now(timezone.utc),
     )
     scheduler.start()
     return scheduler

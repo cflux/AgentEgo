@@ -199,9 +199,10 @@ async def _build_round_enriched(profile_name: str, db_path: str | None) -> list:
     enriched = []
     for r in rounds:
         cid = r["conversation_id"]
-        sdata = sentiment_map.get(r["id"], {})
-        u = sdata.get("user", {}) if sdata else {}
-        a = sdata.get("agent", {}) if sdata else {}
+        sdata = sentiment_map.get(r["id"]) or {}
+        # A party can be explicitly null (e.g. a round with no agent messages), so coerce to {}.
+        u = sdata.get("user") or {}
+        a = sdata.get("agent") or {}
         enriched.append({
             "id": r["id"], "conversation_id": cid,
             "round_index": r.get("round_index"),

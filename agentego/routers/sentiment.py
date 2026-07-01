@@ -8,6 +8,7 @@ from ..db.ego import get_ego_db
 from ..db.hermes import get_session_messages_in_range
 from ..services.profiles import resolve_profile
 from ..services.conversations import get_conversation, get_all_recent_conversations
+from ..services import settings_store
 
 router = APIRouter(prefix="/api")
 
@@ -35,11 +36,36 @@ class SentimentResult(BaseModel):
     session_id: str
     user: Optional[SentimentScore] = None
     agent: Optional[SentimentScore] = None
+    # Optional per-round LLM mood predictions {mood_id: 0-10}; only set for round ids.
+    mood_scores: Optional[dict] = None
+
+
+@router.get("/sentiment/scoring-config")
+async def scoring_config() -> dict:
+    """Drives the sentiment worker: which backend, emotion taxonomy, mood catalog, LLM endpoint."""
+    backend = await settings_store.get_setting("scoring_backend", "llm")
+    taxonomy = await settings_store.get_emotion_taxonomy()
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute("SELECT id, name, description FROM moods ORDER BY name")
+        moods = [{"id": r[0], "name": r[1], "description": r[2]} for r in await cursor.fetchall()]
+    finally:
+        await conn.close()
+    return {
+        "backend": backend,
+        "taxonomy": taxonomy,
+        "moods": moods,
+        "llm_url": await settings_store.get_setting("sentiment_llm_url", "http://localhost:11434"),
+        "llm_model": await settings_store.get_setting("sentiment_llm_model", ""),
+    }
 
 
 async def _pending_sentiment_ids() -> list[str]:
-    """Conversations AND rounds that still need a sentiment score (newest first)."""
-    conversations = await get_all_recent_conversations()
+    """Ids still needing a sentiment score (newest first). Under the LLM backend only rounds
+    are scored directly — conversation sentiment is derived from rounds — so conversations are
+    excluded. Under the GoEmotions backend both conversations and rounds are scored."""
+    backend = await settings_store.get_setting("scoring_backend", "llm")
+    conversations = [] if backend == "llm" else await get_all_recent_conversations()
     conn = await get_ego_db()
     try:
         cutoff = time.time() - 7 * 86400
@@ -62,24 +88,75 @@ async def get_pending_sessions() -> list[str]:
     return await _pending_sentiment_ids()
 
 
+async def _upsert_module(conn, module: str, key: str, value: str) -> None:
+    await conn.execute(
+        """
+        INSERT INTO module_data (module, key, value, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(module, key) DO UPDATE SET value = excluded.value,
+                                               updated_at = excluded.updated_at
+        """,
+        (module, key, value, time.time()),
+    )
+
+
+async def _derive_conversation_sentiment(conn, round_id: str) -> None:
+    """Recompute a conversation's sentiment by averaging its scored rounds' emotion scores,
+    so the dashboard's conversation-level view stays populated without extra LLM calls."""
+    cursor = await conn.execute("SELECT conversation_id FROM rounds WHERE id = ?", (round_id,))
+    row = await cursor.fetchone()
+    if not row:
+        return
+    conv_id = row[0]
+    cursor = await conn.execute("SELECT id FROM rounds WHERE conversation_id = ?", (conv_id,))
+    sibling_ids = [r[0] for r in await cursor.fetchall()]
+    if not sibling_ids:
+        return
+    ph = ",".join("?" * len(sibling_ids))
+    cursor = await conn.execute(
+        f"SELECT value FROM module_data WHERE module='sentiment' AND key IN ({ph})", sibling_ids
+    )
+    rows = [r[0] for r in await cursor.fetchall()]
+
+    def _agg(party: str) -> dict | None:
+        totals: dict[str, float] = {}
+        msgs = n = 0
+        for raw in rows:
+            try:
+                p = (json.loads(raw) or {}).get(party)
+            except Exception:
+                p = None
+            if not p:
+                continue
+            for k, v in (p.get("scores") or {}).items():
+                totals[k] = totals.get(k, 0.0) + float(v)
+            msgs += int(p.get("message_count") or 0)
+            n += 1
+        if not n:
+            return None
+        avg = {k: round(v / n, 4) for k, v in totals.items()}
+        ranked = sorted(avg, key=avg.get, reverse=True)
+        return {"dominant": ranked[0] if ranked else None, "top3": ranked[:3],
+                "scores": avg, "message_count": msgs}
+
+    derived = json.dumps({"user": _agg("user"), "agent": _agg("agent")})
+    await _upsert_module(conn, "sentiment", conv_id, derived)
+
+
 @router.post("/sentiment/score", status_code=202)
 async def save_sentiment_score(result: SentimentResult):
-    """Store sentiment scores for a session."""
+    """Store sentiment scores for a session/round (+ optional LLM mood scores for rounds)."""
     conn = await get_ego_db()
     try:
         value = json.dumps({
             "user": result.user.model_dump() if result.user else None,
             "agent": result.agent.model_dump() if result.agent else None,
         })
-        await conn.execute(
-            """
-            INSERT INTO module_data (module, key, value, updated_at)
-            VALUES ('sentiment', ?, ?, ?)
-            ON CONFLICT(module, key) DO UPDATE SET value = excluded.value,
-                                                   updated_at = excluded.updated_at
-            """,
-            (result.session_id, value, time.time()),
-        )
+        await _upsert_module(conn, "sentiment", result.session_id, value)
+        if result.mood_scores is not None:
+            await _upsert_module(conn, "mood_scores", result.session_id, json.dumps(result.mood_scores))
+        # If this id is a round, refresh its parent conversation's derived sentiment.
+        await _derive_conversation_sentiment(conn, result.session_id)
         await conn.commit()
     finally:
         await conn.close()

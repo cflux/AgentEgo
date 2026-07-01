@@ -137,9 +137,10 @@ async def _fetch_enrichment(session_ids: list) -> tuple[dict, dict, dict]:
         await conn.close()
 
 
-async def _fetch_round_enrichment(round_ids: list, conv_ids: list) -> tuple[dict, dict, dict]:
-    """Sentiment keyed by ROUND id; topic & mode keyed by the parent CONVERSATION id."""
+async def _fetch_round_enrichment(round_ids: list, conv_ids: list) -> tuple[dict, dict, dict, dict]:
+    """Sentiment + LLM mood scores keyed by ROUND id; topic & mode keyed by parent CONVERSATION id."""
     sentiment_map: dict = {}
+    mood_scores_map: dict = {}
     topic_map: dict = {}
     mode_map: dict = {}
     conn = await get_ego_db()
@@ -153,6 +154,15 @@ async def _fetch_round_enrichment(round_ids: list, conv_ids: list) -> tuple[dict
             for row in await cursor.fetchall():
                 try:
                     sentiment_map[row[0]] = json.loads(row[1])
+                except Exception:
+                    pass
+            cursor = await conn.execute(
+                f"SELECT key, value FROM module_data WHERE module='mood_scores' AND key IN ({ph})",
+                round_ids,
+            )
+            for row in await cursor.fetchall():
+                try:
+                    mood_scores_map[row[0]] = json.loads(row[1])
                 except Exception:
                     pass
         if conv_ids:
@@ -169,7 +179,7 @@ async def _fetch_round_enrichment(round_ids: list, conv_ids: list) -> tuple[dict
                 mode_map[row[0]] = row[1]
     finally:
         await conn.close()
-    return sentiment_map, topic_map, mode_map
+    return sentiment_map, mood_scores_map, topic_map, mode_map
 
 
 async def _build_round_enriched(profile_name: str, db_path: str | None) -> list:
@@ -183,7 +193,7 @@ async def _build_round_enriched(profile_name: str, db_path: str | None) -> list:
         return []
     round_ids = [r["id"] for r in rounds]
     conv_ids = list({r["conversation_id"] for r in rounds})
-    sentiment_map, topic_map, mode_map = await _fetch_round_enrichment(round_ids, conv_ids)
+    sentiment_map, mood_scores_map, topic_map, mode_map = await _fetch_round_enrichment(round_ids, conv_ids)
     low_signal = await get_low_signal_emotions()
 
     enriched = []
@@ -198,6 +208,7 @@ async def _build_round_enriched(profile_name: str, db_path: str | None) -> list:
             "start_ts": r.get("start_ts"), "end_ts": r.get("end_ts"),
             "msg_count": r.get("msg_count"),
             "mode": mode_map.get(cid), "topic": topic_map.get(cid),
+            "mood_scores": mood_scores_map.get(r["id"]) or {},
             "sentiment_user": u.get("dominant"), "sentiment_agent": a.get("dominant"),
             "sentiment_user_top3": _top_emotions(u, low_signal),
             "sentiment_agent_top3": _top_emotions(a, low_signal),
@@ -308,6 +319,41 @@ def _round_matched_rules(rules: list, round_enriched: dict, moods: dict,
     return matched
 
 
+async def _llm_vote_config() -> tuple[bool, float, int]:
+    """(enabled, threshold, weight) for LLM mood votes, from settings."""
+    from .settings_store import get_setting
+    enabled = (await get_setting("llm_mood_votes_enabled", "1")) == "1"
+    try:
+        threshold = float(await get_setting("llm_mood_threshold", "6"))
+    except (TypeError, ValueError):
+        threshold = 6.0
+    try:
+        weight = max(1, int(float(await get_setting("llm_mood_weight", "1"))))
+    except (TypeError, ValueError):
+        weight = 1
+    return enabled, threshold, weight
+
+
+def _llm_mood_votes(enriched: list, moods: dict, threshold: float, weight: int) -> tuple[dict, list]:
+    """Per-round threshold voting from the LLM's mood scores: each round where a mood scores
+    >= threshold casts `weight` votes, summed across the (lookback-bounded) window.
+    Returns ({mood_id: votes}, breakdown_lines)."""
+    counts: dict[str, int] = {}
+    for s in enriched:
+        for mid, score in (s.get("mood_scores") or {}).items():
+            if mid not in moods:
+                continue
+            try:
+                if float(score) >= threshold:
+                    counts[mid] = counts.get(mid, 0) + 1
+            except (TypeError, ValueError):
+                pass
+    votes = {mid: n * weight for mid, n in counts.items()}
+    breakdown = [f"LLM: {moods[mid]['name']} in {n} round(s) → +{n * weight}"
+                 for mid, n in sorted(counts.items(), key=lambda x: -x[1])]
+    return votes, breakdown
+
+
 async def _cache_result(profile_name: str, mood_id, votes: int, breakdown: list) -> None:
     conn = await get_ego_db()
     try:
@@ -361,6 +407,14 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
             vote_map[rule["mood_id"]] = vote_map.get(rule["mood_id"], 0) + 1
             label = rule.get("label") or _rule_label(rule)
             breakdown.append(label)
+
+    # LLM mood predictions vote alongside rules (can carry a mood on their own).
+    enabled, thr, wt = await _llm_vote_config()
+    if enabled:
+        llm_votes, llm_breakdown = _llm_mood_votes(enriched, moods, thr, wt)
+        for mid, v in llm_votes.items():
+            vote_map[mid] = vote_map.get(mid, 0) + v
+        breakdown += llm_breakdown
 
     def _threshold(mid: str) -> int:
         return thresholds.get(mid, moods[mid]["min_votes"])
@@ -420,12 +474,21 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
             "gated": gated, "mood_gate": rule.get("mood_gate"), "fired": fired,
         })
 
+    # LLM mood votes (tracked separately so the tally can show their contribution).
+    llm_enabled, llm_thr, llm_wt = await _llm_vote_config()
+    llm_votes, llm_breakdown = (_llm_mood_votes(enriched, moods, llm_thr, llm_wt)
+                                if llm_enabled else ({}, []))
+    for mid, v in llm_votes.items():
+        vote_map[mid] = vote_map.get(mid, 0) + v
+
     tally = []
     for mid, votes in sorted(vote_map.items(), key=lambda x: -x[1]):
         th = _threshold(mid)
+        lv = llm_votes.get(mid, 0)
         tally.append({
             "mood_id": mid, "name": moods[mid]["name"] if mid in moods else mid,
             "votes": votes, "threshold": th, "meets": votes >= th,
+            "rule_votes": votes - lv, "llm_votes": lv,
         })
 
     candidates = [(mid, v) for mid, v in vote_map.items() if v >= _threshold(mid)]
@@ -451,6 +514,9 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
         "cached_mood": cached_mood_id,
         "conversation_count": len(enriched),
         "low_signal": low_signal,
+        "llm_votes_enabled": llm_enabled,
+        "llm_breakdown": llm_breakdown,
+        "llm_threshold": llm_thr,
     }
 
 

@@ -26,6 +26,22 @@ DEFAULTS = {
     "low_signal_emotions": "neutral,approval",
     "round_exchanges": "3",
     "mood_lookback_rounds": "20",
+    # Emotion/mood scoring backend: "llm" (combined Ollama call) or "goemotions" (local model).
+    "scoring_backend": "llm",
+    # Configurable emotion taxonomy: 28 GoEmotions labels + domain additions validated in testing.
+    "emotion_taxonomy": (
+        "admiration,amusement,anger,annoyance,approval,caring,confusion,curiosity,desire,"
+        "disappointment,disapproval,disgust,embarrassment,excitement,fear,gratitude,grief,joy,"
+        "love,nervousness,optimism,pride,realization,relief,remorse,sadness,surprise,neutral,"
+        "arousal,lust,horny,yearning,longing,tenderness,affection,infatuation,passion,"
+        "possessiveness,boredom,jealousy,contentment,trust,anticipation,awe,loneliness,contempt"
+    ),
+    "sentiment_llm_url": "http://localhost:11434",
+    "sentiment_llm_model": "ikiru/Dolphin-Mistral-24B-Venice-Edition:latest",
+    # LLM mood predictions cast votes in the tally (per-round threshold voting).
+    "llm_mood_votes_enabled": "1",
+    "llm_mood_threshold": "6",
+    "llm_mood_weight": "1",
 }
 
 
@@ -33,6 +49,18 @@ async def get_low_signal_emotions() -> set:
     """Emotions filtered out of the 'top' emotions (dominant GoEmotions noise)."""
     raw = await get_setting("low_signal_emotions", DEFAULTS["low_signal_emotions"])
     return {e.strip().lower() for e in (raw or "").split(",") if e.strip()}
+
+
+async def get_emotion_taxonomy() -> list:
+    """The configured emotion label list the scorer rates against (order preserved, deduped)."""
+    raw = await get_setting("emotion_taxonomy", DEFAULTS["emotion_taxonomy"])
+    seen, out = set(), []
+    for e in (raw or "").replace("\n", ",").split(","):
+        e = e.strip().lower()
+        if e and e not in seen:
+            seen.add(e)
+            out.append(e)
+    return out
 
 
 async def get_all_settings() -> dict:

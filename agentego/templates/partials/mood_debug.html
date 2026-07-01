@@ -25,11 +25,21 @@
       <tr>
         <td><strong>{{ t.name }}</strong></td>
         <td>{{ t.votes }} / {{ t.threshold }} votes</td>
+        <td style="color:var(--pico-muted-color); font-size:0.76rem;">
+          {%- if t.rule_votes is defined and (t.rule_votes or t.llm_votes) -%}
+            {{ t.rule_votes }} rule{% if t.llm_votes %} <span style="color:#b47aff;">+ {{ t.llm_votes }} LLM</span>{% endif %}
+          {%- endif -%}
+        </td>
         <td>{% if t.meets %}<span style="color:#4caf50;">✓ meets threshold</span>{% else %}<span style="color:var(--pico-muted-color);">below threshold</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% if d.llm_votes_enabled %}
+  <p style="font-size:0.72rem; color:#b47aff; margin:-0.4rem 0 0.75rem;">
+    LLM mood votes on (score ≥ {{ d.llm_threshold | round | int }}){% if d.llm_breakdown %}: {{ d.llm_breakdown | join(' · ') }}{% else %} — no mood cleared the threshold in the window{% endif %}
+  </p>
+  {% endif %}
   {% else %}
   <p style="font-size:0.82rem; color:var(--pico-muted-color); margin:0 0 0.75rem;">No rules fired.</p>
   {% endif %}
@@ -117,6 +127,21 @@
           {% endif %}
         </div>
         {% endfor %}
+      </div>
+
+      {# LLM direct mood scores for this round #}
+      <div style="margin-top:0.7rem;">
+        <div style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--pico-muted-color); margin-bottom:0.25rem;">LLM mood scores</div>
+        {% if c.mood_scores %}
+        <div style="display:flex; flex-wrap:wrap; gap:0.3rem 0.7rem;">
+          {% for mid, sc in c.mood_scores | dictsort(by='value', reverse=true) %}
+          {% set votes = d.llm_votes_enabled and sc >= (d.llm_threshold) %}
+          <span style="font-size:0.78rem; {% if votes %}color:#b47aff; font-weight:600;{% else %}color:var(--pico-muted-color);{% endif %}">{{ mid }}:{{ sc }}{% if votes %} ✓{% endif %}</span>
+          {% endfor %}
+        </div>
+        {% else %}
+          <p style="font-size:0.78rem; color:var(--pico-muted-color); margin:0;">— no LLM mood scores (GoEmotions backend, or not scored yet) —</p>
+        {% endif %}
       </div>
 
       {# which rules this round matches #}

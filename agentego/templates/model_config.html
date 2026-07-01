@@ -67,26 +67,69 @@
       </p>
 
       <hr style="margin:1rem 0;">
+      <strong style="font-size:0.85rem;">Emotion scoring</strong>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; margin-top:0.5rem;">
+        <label style="margin:0; font-size:0.82rem;">Backend
+          <select name="scoring_backend">
+            <option value="llm" {% if settings.scoring_backend == 'llm' %}selected{% endif %}>Local LLM (Ollama) — emotions + moods</option>
+            <option value="goemotions" {% if settings.scoring_backend == 'goemotions' %}selected{% endif %}>GoEmotions model (classifier)</option>
+          </select>
+        </label>
+        <label style="margin:0; font-size:0.82rem;">Ollama URL
+          <input type="text" name="sentiment_llm_url" value="{{ settings.sentiment_llm_url }}" placeholder="http://localhost:11434">
+        </label>
+      </div>
+      <label style="margin:0.5rem 0 0; font-size:0.82rem; display:block;">Scoring model
+        <input type="text" name="sentiment_llm_model" value="{{ settings.sentiment_llm_model }}" placeholder="ikiru/Dolphin-Mistral-24B-Venice-Edition:latest">
+      </label>
+      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
+        The LLM backend scores each round's user &amp; agent emotions (over the taxonomy below) and the
+        agent's moods in one call — an uncensored local model handles roleplay/adult content best.
+        Changing the backend takes effect on the worker's next poll (no restart needed for switching;
+        editing the worker code does require a restart).
+      </p>
+
+      <label style="margin:0.75rem 0 0; font-size:0.82rem; display:block;">Emotion taxonomy
+        <small style="color:var(--pico-muted-color); font-weight:normal;">(comma/newline separated labels the scorer rates against)</small>
+        <textarea name="emotion_taxonomy" rows="4" style="font-size:0.78rem; font-family:monospace;">{{ settings.emotion_taxonomy }}</textarea>
+      </label>
+
+      <hr style="margin:1rem 0;">
+      <strong style="font-size:0.85rem;">LLM mood votes</strong>
+      <div style="display:grid; grid-template-columns:auto 1fr 1fr; gap:0.6rem; align-items:end; margin-top:0.5rem;">
+        <label style="display:inline-flex; align-items:center; gap:0.35rem; margin:0; font-size:0.82rem; cursor:pointer;">
+          <input type="checkbox" name="llm_mood_votes_enabled" value="1" {% if settings.llm_mood_votes_enabled == '1' %}checked{% endif %}
+                 style="width:0.95rem; height:0.95rem; margin:0;">
+          Enabled
+        </label>
+        <label style="margin:0; font-size:0.82rem;">Threshold <small style="color:var(--pico-muted-color); font-weight:normal;">(score ≥, 0-10)</small>
+          <input type="number" name="llm_mood_threshold" value="{{ settings.llm_mood_threshold }}" min="0" max="10" step="1">
+        </label>
+        <label style="margin:0; font-size:0.82rem;">Weight <small style="color:var(--pico-muted-color); font-weight:normal;">(votes per round)</small>
+          <input type="number" name="llm_mood_weight" value="{{ settings.llm_mood_weight }}" min="1" max="10" step="1">
+        </label>
+      </div>
+      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
+        Each recent round where the LLM scores a mood ≥ threshold casts <em>weight</em> votes for it, summed
+        across the lookback window and added to the rule votes — so the LLM can carry a mood the rules missed.
+      </p>
+
+      <hr style="margin:1rem 0;">
       <strong style="font-size:0.85rem;">Low-signal emotions</strong>
       <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.25rem 0 0.5rem;">
-        Check emotions to filter OUT of the top emotions (GoEmotions surfaces some on nearly every
-        message). Excluding them lets the distinctive emotions drive moods. A mood rule targeting a
-        checked emotion won't match it.
+        Check emotions to filter OUT of the top emotions (some surface on nearly every message).
+        Excluding them lets the distinctive emotions drive moods. A mood rule targeting a checked
+        emotion won't match it. List is driven by the taxonomy above.
       </p>
-      {% for group, emos in emotion_groups.items() %}
-      <div style="margin-bottom:0.4rem;">
-        <span style="font-size:0.72rem; color:var(--pico-muted-color); text-transform:uppercase; letter-spacing:0.05em;">{{ group }}</span>
-        <div style="display:flex; flex-wrap:wrap; gap:0.4rem 0.9rem; margin-top:0.2rem;">
-          {% for e in emos %}
-          <label style="display:inline-flex; align-items:center; gap:0.3rem; margin:0; font-size:0.82rem; cursor:pointer;">
-            <input type="checkbox" name="low_signal" value="{{ e }}" {% if e in low_signal %}checked{% endif %}
-                   style="width:0.95rem; height:0.95rem; margin:0;">
-            {{ e }}
-          </label>
-          {% endfor %}
-        </div>
+      <div style="display:flex; flex-wrap:wrap; gap:0.4rem 0.9rem;">
+        {% for e in taxonomy %}
+        <label style="display:inline-flex; align-items:center; gap:0.3rem; margin:0; font-size:0.82rem; cursor:pointer;">
+          <input type="checkbox" name="low_signal" value="{{ e }}" {% if e in low_signal %}checked{% endif %}
+                 style="width:0.95rem; height:0.95rem; margin:0;">
+          {{ e }}
+        </label>
+        {% endfor %}
       </div>
-      {% endfor %}
 
       <div style="display:flex; gap:0.6rem; margin-top:1rem;">
         <button type="submit" style="margin:0; padding:0.45rem 1.2rem;">Save</button>

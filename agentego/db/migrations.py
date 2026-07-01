@@ -219,6 +219,19 @@ _DEFAULT_SETTINGS = {
     "low_signal_emotions": "neutral,approval",
     "round_exchanges": "3",
     "mood_lookback_rounds": "20",
+    "scoring_backend": "llm",
+    "emotion_taxonomy": (
+        "admiration,amusement,anger,annoyance,approval,caring,confusion,curiosity,desire,"
+        "disappointment,disapproval,disgust,embarrassment,excitement,fear,gratitude,grief,joy,"
+        "love,nervousness,optimism,pride,realization,relief,remorse,sadness,surprise,neutral,"
+        "arousal,lust,horny,yearning,longing,tenderness,affection,infatuation,passion,"
+        "possessiveness,boredom,jealousy,contentment,trust,anticipation,awe,loneliness,contempt"
+    ),
+    "sentiment_llm_url": "http://localhost:11434",
+    "sentiment_llm_model": "ikiru/Dolphin-Mistral-24B-Venice-Edition:latest",
+    "llm_mood_votes_enabled": "1",
+    "llm_mood_threshold": "6",
+    "llm_mood_weight": "1",
 }
 
 

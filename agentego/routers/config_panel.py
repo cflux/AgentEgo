@@ -34,10 +34,11 @@ EMOTION_GROUPS = {
 async def config_page(request: Request):
     settings = await settings_store.get_all_settings()
     low_signal = await settings_store.get_low_signal_emotions()
+    taxonomy = await settings_store.get_emotion_taxonomy()
     return templates.TemplateResponse(
         "model_config.html",
         {"request": request, "settings": settings, "masked_key": _mask_key(settings.get("llm_api_key", "")),
-         "emotion_groups": EMOTION_GROUPS, "low_signal": low_signal},
+         "taxonomy": taxonomy, "low_signal": low_signal},
     )
 
 
@@ -62,10 +63,20 @@ async def update_model_config(
     trait_drift_delta: str = Form("0.1"),
     round_exchanges: str = Form("3"),
     mood_lookback_rounds: str = Form("20"),
+    scoring_backend: str = Form("llm"),
+    emotion_taxonomy: str = Form(""),
+    sentiment_llm_url: str = Form("http://localhost:11434"),
+    sentiment_llm_model: str = Form(""),
+    llm_mood_threshold: str = Form("6"),
+    llm_mood_weight: str = Form("1"),
 ):
     # Low-signal emotions come from checkboxes (zero or more 'low_signal' values).
     form = await request.form()
     emos = ",".join(e.strip().lower() for e in form.getlist("low_signal") if e.strip())
+    # Normalize the taxonomy textarea (newlines/commas) to a comma list.
+    taxonomy = ",".join(
+        e.strip().lower() for e in emotion_taxonomy.replace("\n", ",").split(",") if e.strip()
+    )
     updates = {
         "llm_backend": llm_backend.strip(),
         "llm_base_url": llm_base_url.strip(),
@@ -77,6 +88,13 @@ async def update_model_config(
         "low_signal_emotions": emos,
         "round_exchanges": round_exchanges.strip(),
         "mood_lookback_rounds": mood_lookback_rounds.strip(),
+        "scoring_backend": scoring_backend.strip(),
+        "emotion_taxonomy": taxonomy,
+        "sentiment_llm_url": sentiment_llm_url.strip(),
+        "sentiment_llm_model": sentiment_llm_model.strip(),
+        "llm_mood_votes_enabled": "1" if form.get("llm_mood_votes_enabled") else "0",
+        "llm_mood_threshold": llm_mood_threshold.strip(),
+        "llm_mood_weight": llm_mood_weight.strip(),
     }
     # Only overwrite the API key when a new value is submitted (blank = keep existing).
     if llm_api_key.strip():

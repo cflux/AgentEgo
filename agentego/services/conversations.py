@@ -319,6 +319,15 @@ async def sync_recent_conversations(profile_name: str, db_path: str | None = Non
     sync_session_conversations (once per actual content change, gated by the
     message_count watermark) — NOT on every read — so a settled conversation's
     tags stay put and all pages render the same DB state."""
+    # Guard against cross-profile leakage: a named profile must sync only against its
+    # OWN Hermes db. If it can't be resolved (missing profile dir), skip rather than
+    # falling back to the shared default db (which would ingest another agent's sessions).
+    from ..config import settings as _settings
+    from .profiles import resolve_profile
+    if db_path is None:
+        db_path = resolve_profile(profile_name)
+    if profile_name != "default" and (not db_path or db_path == _settings.hermes_db_path):
+        return
     try:
         sessions = await get_recent_sessions(db_path=db_path)
     except Exception:

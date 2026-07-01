@@ -45,6 +45,21 @@ async def _get_moods() -> list:
         await conn.close()
 
 
+async def _get_mood_history(profile_name: str, limit: int = 30) -> list:
+    """Recent mood *changes* for a profile, newest first."""
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT prev_mood_id, mood_id, vote_count, changed_at FROM mood_history "
+            "WHERE profile_name = ? ORDER BY changed_at DESC LIMIT ?",
+            (profile_name, limit),
+        )
+        return [{"prev": r[0], "mood": r[1], "votes": r[2], "at": r[3]}
+                for r in await cursor.fetchall()]
+    finally:
+        await conn.close()
+
+
 async def _get_mood(mood_id: str) -> dict | None:
     conn = await get_ego_db()
     try:
@@ -216,6 +231,11 @@ async def mood_rules_page(request: Request, profile: str = "default"):
     current_mood = await evaluate_mood(profile, db_path=db_path)
     thresholds = await _get_thresholds(profile)
     defaults = await _get_defaults(profile)
+    moods_by_id = {m["id"]: m for m in moods}
+    history = await _get_mood_history(profile)
+    for h in history:
+        h["from"] = moods_by_id.get(h["prev"])
+        h["to"] = moods_by_id.get(h["mood"])
     return templates.TemplateResponse(
         "mood_rules.html",
         {
@@ -227,6 +247,7 @@ async def mood_rules_page(request: Request, profile: str = "default"):
             "current_mood": current_mood,
             "thresholds": thresholds,
             "defaults": defaults,
+            "history": history,
         },
     )
 

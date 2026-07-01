@@ -380,6 +380,18 @@ def _transition_effective(vote_map: dict, moods: dict, cached_mood_id, tcfg: dic
 async def _cache_result(profile_name: str, mood_id, votes: int, breakdown: list) -> None:
     conn = await get_ego_db()
     try:
+        # Log a history row only when the mood actually changes.
+        cursor = await conn.execute(
+            "SELECT mood_id FROM agent_moods WHERE profile_name = ?", (profile_name,)
+        )
+        row = await cursor.fetchone()
+        prev_mood_id = row[0] if row else None
+        if mood_id != prev_mood_id and not (mood_id is None and prev_mood_id is None):
+            await conn.execute(
+                "INSERT INTO mood_history (profile_name, prev_mood_id, mood_id, vote_count, breakdown, changed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (profile_name, prev_mood_id, mood_id, votes, json.dumps(breakdown), time.time()),
+            )
         await conn.execute(
             """
             INSERT INTO agent_moods (profile_name, mood_id, vote_count, computed_at, breakdown)

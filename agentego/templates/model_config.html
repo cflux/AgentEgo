@@ -2,150 +2,199 @@
 {% block title %}Model Config — AgentEgo{% endblock %}
 {% block content %}
 
-<h2>Model Control Panel <small style="font-size:0.6em; color:var(--pico-muted-color);">LLM backend for the preference engine</small></h2>
+<style>
+  .cfg-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(330px, 1fr)); gap:1rem; align-items:start; }
+  .cfg-grid article { margin:0; padding:1rem 1.15rem; }
+  .cfg-grid .wide { grid-column:1 / -1; }
+  .cfg-h { font-size:0.9rem; font-weight:600; margin:0 0 0.1rem; }
+  .cfg-sub { font-size:0.72rem; color:var(--pico-muted-color); margin:0 0 0.7rem; }
+  .cfg-help { font-size:0.74rem; color:var(--pico-muted-color); margin:0.5rem 0 0; line-height:1.45; }
+  .cfg-row { display:grid; gap:0.6rem; }
+  .cfg-row.c2 { grid-template-columns:1fr 1fr; }
+  .cfg-row.c3 { grid-template-columns:1fr 1fr 1fr; }
+  .cfg-grid label { margin:0; font-size:0.82rem; }
+  .chips { display:flex; flex-wrap:wrap; gap:0.35rem; margin:0.3rem 0; }
+  .chip { display:inline-flex; align-items:center; gap:0.3rem; background:var(--pico-card-sectioning-background-color, #2b2b33);
+          border:1px solid var(--pico-muted-border-color); border-radius:1rem; padding:0.1rem 0.55rem; font-size:0.78rem; }
+  .chip a { text-decoration:none; color:var(--pico-muted-color); font-weight:700; }
+  .chip a:hover { color:#e57373; }
+</style>
 
-<p style="font-size:0.88rem; color:var(--pico-muted-color); max-width:60rem;">
-  The preference worker and the opinion playground pull this config live — no restart needed.
-  Use the hosted DeepSeek API, or point <code>base url</code> at a local Ollama instance
-  (<code>http://localhost:11434/v1</code>) and set the model name (e.g. <code>qwen2.5:14b</code>).
+<h2>Model Control Panel <small style="font-size:0.6em; color:var(--pico-muted-color);">LLM, emotion scoring &amp; mood tuning</small></h2>
+
+<p style="font-size:0.88rem; color:var(--pico-muted-color); max-width:70rem;">
+  Everything here is picked up live — no restart. The preference/opinion engine uses the DeepSeek (or Ollama)
+  connection; the emotion &amp; mood scoring below drives the agent's moods.
 </p>
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1rem; align-items:start;">
+<form hx-post="/config/model" hx-target="#config-feedback" hx-swap="innerHTML">
+  <div class="cfg-grid">
 
-  <article style="padding:1rem 1.25rem;">
-    <form hx-post="/config/model" hx-target="#config-feedback" hx-swap="innerHTML">
-      <div style="display:grid; gap:0.75rem;">
-        <label style="margin:0;">Backend
+    {# ---------------- LLM connection ---------------- #}
+    <article>
+      <p class="cfg-h">LLM connection</p>
+      <p class="cfg-sub">Backend for the preference engine &amp; opinion playground.</p>
+      <div class="cfg-row">
+        <label>Backend
           <select name="llm_backend">
             <option value="deepseek" {% if settings.llm_backend == 'deepseek' %}selected{% endif %}>DeepSeek API (hosted)</option>
             <option value="ollama" {% if settings.llm_backend == 'ollama' %}selected{% endif %}>Ollama / OpenAI-compatible (local)</option>
           </select>
         </label>
-        <label style="margin:0;">Base URL
+        <label>Base URL
           <input type="text" name="llm_base_url" value="{{ settings.llm_base_url }}" placeholder="https://api.deepseek.com">
         </label>
-        <label style="margin:0;">Model
+        <label>Model
           <input type="text" name="llm_model" value="{{ settings.llm_model }}" placeholder="deepseek-chat">
         </label>
-        <label style="margin:0;">API Key
+        <label>API Key
           <input type="password" name="llm_api_key" placeholder="{% if masked_key %}{{ masked_key }} (leave blank to keep){% else %}sk-…{% endif %}" autocomplete="off">
         </label>
-        <label style="margin:0;">Temperature
+        <label>Temperature <small style="color:var(--pico-muted-color); font-weight:normal;">(creativity)</small>
           <input type="number" name="llm_temperature" value="{{ settings.llm_temperature }}" min="0" max="2" step="0.1">
         </label>
       </div>
+    </article>
 
-      <hr style="margin:1rem 0;">
-      <strong style="font-size:0.85rem;">Evolution tuning</strong>
-      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.6rem; margin-top:0.5rem;">
-        <label style="margin:0; font-size:0.82rem;">EMA α
+    {# ---------------- Evolution tuning ---------------- #}
+    <article>
+      <p class="cfg-h">Preference evolution</p>
+      <p class="cfg-sub">How the agent's likes &amp; traits drift over time.</p>
+      <div class="cfg-row c3">
+        <label>Learning speed
           <input type="number" name="evolution_alpha" value="{{ settings.evolution_alpha }}" min="0" max="1" step="0.05">
         </label>
-        <label style="margin:0; font-size:0.82rem;">Seed band
+        <label>SOUL anchor
           <input type="number" name="seed_deviation_band" value="{{ settings.seed_deviation_band }}" min="0" max="1" step="0.05">
         </label>
-        <label style="margin:0; font-size:0.82rem;">Trait drift
+        <label>Trait drift
           <input type="number" name="trait_drift_delta" value="{{ settings.trait_drift_delta }}" min="0" max="1" step="0.05">
         </label>
       </div>
-      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.5rem 0 0;">
-        α = how fast affinities move per observation · seed band = max drift for SOUL-seeded likes (prevents flips) · trait drift = max OCEAN drift from baseline.
+      <p class="cfg-help">
+        <strong>Learning speed</strong> — how fast likes move each time something is observed (higher = quicker to change its mind).
+        <strong>SOUL anchor</strong> — how far a personality-seeded like is allowed to drift (keeps core traits from flipping).
+        <strong>Trait drift</strong> — how far personality can wander from its baseline.
       </p>
+    </article>
 
-      <hr style="margin:1rem 0;">
-      <strong style="font-size:0.85rem;">Mood granularity</strong>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; margin-top:0.5rem;">
-        <label style="margin:0; font-size:0.82rem;">Round size <small style="color:var(--pico-muted-color); font-weight:normal;">(exchanges per point)</small>
+    {# ---------------- Mood granularity ---------------- #}
+    <article>
+      <p class="cfg-h">Mood granularity</p>
+      <p class="cfg-sub">How finely and how far back mood is read.</p>
+      <div class="cfg-row c2">
+        <label>Exchanges per read
           <input type="number" name="round_exchanges" value="{{ settings.round_exchanges }}" min="1" max="50">
         </label>
-        <label style="margin:0; font-size:0.82rem;">Lookback <small style="color:var(--pico-muted-color); font-weight:normal;">(recent rounds evaluated)</small>
+        <label>How far back
           <input type="number" name="mood_lookback_rounds" value="{{ settings.mood_lookback_rounds }}" min="1" max="500">
         </label>
       </div>
-      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
-        The mood engine scores small "rounds" of ~this many user↔agent exchanges, so mood responds within a chat instead of treating a whole sitting as one point. Smaller round = faster/twitchier, larger = smoother (applies to newly-synced activity). Lookback = how many recent rounds the mood rules evaluate against (this is the "Recent rounds" window).
+      <p class="cfg-help">
+        The mood is read from small <strong>rounds</strong> of a few back-and-forth exchanges instead of a whole sitting.
+        <strong>Exchanges per read</strong> — fewer = mood reacts faster within a chat, more = smoother/slower.
+        <strong>How far back</strong> — how many recent rounds the mood weighs (the "Recent rounds" window).
       </p>
+    </article>
 
-      <hr style="margin:1rem 0;">
-      <strong style="font-size:0.85rem;">Emotion scoring</strong>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; margin-top:0.5rem;">
-        <label style="margin:0; font-size:0.82rem;">Backend
+    {# ---------------- Emotion scoring ---------------- #}
+    <article>
+      <p class="cfg-h">Emotion scoring</p>
+      <p class="cfg-sub">What reads emotions &amp; moods from each round.</p>
+      <div class="cfg-row c2">
+        <label>Scored by
           <select name="scoring_backend">
-            <option value="llm" {% if settings.scoring_backend == 'llm' %}selected{% endif %}>Local LLM (Ollama) — emotions + moods</option>
-            <option value="goemotions" {% if settings.scoring_backend == 'goemotions' %}selected{% endif %}>GoEmotions model (classifier)</option>
+            <option value="llm" {% if settings.scoring_backend == 'llm' %}selected{% endif %}>Local LLM — emotions + moods</option>
+            <option value="goemotions" {% if settings.scoring_backend == 'goemotions' %}selected{% endif %}>GoEmotions classifier</option>
           </select>
         </label>
-        <label style="margin:0; font-size:0.82rem;">Ollama URL
+        <label>Ollama URL
           <input type="text" name="sentiment_llm_url" value="{{ settings.sentiment_llm_url }}" placeholder="http://localhost:11434">
         </label>
       </div>
-      <label style="margin:0.5rem 0 0; font-size:0.82rem; display:block;">Scoring model
+      <label style="display:block; margin-top:0.5rem;">Scoring model
         <input type="text" name="sentiment_llm_model" value="{{ settings.sentiment_llm_model }}" placeholder="ikiru/Dolphin-Mistral-24B-Venice-Edition:latest">
       </label>
-      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
-        The LLM backend scores each round's user &amp; agent emotions (over the taxonomy below) and the
-        agent's moods in one call — an uncensored local model handles roleplay/adult content best.
-        Changing the backend takes effect on the worker's next poll (no restart needed for switching;
-        editing the worker code does require a restart).
+      <p class="cfg-help">
+        The <strong>Local LLM</strong> reads each round's user &amp; agent emotions <em>and</em> the agent's moods in one pass —
+        an uncensored local model handles roleplay/adult content best. Switching backend applies on the worker's next poll.
       </p>
+    </article>
 
-      <label style="margin:0.75rem 0 0; font-size:0.82rem; display:block;">Emotion taxonomy
-        <small style="color:var(--pico-muted-color); font-weight:normal;">(comma/newline separated labels the scorer rates against)</small>
-        <textarea name="emotion_taxonomy" rows="4" style="font-size:0.78rem; font-family:monospace;">{{ settings.emotion_taxonomy }}</textarea>
-      </label>
+    {# ---------------- Emotion taxonomy (chip editor, full width) ---------------- #}
+    <article class="wide">
+      <p class="cfg-h">Emotion vocabulary</p>
+      <p class="cfg-sub">The set of emotions the scorer is allowed to use. Type one and press Enter to add; click × to remove.</p>
+      <div id="tax-chips" class="chips"></div>
+      <input id="tax-add" type="text" placeholder="add an emotion, then press Enter…" style="max-width:24rem;">
+      <input type="hidden" name="emotion_taxonomy" id="tax-value" value="{{ settings.emotion_taxonomy }}">
+      <p class="cfg-help">Add domain words GoEmotions lacks (e.g. <em>lust, horny, yearning, tenderness</em>). Mood rules can target any word here.</p>
+    </article>
 
-      <hr style="margin:1rem 0;">
-      <strong style="font-size:0.85rem;">LLM mood votes</strong>
-      <div style="display:grid; grid-template-columns:auto 1fr 1fr; gap:0.6rem; align-items:end; margin-top:0.5rem;">
-        <label style="display:inline-flex; align-items:center; gap:0.35rem; margin:0; font-size:0.82rem; cursor:pointer;">
+    {# ---------------- LLM mood votes ---------------- #}
+    <article>
+      <p class="cfg-h">Mood votes from the AI</p>
+      <p class="cfg-sub">Let the LLM's mood read vote alongside the rules.</p>
+      <div class="cfg-row c3" style="align-items:end;">
+        <label style="display:inline-flex; align-items:center; gap:0.35rem; cursor:pointer;">
           <input type="checkbox" name="llm_mood_votes_enabled" value="1" {% if settings.llm_mood_votes_enabled == '1' %}checked{% endif %}
-                 style="width:0.95rem; height:0.95rem; margin:0;">
-          Enabled
+                 style="width:0.95rem; height:0.95rem; margin:0;"> On
         </label>
-        <label style="margin:0; font-size:0.82rem;">Threshold <small style="color:var(--pico-muted-color); font-weight:normal;">(score ≥, 0-10)</small>
+        <label>Confidence
           <input type="number" name="llm_mood_threshold" value="{{ settings.llm_mood_threshold }}" min="0" max="10" step="1">
         </label>
-        <label style="margin:0; font-size:0.82rem;">Weight <small style="color:var(--pico-muted-color); font-weight:normal;">(votes per round)</small>
+        <label>Loudness
           <input type="number" name="llm_mood_weight" value="{{ settings.llm_mood_weight }}" min="1" max="10" step="1">
         </label>
       </div>
-      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
-        Each recent round where the LLM scores a mood ≥ threshold casts <em>weight</em> votes for it, summed
-        across the lookback window and added to the rule votes — so the LLM can carry a mood the rules missed.
+      <p class="cfg-help">
+        <strong>Confidence</strong> — how sure the AI must be (0–10) for a round to count as a mood.
+        <strong>Loudness</strong> — how many votes each qualifying round casts. Together these let the AI carry a mood
+        the hand-written rules missed.
       </p>
+    </article>
 
-      <hr style="margin:1rem 0;">
-      <strong style="font-size:0.85rem;">Natural transitions</strong>
-      <div style="display:grid; grid-template-columns:auto 1fr 1fr; gap:0.6rem; align-items:end; margin-top:0.5rem;">
-        <label style="display:inline-flex; align-items:center; gap:0.35rem; margin:0; font-size:0.82rem; cursor:pointer;">
+    {# ---------------- Natural transitions ---------------- #}
+    <article>
+      <p class="cfg-h">Natural transitions</p>
+      <p class="cfg-sub">Keep mood changes smooth &amp; sensible, not jumpy.</p>
+      <div class="cfg-row c3" style="align-items:end;">
+        <label style="display:inline-flex; align-items:center; gap:0.35rem; cursor:pointer;">
           <input type="checkbox" name="mood_transitions_enabled" value="1" {% if settings.mood_transitions_enabled == '1' %}checked{% endif %}
-                 style="width:0.95rem; height:0.95rem; margin:0;">
-          Enabled
+                 style="width:0.95rem; height:0.95rem; margin:0;"> On
         </label>
-        <label style="margin:0; font-size:0.82rem;">Inertia <small style="color:var(--pico-muted-color); font-weight:normal;">(stickiness)</small>
+        <label>Stickiness
           <input type="number" name="mood_inertia_bonus" value="{{ settings.mood_inertia_bonus }}" min="0" max="20" step="1">
         </label>
-        <label style="margin:0; font-size:0.82rem;">Jump penalty <small style="color:var(--pico-muted-color); font-weight:normal;">(non-adjacent)</small>
+        <label>Jump resistance
           <input type="number" name="mood_jump_penalty" value="{{ settings.mood_jump_penalty }}" min="0" max="20" step="1">
         </label>
       </div>
-      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
-        The current mood gets <em>inertia</em> bonus votes so it persists until clearly beaten (no flip-flopping),
-        and moods not adjacent to it in the graph below lose <em>jump penalty</em> votes — so the mood steps to a
-        neighbour (or stays) rather than teleporting across the graph.
+      <p class="cfg-help">
+        <strong>Stickiness</strong> — how strongly the current mood clings on. Higher = moods last longer and flip less.
+        <strong>Jump resistance</strong> — how hard it is to leap to an <em>unrelated</em> mood (one not connected in the map
+        below). Higher = the mood walks step-by-step to a neighbour instead of teleporting.
       </p>
-      <label style="margin:0.6rem 0 0; font-size:0.82rem; display:block;">Adjacency graph
-        <small style="color:var(--pico-muted-color); font-weight:normal;">(JSON: mood → reachable neighbours; treated as undirected)</small>
-        <textarea name="mood_adjacency" rows="6" style="font-size:0.74rem; font-family:monospace;">{{ settings.mood_adjacency }}</textarea>
-      </label>
+    </article>
 
-      <hr style="margin:1rem 0;">
-      <strong style="font-size:0.85rem;">Low-signal emotions</strong>
-      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.25rem 0 0.5rem;">
-        Check emotions to filter OUT of the top emotions (some surface on nearly every message).
-        Excluding them lets the distinctive emotions drive moods. A mood rule targeting a checked
-        emotion won't match it. List is driven by the taxonomy above.
+    {# ---------------- Transition map (full width) ---------------- #}
+    <article class="wide">
+      <p class="cfg-h">Transition map</p>
+      <p class="cfg-sub">Which moods can follow which — the paths the mood is allowed to walk.</p>
+      <p class="cfg-help" style="margin:0 0 0.5rem;">
+        A JSON object mapping each mood to the moods it can move <strong>to</strong> (directed — escalation and cool-down differ).
+        Example: <code>{"flirty": ["horny", "content"]}</code> means from <em>Flirty</em> the mood may heat up to
+        <em>Horny</em> or settle to <em>Content</em>, but not jump straight to, say, <em>Focused</em>.
+        Give every mood a path back to a hub like <code>content</code> so it can always recover. Moods left off a list can
+        still be reached, but only when their signal is strong enough to beat the <strong>jump resistance</strong> above.
       </p>
+      <textarea name="mood_adjacency" rows="8" style="font-size:0.74rem; font-family:monospace;">{{ settings.mood_adjacency }}</textarea>
+    </article>
+
+    {# ---------------- Low-signal emotions (full width) ---------------- #}
+    <article class="wide">
+      <p class="cfg-h">Background emotions to ignore</p>
+      <p class="cfg-sub">Checked emotions are filtered out of the "top emotions" — they show up on nearly every message and drown out the distinctive ones. Driven by the saved vocabulary above.</p>
       <div style="display:flex; flex-wrap:wrap; gap:0.4rem 0.9rem;">
         {% for e in taxonomy %}
         <label style="display:inline-flex; align-items:center; gap:0.3rem; margin:0; font-size:0.82rem; cursor:pointer;">
@@ -155,20 +204,54 @@
         </label>
         {% endfor %}
       </div>
+    </article>
 
-      <div style="display:flex; gap:0.6rem; margin-top:1rem;">
-        <button type="submit" style="margin:0; padding:0.45rem 1.2rem;">Save</button>
-        <button type="button" class="secondary outline" style="margin:0; padding:0.45rem 1.2rem;"
-                hx-post="/config/test" hx-target="#config-test" hx-swap="innerHTML">Test connection</button>
-      </div>
-    </form>
-    <div id="config-feedback" style="margin-top:0.75rem;"></div>
-  </article>
-
-  <div>
-    <div id="config-test"></div>
   </div>
 
-</div>
+  <div style="display:flex; gap:0.6rem; margin-top:1rem; align-items:center;">
+    <button type="submit" style="margin:0; padding:0.45rem 1.4rem;">Save all settings</button>
+    <button type="button" class="secondary outline" style="margin:0; padding:0.45rem 1.2rem;"
+            hx-post="/config/test" hx-target="#config-test" hx-swap="innerHTML">Test LLM connection</button>
+    <span id="config-feedback"></span>
+  </div>
+</form>
+<div id="config-test" style="margin-top:0.75rem;"></div>
+
+<script>
+(function () {
+  var value = document.getElementById('tax-value');
+  var chipBox = document.getElementById('tax-chips');
+  var addInput = document.getElementById('tax-add');
+  if (!value || !chipBox || !addInput) return;
+  function parse() {
+    return value.value.split(/[,\n]/).map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
+  }
+  var list = parse();
+  function sync() { value.value = list.join(','); render(); }
+  function render() {
+    chipBox.innerHTML = '';
+    list.forEach(function (e, i) {
+      var chip = document.createElement('span');
+      chip.className = 'chip';
+      var label = document.createTextNode(e + ' ');
+      var x = document.createElement('a');
+      x.href = '#'; x.textContent = '×';
+      x.addEventListener('click', function (ev) { ev.preventDefault(); list.splice(i, 1); sync(); });
+      chip.appendChild(label); chip.appendChild(x);
+      chipBox.appendChild(chip);
+    });
+  }
+  addInput.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter' || ev.key === ',') {
+      ev.preventDefault();
+      var v = addInput.value.trim().toLowerCase();
+      if (v && list.indexOf(v) === -1) { list.push(v); }
+      addInput.value = '';
+      sync();
+    }
+  });
+  render();
+})();
+</script>
 
 {% endblock %}

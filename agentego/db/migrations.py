@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -73,6 +73,17 @@ CREATE TABLE IF NOT EXISTS mood_thresholds (
     min_votes    INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (profile_name, mood_id)
 );
+
+CREATE TABLE IF NOT EXISTS mood_history (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_name TEXT NOT NULL,
+    prev_mood_id TEXT,
+    mood_id      TEXT,
+    vote_count   INTEGER,
+    breakdown    TEXT,
+    changed_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mood_history ON mood_history(profile_name, changed_at DESC);
 
 CREATE TABLE IF NOT EXISTS mood_defaults (
     profile_name TEXT NOT NULL,
@@ -298,6 +309,10 @@ async def run_migrations(db_path: str) -> None:
 
         if current_version < 9:
             # rounds created by DDL above; no ALTER needed
+            pass
+
+        if current_version < 10:
+            # mood_history created by DDL above; no ALTER needed
             pass
 
         if current_version < SCHEMA_VERSION:

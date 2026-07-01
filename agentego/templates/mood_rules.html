@@ -46,6 +46,32 @@
   </div>
 </details>
 
+<details style="margin-bottom:1.5rem;" open>
+  <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; padding:0.35rem 0;">🕒 Mood history <span style="font-weight:normal; color:var(--pico-muted-color);">— recent changes for {{ active_profile }}</span></summary>
+  {% if history %}
+  <div style="max-height:16rem; overflow-y:auto; margin-top:0.5rem; border:1px solid var(--pico-muted-border-color); border-radius:var(--pico-border-radius);">
+    <table style="margin:0; font-size:0.82rem;">
+      <tbody>
+        {% for h in history %}
+        <tr>
+          <td style="white-space:nowrap; color:var(--pico-muted-color); width:11rem;">{{ h.at | ts }}</td>
+          <td style="white-space:nowrap;">
+            {% if h.from %}<span class="mood-badge" style="background:{{ h.from.color }}22; border:1px solid {{ h.from.color }}; color:{{ h.from.color }};">{{ h.from.icon }} {{ h.from.name }}</span>{% else %}<span style="color:var(--pico-muted-color);">—</span>{% endif %}
+            <span style="color:var(--pico-muted-color); margin:0 0.35rem;">→</span>
+            {% if h.to %}<span class="mood-badge" style="background:{{ h.to.color }}22; border:1px solid {{ h.to.color }}; color:{{ h.to.color }};">{{ h.to.icon }} {{ h.to.name }}</span>{% else %}<span style="color:var(--pico-muted-color);">no mood</span>{% endif %}
+          </td>
+          <td style="color:var(--pico-muted-color); font-size:0.76rem;">{% if h.votes %}{{ h.votes }} vote{{ 's' if h.votes != 1 else '' }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">Each row is a moment the mood <em>changed</em> (newest first). Times are Pacific.</p>
+  {% else %}
+  <p style="font-size:0.82rem; color:var(--pico-muted-color); margin-top:0.5rem;">No mood changes recorded yet — history builds up as {{ active_profile }}'s mood shifts over time.</p>
+  {% endif %}
+</details>
+
 <div id="rules-list"
      hx-get="/partials/mood-rules-list?profile={{ active_profile }}"
      hx-trigger="rulesUpdated from:body"

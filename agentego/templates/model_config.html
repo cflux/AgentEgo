@@ -89,6 +89,16 @@
         <strong>SOUL anchor</strong> — how far a personality-seeded like is allowed to drift (keeps core traits from flipping).
         <strong>Trait drift</strong> — how far personality can wander from its baseline.
       </p>
+      <label style="display:inline-flex; align-items:center; gap:0.35rem; margin:0.6rem 0 0; font-size:0.82rem; cursor:pointer;">
+        <input type="checkbox" name="affinity_dedupe_enabled" value="1" {% if settings.affinity_dedupe_enabled == '1' %}checked{% endif %}
+               style="width:0.95rem; height:0.95rem; margin:0;">
+        De-duplicate new likes/dislikes
+      </label>
+      <p class="cfg-help" style="margin:0.3rem 0 0;">
+        When on, a newly-inferred like/dislike that's a rephrasing of an existing one is folded into it
+        instead of creating a duplicate (LLM-matched, cached). The <em>Merge duplicates</em> button on
+        the preferences page cleans up any that already exist.
+      </p>
     </article>
 
     {# ---------------- Mood granularity ---------------- #}

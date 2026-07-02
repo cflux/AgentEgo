@@ -120,6 +120,7 @@ async def update_model_config(
         "mood_directive_enabled": "1" if form.get("mood_directive_enabled") else "0",
         "mood_directive_template": mood_directive_template,
         "mood_directive_file": mood_directive_file.strip(),
+        "affinity_dedupe_enabled": "1" if form.get("affinity_dedupe_enabled") else "0",
     }
     # Only overwrite JSON graph/cascade if valid JSON was submitted (avoid clobbering with junk).
     import json as _json

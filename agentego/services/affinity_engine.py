@@ -297,6 +297,13 @@ async def apply_observation(
     now = time.time()
 
     existing = await get_affinity(profile_name, entity)
+    # New INFERRED entity? Fold it into an existing near-identical one so we never store a dup.
+    # (Seeds define the canonical set, so they're stored as-is.)
+    if not existing and source != "seed":
+        canonical = await _canonicalize_new_entity(profile_name, entity)
+        if canonical != entity:
+            entity = canonical
+            existing = await get_affinity(profile_name, entity)
     cfg = await get_evolution_config()
     alpha = cfg["alpha"]
     band = cfg["seed_band"]
@@ -495,6 +502,70 @@ async def _merge_affinity_group(profile_name: str, canonical: str, members: list
         await conn.commit()
     finally:
         await conn.close()
+
+
+_CANON_SYSTEM = (
+    "You deduplicate an agent's affinity list. Given a NEW entry and the EXISTING entries, decide "
+    "if the new entry refers to the SAME underlying thing as one of the existing entries (a "
+    "duplicate or rephrasing). If yes, reply with that EXISTING entry VERBATIM. If it's genuinely "
+    "distinct — or merely related / a different granularity — reply exactly: NEW. Reply with ONLY "
+    "the existing entry text or NEW, nothing else."
+)
+
+
+async def _alias_cache_get(profile_name: str, raw: str) -> str | None:
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT value FROM module_data WHERE module='affinity_alias' AND key=?",
+            (f"{profile_name}|{raw.lower()}",),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+    finally:
+        await conn.close()
+
+
+async def _alias_cache_set(profile_name: str, raw: str, canonical: str) -> None:
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            "INSERT INTO module_data (module, key, value, updated_at) VALUES ('affinity_alias', ?, ?, ?) "
+            "ON CONFLICT(module, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            (f"{profile_name}|{raw.lower()}", canonical, time.time()),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def _canonicalize_new_entity(profile_name: str, entity: str) -> str:
+    """Map a brand-new inferred entity onto an existing near-identical one (so we don't create a
+    duplicate row). LLM match-or-NEW, cached per (profile, raw). Fails open to `entity`."""
+    if (await get_setting("affinity_dedupe_enabled", "1")) != "1":
+        return entity
+    existing = [a["entity"] for a in await get_affinities(profile_name)]
+    if not existing:
+        return entity
+    existing_lower = {e.lower(): e for e in existing}
+    cached = await _alias_cache_get(profile_name, entity)
+    if cached is not None:
+        # empty string = "distinct"; otherwise the canonical (if it still exists)
+        return existing_lower.get(cached.lower(), entity) if cached else entity
+    from .llm_client import chat, LLMError
+    try:
+        listing = "\n".join(f"- {e}" for e in existing)
+        raw = await chat(
+            [{"role": "system", "content": _CANON_SYSTEM},
+             {"role": "user", "content": f"NEW: {entity}\nEXISTING:\n{listing}"}],
+            max_tokens=1000,  # DeepSeek reasoning models spend budget before the answer token
+        )
+        ans = (raw or "").strip().strip('".').strip()
+    except LLMError:
+        return entity
+    canonical = None if ans.upper() == "NEW" else existing_lower.get(ans.lower())
+    await _alias_cache_set(profile_name, entity, canonical or "")
+    return canonical or entity
 
 
 async def dedupe_affinities(profile_name: str) -> dict:

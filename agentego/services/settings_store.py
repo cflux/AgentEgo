@@ -77,6 +77,8 @@ DEFAULTS = {
         "the user's lead and let it pass naturally — don't force it or escalate it."
     ),
     "mood_directive_file": "",    # optional: write the block here on mood change (blank = HTTP only)
+    # Fold a newly-inferred affinity into an existing near-identical one (LLM canonicalize).
+    "affinity_dedupe_enabled": "1",
 }
 
 

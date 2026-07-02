@@ -271,6 +271,7 @@ _DEFAULT_SETTINGS = {
         "the user's lead and let it pass naturally — don't force it or escalate it."
     ),
     "mood_directive_file": "",
+    "affinity_dedupe_enabled": "1",
 }
 
 

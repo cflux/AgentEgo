@@ -165,15 +165,30 @@ _EXTRACT_SYSTEM = (
 )
 
 _INFER_SYSTEM = (
-    "You ARE a character defined ONLY by the psychological traits given below — you do NOT have "
-    "access to any list of stated likes. Decide how this character would feel about a subject by "
-    "extrapolating from these traits and values. The subject is likely NOT something in the "
-    "character's background; reason about who they are. All numeric scores are DECIMALS "
-    "(valence -1 to 1, intensity/confidence 0 to 1 — e.g. 0.8, NOT 80). Output a JSON object ONLY:\n"
+    "You judge how a character genuinely feels about a subject. You are given (a) their psychological "
+    "traits/values, and often (b) how they ACTUALLY felt during real conversations about this subject "
+    "(measured emotions + moods). Reason from BOTH. Lived experience can OVERRIDE a trait-based "
+    "expectation: something that 'sounds like work' but felt curious/joyful/excited is genuinely liked; "
+    "something pleasant-sounding that felt bored/frustrated/annoyed is not. Note the character is "
+    "generally warm/affectionate as a baseline — weigh ENGAGEMENT cues (curiosity, excitement, focus, "
+    "creativity, boredom, frustration, annoyance) more than ever-present affection when judging the "
+    "SUBJECT itself. If no measured feeling is provided, extrapolate from traits alone. All numeric "
+    "scores are DECIMALS (valence -1 to 1, intensity/confidence 0 to 1 — e.g. 0.8, NOT 80). "
+    "Output a JSON object ONLY:\n"
     '{"valence":-1..1, "intensity":0..1, "confidence":0..1, '
     '"category":"object|activity|concept|person|place|topic|food|media", '
-    '"rationale":"one sentence grounded in the traits"}'
+    '"rationale":"one sentence; if lived experience diverged from the trait expectation, name the reconciliation"}'
 )
+
+
+def _felt_block(felt: dict | None) -> str:
+    """Render the measured-experience summary for the inference prompt (empty if none)."""
+    if not felt or not felt.get("rounds"):
+        return ""
+    emos = ", ".join(felt.get("top_emotions") or []) or "—"
+    moods = ", ".join(felt.get("top_moods") or []) or "—"
+    return (f"How they ACTUALLY felt across {felt['rounds']} conversation-round(s) about this subject:\n"
+            f"  emotions: {emos}\n  moods: {moods}\n\n")
 
 
 def traits_block(traits: dict) -> str:
@@ -271,21 +286,29 @@ def infer_affinities(profile: str):
         return
 
     traits = pending.get("traits")
-    entities = pending.get("entities", [])
     if not traits:
         log.info("[%s] No traits yet — skipping inference", profile)
         return
-    if not entities:
+
+    # New topics (create) carry a felt-summary; refresh topics (re-observe from fresh experience).
+    new_items = pending.get("entities_felt")
+    if new_items is None:  # back-compat if server predates the felt payload
+        new_items = [{"topic": t, "felt": None} for t in pending.get("entities", [])]
+    refresh_items = pending.get("refresh", [])
+    work = [(it, "inferred") for it in new_items] + [(it, "experienced") for it in refresh_items]
+    if not work:
         return
 
-    log.info("[%s] Inferring affinity for %d new topic(s)", profile, len(entities))
+    log.info("[%s] Inferring/refreshing %d topic(s) (%d new, %d refresh)",
+             profile, len(work), len(new_items), len(refresh_items))
     tblock = traits_block(traits)
-    total = len(entities)
-    for idx, entity in enumerate(entities, start=1):
+    total = len(work)
+    for idx, (item, src) in enumerate(work, start=1):
+        entity = item["topic"]
         report_progress(idx, total, entity)
         data = parse_json(llm_chat(
             [{"role": "system", "content": _INFER_SYSTEM},
-             {"role": "user", "content": f"{tblock}\n\nSubject: {entity}"}],
+             {"role": "user", "content": f"{tblock}\n\n{_felt_block(item.get('felt'))}Subject: {entity}"}],
             max_tokens=2000,
         ))
         if not data or "valence" not in data:
@@ -300,9 +323,9 @@ def infer_affinities(profile: str):
                 "intensity": _unit(data.get("intensity")) or 0.5,
                 "confidence": _unit(data.get("confidence")) or 0.5,
                 "rationale": data.get("rationale", ""),
-                "source": "inferred",
+                "source": src,
             }, timeout=15)
-            log.info("[%s] %s → valence=%.2f", profile, entity, valence)
+            log.info("[%s] %s (%s) → valence=%.2f", profile, entity, src, valence)
         except Exception as e:
             log.warning("[%s] Failed to save affinity for %s: %s", profile, entity, e)
 

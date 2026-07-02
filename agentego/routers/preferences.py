@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from ..db.ego import get_ego_db
+from ..db.hermes import get_recent_sessions, get_session_messages
 from ..services.profiles import discover_profiles, resolve_profile
 from ..services.conversations import sync_recent_conversations
 from ..services import affinity_engine
@@ -114,11 +115,22 @@ async def get_pending(profile: str = "default") -> dict:
     must extrapolate rather than echo the persona's stated likes."""
     await sync_recent_conversations(profile, db_path=resolve_profile(profile))
     traits = await affinity_engine.get_traits(profile)
-    entities = await affinity_engine.get_pending_entities(profile)
+    new_topics = await affinity_engine.get_pending_entities(profile)
+    refresh_topics = await affinity_engine.get_refresh_entities(profile)
+
+    async def _enrich(topics: list) -> list:
+        return [{"topic": t, "felt": await affinity_engine.get_topic_sentiment(profile, t)}
+                for t in topics]
+
+    entities = await _enrich(new_topics)
     return {
         "profile": profile,
         "traits": traits["current"] if traits else None,
-        "entities": entities,
+        # New topics to infer (with measured experience); back-compat: also the bare topic strings.
+        "entities": [e["topic"] for e in entities],
+        "entities_felt": entities,
+        # Known topics with fresh activity — re-observe toward measured experience.
+        "refresh": await _enrich(refresh_topics),
     }
 
 
@@ -289,20 +301,36 @@ async def preference_status_partial(request: Request):
 
 
 _OPINION_SYSTEM = (
-    "Given a character defined ONLY by the personality traits and values below (NOT any list of "
-    "stated likes), determine the opinion that character would genuinely hold about the named "
-    "subject — reasoning from those traits. The subject may be something never mentioned; "
-    "extrapolate from who they are. Always commit to an opinion; do not hedge.\n\n"
+    "Determine the opinion a character genuinely holds about a named subject, reasoning primarily "
+    "from their personality traits and values. You may also be given some of their KNOWN preferences "
+    "and the CONVERSATION HAPPENING NOW — use these for nuance and to reconcile (e.g. they dislike "
+    "'work' in general, but shaping their own tools is theirs and energizing, so this instance is a "
+    "like). Don't just echo the known list; form a genuine opinion. Always commit; do not hedge.\n\n"
     "Respond with a JSON object ONLY:\n"
     '{"valence": <float -1..1, dislike..like>, "intensity": <float 0..1, how strongly they feel>, '
     '"category": "<one word: object|activity|concept|person|place|topic|food|media>", '
-    '"rationale": "<one short sentence, THIRD PERSON, why this opinion fits their personality — '
-    "e.g. 'aligns with her love of indulgence and small joys'>\"}"
+    '"rationale": "<one short sentence, THIRD PERSON, why — e.g. \'aligns with her love of '
+    "indulgence' or 'normally work-averse, but this is her own tool so she's into it'>\"}"
 )
 
 
-async def _infer_opinion(profile: str, subject: str) -> dict:
-    """Trait-grounded LLM opinion on a subject. Raises LLMError / ValueError on failure."""
+async def _recent_transcript(profile: str, max_turns: int = 10) -> str:
+    """The latest user/agent turns for this profile from Hermes (the live conversation up to now)."""
+    db_path = resolve_profile(profile)
+    try:
+        sessions = await get_recent_sessions(db_path=db_path)
+        if not sessions:
+            return ""
+        msgs = await get_session_messages(sessions[0]["id"], db_path=db_path)
+    except Exception:
+        return ""
+    turns = [m for m in msgs if m.get("role") in ("user", "assistant") and m.get("content")]
+    return "\n".join(f"{m['role']}: {m['content'][:400]}" for m in turns[-max_turns:])
+
+
+async def _infer_opinion(profile: str, subject: str, context: bool = True) -> dict:
+    """Trait-grounded LLM opinion, informed by known preferences and (optionally) the live
+    conversation. Raises LLMError / ValueError on failure."""
     traits = await affinity_engine.get_traits(profile)
     if not traits:
         raise ValueError(f"No personality traits extracted for '{profile}' yet — run the worker first.")
@@ -313,9 +341,20 @@ async def _infer_opinion(profile: str, subject: str) -> dict:
         f"OCEAN: " + ", ".join(f"{k}={ocean.get(k)}" for k in affinity_engine.OCEAN_KEYS) + "\n"
         f"Core values: {', '.join(current.get('values', []))}"
     )
+    # Known preferences (for nuance/reconciliation, not to parrot).
+    summary = await affinity_engine.get_affinity_summary(profile, top_n=8)
+    likes = ", ".join(a["entity"] for a in summary["likes"]) or "—"
+    dislikes = ", ".join(a["entity"] for a in summary["dislikes"]) or "—"
+    prefs_block = f"\n\nKnown likes: {likes}\nKnown dislikes: {dislikes}"
+    convo_block = ""
+    if context:
+        transcript = await _recent_transcript(profile)
+        if transcript:
+            convo_block = f"\n\nThe conversation happening right now (up to this point):\n{transcript}"
     raw = await chat(
         [{"role": "system", "content": _OPINION_SYSTEM},
-         {"role": "user", "content": f"{trait_block}\n\nSubject to form an opinion about: {subject}"}],
+         {"role": "user", "content": f"{trait_block}{prefs_block}{convo_block}"
+                                      f"\n\nSubject to form an opinion about: {subject}"}],
         response_json=True,
         max_tokens=2000,
     )
@@ -336,7 +375,7 @@ async def opinion(request: Request, profile: str = Form("default"), subject: str
     if not subject:
         return JSONResponse({"error": "empty subject"}, status_code=400)
     try:
-        result = await _infer_opinion(profile, subject)
+        result = await _infer_opinion(profile, subject, context=False)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     except LLMError as e:
@@ -381,8 +420,10 @@ async def preference_profile(profile: str = "default") -> dict:
 
 
 @router.get("/api/preferences/opinion")
-async def opinion_json(profile: str = "default", subject: str = "", save: bool = False) -> dict:
-    """Agent-facing 'do I like X?' — ledger first (free), LLM trait inference as fallback."""
+async def opinion_json(profile: str = "default", subject: str = "", save: bool = False,
+                       context: bool = True) -> dict:
+    """Agent-facing 'do I like X?' — ledger first (free), else trait+experience inference informed
+    by known preferences and (when context=true) the live conversation."""
     subject = subject.strip()
     if not subject:
         return JSONResponse({"error": "subject required"}, status_code=400)
@@ -411,7 +452,7 @@ async def opinion_json(profile: str = "default", subject: str = "", save: bool =
         return resp
 
     try:
-        result = await _infer_opinion(profile, subject)
+        result = await _infer_opinion(profile, subject, context=context)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     except LLMError as e:

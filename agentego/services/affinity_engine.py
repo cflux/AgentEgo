@@ -361,6 +361,105 @@ async def apply_observation(
         await conn.close()
 
 
+# --- Experience signal (how the agent actually felt about a topic) ---
+
+async def get_topic_sentiment(profile_name: str, topic: str) -> dict:
+    """How the AGENT actually felt during conversations about `topic`: aggregate her emotion scores
+    and the round mood scores across those conversations' rounds. Lets measured experience correct
+    the trait-only guess. Returns {top_emotions, top_moods, rounds}; empty if nothing scored."""
+    from .settings_store import get_low_signal_emotions
+    empty = {"top_emotions": [], "top_moods": [], "rounds": 0}
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT c.id FROM conversations c JOIN module_data m "
+            "ON m.module='topic' AND m.key=c.id "
+            "WHERE c.profile_name=? AND m.value=?",
+            (profile_name, topic),
+        )
+        conv_ids = [r[0] for r in await cursor.fetchall()]
+        if not conv_ids:
+            return empty
+        cph = ",".join("?" * len(conv_ids))
+        cursor = await conn.execute(
+            f"SELECT id FROM rounds WHERE conversation_id IN ({cph})", conv_ids
+        )
+        round_ids = [r[0] for r in await cursor.fetchall()]
+        if not round_ids:
+            return empty
+        rph = ",".join("?" * len(round_ids))
+        cursor = await conn.execute(
+            f"SELECT value FROM module_data WHERE module='sentiment' AND key IN ({rph})", round_ids
+        )
+        sent_rows = [r[0] for r in await cursor.fetchall()]
+        cursor = await conn.execute(
+            f"SELECT value FROM module_data WHERE module='mood_scores' AND key IN ({rph})", round_ids
+        )
+        mood_rows = [r[0] for r in await cursor.fetchall()]
+        cursor = await conn.execute("SELECT id, name FROM moods")
+        mood_names = {r[0]: r[1] for r in await cursor.fetchall()}
+    finally:
+        await conn.close()
+
+    low = await get_low_signal_emotions()
+    emo_totals: dict = {}
+    for raw in sent_rows:
+        try:
+            agent = (json.loads(raw) or {}).get("agent") or {}
+        except Exception:
+            continue
+        for k, v in (agent.get("scores") or {}).items():
+            if k not in low:
+                emo_totals[k] = emo_totals.get(k, 0.0) + float(v)
+    top_emotions = [k for k, _ in sorted(emo_totals.items(), key=lambda x: -x[1])[:5]]
+
+    mood_totals: dict = {}
+    for raw in mood_rows:
+        try:
+            for k, v in (json.loads(raw) or {}).items():
+                mood_totals[k] = mood_totals.get(k, 0.0) + float(v)
+        except Exception:
+            continue
+    top_moods = [mood_names.get(k, k) for k, _ in sorted(mood_totals.items(), key=lambda x: -x[1])[:5]]
+    return {"top_emotions": top_emotions, "top_moods": top_moods, "rounds": len(round_ids)}
+
+
+async def get_refresh_entities(profile_name: str, limit: int = 200) -> list[str]:
+    """Known topics whose conversations have rounds newer than their affinity's last update —
+    candidates to re-observe from fresh experience (so existing affinities keep learning)."""
+    from .conversations import get_recent_conversations
+    conversations = await get_recent_conversations(profile_name, limit=limit)
+    if not conversations:
+        return []
+    conv_ids = [c["id"] for c in conversations]
+    conn = await get_ego_db()
+    try:
+        ph = ",".join("?" * len(conv_ids))
+        cursor = await conn.execute(
+            f"SELECT key, value FROM module_data WHERE module='topic' AND key IN ({ph})", conv_ids
+        )
+        conv_topic = {r[0]: r[1].strip() for r in await cursor.fetchall() if r[1] and r[1].strip()}
+        cursor = await conn.execute(
+            "SELECT LOWER(entity), updated_at FROM affinities WHERE profile_name=?", (profile_name,)
+        )
+        aff_updated = {r[0]: (r[1] or 0) for r in await cursor.fetchall()}
+        cursor = await conn.execute(
+            f"SELECT conversation_id, MAX(end_ts) FROM rounds WHERE conversation_id IN ({ph}) "
+            "GROUP BY conversation_id", conv_ids
+        )
+        newest_round = {r[0]: r[1] for r in await cursor.fetchall()}
+    finally:
+        await conn.close()
+    refresh = set()
+    for cid, topic in conv_topic.items():
+        tl = topic.lower()
+        if tl in aff_updated and is_meaningful_topic(topic):
+            nr = newest_round.get(cid)
+            if nr and nr > aff_updated[tl]:
+                refresh.add(topic)
+    return sorted(refresh)
+
+
 # --- Pending inference queue ---
 
 async def get_pending_entities(profile_name: str, limit: int = 200) -> list[str]:

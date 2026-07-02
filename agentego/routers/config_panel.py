@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ..services import settings_store
 from ..services.llm_client import ping
+from ..db.ego import get_ego_db
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -35,10 +36,16 @@ async def config_page(request: Request):
     settings = await settings_store.get_all_settings()
     low_signal = await settings_store.get_low_signal_emotions()
     taxonomy = await settings_store.get_emotion_taxonomy()
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute("SELECT id, name, icon FROM moods ORDER BY name")
+        moods = [{"id": r[0], "name": r[1], "icon": r[2] or ""} for r in await cursor.fetchall()]
+    finally:
+        await conn.close()
     return templates.TemplateResponse(
         "model_config.html",
         {"request": request, "settings": settings, "masked_key": _mask_key(settings.get("llm_api_key", "")),
-         "taxonomy": taxonomy, "low_signal": low_signal},
+         "taxonomy": taxonomy, "low_signal": low_signal, "moods": moods},
     )
 
 

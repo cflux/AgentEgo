@@ -389,7 +389,7 @@ async def opinion_json(profile: str = "default", subject: str = "", save: bool =
 
     known = await affinity_engine.find_affinity(profile, subject)
     if known:
-        return {
+        resp = {
             "subject": subject,
             "verdict": _verdict(known["valence"]),
             "valence": known["valence"],
@@ -397,6 +397,18 @@ async def opinion_json(profile: str = "default", subject: str = "", save: bool =
             "rationale": known["rationale"] or "",
             "known": True,
         }
+        if save:
+            # Reinforce an already-tracked affinity: bumps mention_count / last_seen (EMA toward
+            # its own value = negligible drift) so re-querying with save=true isn't a no-op.
+            obs = await affinity_engine.apply_observation(
+                profile, known["entity"], valence=float(known["valence"]),
+                intensity=float(known["intensity"]), confidence=0.5,
+                category=known["category"], rationale=known["rationale"], source="observed",
+            )
+            resp["saved"] = True
+            resp["action"] = obs.get("action")
+            resp["stored_as"] = obs.get("entity", subject)
+        return resp
 
     try:
         result = await _infer_opinion(profile, subject)
@@ -407,13 +419,7 @@ async def opinion_json(profile: str = "default", subject: str = "", save: bool =
     except json.JSONDecodeError:
         return JSONResponse({"error": "model did not return valid JSON"}, status_code=502)
 
-    if save:
-        await affinity_engine.apply_observation(
-            profile, subject, valence=float(result["valence"]), intensity=float(result["intensity"]),
-            confidence=0.5, category=result["category"], rationale=result["rationale"], source="observed",
-        )
-
-    return {
+    response = {
         "subject": subject,
         "verdict": _verdict(result["valence"]),
         "valence": result["valence"],
@@ -421,6 +427,17 @@ async def opinion_json(profile: str = "default", subject: str = "", save: bool =
         "rationale": result["rationale"],
         "known": False,
     }
+    if save:
+        obs = await affinity_engine.apply_observation(
+            profile, subject, valence=float(result["valence"]), intensity=float(result["intensity"]),
+            confidence=0.5, category=result["category"], rationale=result["rationale"], source="observed",
+        )
+        # Confirm persistence: "created" a new like, or "evolved" (folded into) an existing one,
+        # possibly stored under a canonical name.
+        response["saved"] = True
+        response["action"] = obs.get("action")
+        response["stored_as"] = obs.get("entity", subject)
+    return response
 
 
 def _verdict(valence: float) -> str:

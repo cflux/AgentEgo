@@ -325,7 +325,7 @@ async def apply_observation(
                  base_v, base_i, source, rationale, now, now, now),
             )
             await conn.commit()
-            return {"action": "created", "valence": valence, "intensity": intensity}
+            return {"action": "created", "entity": entity, "valence": valence, "intensity": intensity}
 
         # EMA blend toward the new observation
         new_v = alpha * valence + (1 - alpha) * existing["valence"]
@@ -356,7 +356,7 @@ async def apply_observation(
             (new_v, new_i, new_conf, category, rationale, now, now, profile_name, entity),
         )
         await conn.commit()
-        return {"action": "evolved", "valence": new_v, "intensity": new_i}
+        return {"action": "evolved", "entity": entity, "valence": new_v, "intensity": new_i}
     finally:
         await conn.close()
 

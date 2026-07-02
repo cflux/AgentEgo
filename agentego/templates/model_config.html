@@ -215,12 +215,16 @@
       </div>
       <p class="cfg-help" style="margin:0.35rem 0 0.5rem;">
         When a mood wins by a big margin, its <em>intensity</em> tips it into the next mood up — so sustained
-        <em>Flirty</em> escalates to <em>Horny</em> rather than just staying very-flirty. JSON: each mood maps to a
-        target and the vote count that triggers it. Example: <code>{"flirty": {"to": "horny", "at": 12}}</code> —
-        if Flirty wins with 12+ votes it becomes Horny. Chains follow through (flirty→horny→…) as each step's
-        <em>at</em> is cleared.
+        <em>Flirty</em> escalates to <em>Horny</em> rather than just staying very-flirty. Set each mood's escalation
+        target and the vote count that triggers it (leave as <em>— no cascade —</em> for moods that shouldn't
+        escalate). Chains follow through (flirty→horny→…) as each step's threshold is cleared.
       </p>
-      <textarea name="mood_cascade" rows="4" style="font-size:0.74rem; font-family:monospace;">{{ settings.mood_cascade }}</textarea>
+      <div id="casc" class="tmap"></div>
+      <input type="hidden" name="mood_cascade" id="casc-value" value="{{ settings.mood_cascade }}">
+      <details style="margin-top:0.4rem;">
+        <summary style="cursor:pointer; font-size:0.74rem; color:var(--pico-muted-color);">raw JSON (read-only preview)</summary>
+        <pre id="casc-json" style="font-size:0.72rem; font-family:monospace; white-space:pre-wrap; margin:0.3rem 0 0; color:var(--pico-muted-color);"></pre>
+      </details>
 
       <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.9rem;">
         <label style="display:inline-flex; align-items:center; gap:0.35rem; margin:0; font-size:0.82rem; cursor:pointer;">
@@ -386,6 +390,82 @@
         targets.appendChild(chip);
       });
       row.appendChild(targets);
+      box.appendChild(row);
+    });
+  }
+  render();
+  sync();
+})();
+
+// ---- Cascade visual editor (each mood escalates to one target at a vote threshold) ----
+(function () {
+  var hidden = document.getElementById('casc-value');
+  var box = document.getElementById('casc');
+  var moodsEl = document.getElementById('tmap-moods');
+  var jsonEl = document.getElementById('casc-json');
+  if (!hidden || !box || !moodsEl) return;
+  var moods = JSON.parse(moodsEl.textContent || '[]');
+  var ids = moods.map(function (m) { return m.id; });
+  var label = {};
+  moods.forEach(function (m) { label[m.id] = ((m.icon ? m.icon + ' ' : '') + m.id); });
+
+  var cfg = {};
+  try { cfg = JSON.parse(hidden.value || '{}'); } catch (e) { cfg = {}; }
+  // drop entries for unknown / self targets
+  Object.keys(cfg).forEach(function (k) {
+    if (ids.indexOf(k) === -1 || !cfg[k] || ids.indexOf(cfg[k].to) === -1 || cfg[k].to === k) delete cfg[k];
+  });
+
+  function sync() {
+    hidden.value = JSON.stringify(cfg);
+    if (jsonEl) jsonEl.textContent = JSON.stringify(cfg, null, 1);
+  }
+  function render() {
+    box.innerHTML = '';
+    moods.forEach(function (m) {
+      var cur = cfg[m.id] || null;
+      var row = document.createElement('div');
+      row.className = 'tmap-row';
+      var from = document.createElement('span');
+      from.className = 'tmap-from';
+      from.textContent = label[m.id] + ' escalates to';
+      row.appendChild(from);
+
+      var ctrl = document.createElement('span');
+      ctrl.className = 'tmap-targets';
+      ctrl.style.alignItems = 'center';
+
+      var sel = document.createElement('select');
+      sel.style.margin = '0'; sel.style.fontSize = '0.78rem'; sel.style.width = 'auto'; sel.style.padding = '0.1rem 0.4rem';
+      var none = document.createElement('option'); none.value = ''; none.textContent = '— no cascade —'; sel.appendChild(none);
+      moods.forEach(function (t) {
+        if (t.id === m.id) return;
+        var o = document.createElement('option'); o.value = t.id; o.textContent = t.id; sel.appendChild(o);
+      });
+      sel.value = cur ? cur.to : '';
+
+      var atWrap = document.createElement('span');
+      atWrap.style.fontSize = '0.78rem'; atWrap.style.color = 'var(--pico-muted-color)';
+      atWrap.style.display = cur ? 'inline-flex' : 'none';
+      atWrap.style.alignItems = 'center'; atWrap.style.gap = '0.3rem';
+      var at = document.createElement('input');
+      at.type = 'number'; at.min = '1'; at.max = '50'; at.style.width = '4rem'; at.style.margin = '0'; at.style.padding = '0.1rem 0.3rem';
+      at.value = cur ? cur.at : 10;
+      atWrap.appendChild(document.createTextNode('at'));
+      atWrap.appendChild(at);
+      atWrap.appendChild(document.createTextNode('votes'));
+
+      function update() {
+        if (!sel.value) { delete cfg[m.id]; atWrap.style.display = 'none'; }
+        else { cfg[m.id] = { to: sel.value, at: parseInt(at.value, 10) || 10 }; atWrap.style.display = 'inline-flex'; }
+        sync();
+      }
+      sel.addEventListener('change', update);
+      at.addEventListener('input', update);
+
+      ctrl.appendChild(sel);
+      ctrl.appendChild(atWrap);
+      row.appendChild(ctrl);
       box.appendChild(row);
     });
   }

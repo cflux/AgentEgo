@@ -95,8 +95,6 @@ async def update_model_config(
     )
     updates = {
         "llm_backend": llm_backend.strip(),
-        "llm_base_url": llm_base_url.strip(),
-        "llm_model": llm_model.strip(),
         "llm_temperature": llm_temperature.strip(),
         "evolution_alpha": evolution_alpha.strip(),
         "seed_deviation_band": seed_deviation_band.strip(),
@@ -132,7 +130,13 @@ async def update_model_config(
                 updates[_field] = _val.strip()
             except ValueError:
                 pass
-    # Only overwrite the API key when a new value is submitted (blank = keep existing).
+    # LLM connection fields are "blank = keep existing" so a routine save can't silently wipe the
+    # base_url / model / key (which quietly breaks the preference engine + AI rule builder).
+    # Changing them must be explicit — type a new value.
+    if llm_base_url.strip():
+        updates["llm_base_url"] = llm_base_url.strip()
+    if llm_model.strip():
+        updates["llm_model"] = llm_model.strip()
     if llm_api_key.strip():
         updates["llm_api_key"] = llm_api_key.strip()
     await settings_store.set_settings(updates)

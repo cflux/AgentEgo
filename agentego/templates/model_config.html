@@ -63,6 +63,10 @@
           <input type="number" name="llm_temperature" value="{{ settings.llm_temperature }}" min="0" max="2" step="0.1">
         </label>
       </div>
+      <p class="cfg-help" style="margin:0.4rem 0 0;">
+        Base URL, Model &amp; Key change <strong>only when you enter a new value</strong> — clearing a field keeps the
+        current one, so a routine save can't accidentally disconnect the LLM.
+      </p>
     </article>
 
     {# ---------------- Evolution tuning ---------------- #}

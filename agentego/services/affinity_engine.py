@@ -418,7 +418,9 @@ async def get_affinity_summary(profile_name: str, top_n: int = 8) -> dict:
     likes.sort(key=lambda a: a["score"], reverse=True)
     dislikes = [a for a in affinities if a["valence"] <= -0.15]
     dislikes.sort(key=lambda a: a["valence"])
-    interests = [a for a in affinities if a["intensity"] >= 0.5]
+    # Interests = things engaged with intensely that AREN'T dislikes — a strong dislike (rude
+    # people, being ignored) is felt intensely but is a dislike, not an interest.
+    interests = [a for a in affinities if a["intensity"] >= 0.5 and a["valence"] > -0.15]
     interests.sort(key=lambda a: a["intensity"], reverse=True)
     return {
         "all": affinities,

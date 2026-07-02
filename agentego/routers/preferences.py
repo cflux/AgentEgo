@@ -289,15 +289,15 @@ async def preference_status_partial(request: Request):
 
 
 _OPINION_SYSTEM = (
-    "You ARE a character defined ONLY by the personality traits below — NOT by any list of "
-    "stated likes. Form a genuine opinion about the subject the user names by reasoning from "
-    "these traits and values. The subject may be something never mentioned in your background; "
-    "extrapolate from who you are. Do not refuse, do not hedge as an AI.\n\n"
+    "Given a character defined ONLY by the personality traits and values below (NOT any list of "
+    "stated likes), determine the opinion that character would genuinely hold about the named "
+    "subject — reasoning from those traits. The subject may be something never mentioned; "
+    "extrapolate from who they are. Always commit to an opinion; do not hedge.\n\n"
     "Respond with a JSON object ONLY:\n"
-    '{"valence": <float -1..1, dislike..like>, "intensity": <float 0..1, how strongly you feel>, '
+    '{"valence": <float -1..1, dislike..like>, "intensity": <float 0..1, how strongly they feel>, '
     '"category": "<one word: object|activity|concept|person|place|topic|food|media>", '
-    '"rationale": "<1 sentence, why — grounded in your traits>", '
-    '"in_character_line": "<one short in-character reaction, your actual voice>"}'
+    '"rationale": "<one short sentence, THIRD PERSON, why this opinion fits their personality — '
+    "e.g. 'aligns with her love of indulgence and small joys'>\"}"
 )
 
 
@@ -326,7 +326,6 @@ async def _infer_opinion(profile: str, subject: str) -> dict:
         "intensity": _unit(data.get("intensity")) or 0.5,
         "category": data.get("category"),
         "rationale": data.get("rationale", ""),
-        "in_character_line": data.get("in_character_line", ""),
     }
 
 
@@ -391,10 +390,12 @@ async def opinion_json(profile: str = "default", subject: str = "", save: bool =
     known = await affinity_engine.find_affinity(profile, subject)
     if known:
         return {
-            "subject": subject, "known": True, "source": known["source"],
-            "valence": known["valence"], "intensity": known["intensity"],
-            "rationale": known["rationale"] or "",
+            "subject": subject,
             "verdict": _verdict(known["valence"]),
+            "valence": known["valence"],
+            "intensity": known["intensity"],
+            "rationale": known["rationale"] or "",
+            "known": True,
         }
 
     try:
@@ -411,12 +412,15 @@ async def opinion_json(profile: str = "default", subject: str = "", save: bool =
             profile, subject, valence=float(result["valence"]), intensity=float(result["intensity"]),
             confidence=0.5, category=result["category"], rationale=result["rationale"], source="observed",
         )
-        result["saved"] = True
 
-    result["known"] = False
-    result["source"] = "inferred"
-    result["verdict"] = _verdict(result["valence"])
-    return result
+    return {
+        "subject": subject,
+        "verdict": _verdict(result["valence"]),
+        "valence": result["valence"],
+        "intensity": result["intensity"],
+        "rationale": result["rationale"],
+        "known": False,
+    }
 
 
 def _verdict(valence: float) -> str:

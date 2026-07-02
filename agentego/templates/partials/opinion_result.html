@@ -10,8 +10,5 @@
     {% if r.category %}<span class="badge badge-muted">{{ r.category }}</span>{% endif %}
     {% if r.saved %}<span style="font-size:0.75rem; color:#4caf50;">● saved as observation</span>{% endif %}
   </div>
-  {% if r.in_character_line %}
-  <p style="font-size:0.95rem; font-style:italic; margin:0 0 0.4rem;">"{{ r.in_character_line }}"</p>
-  {% endif %}
-  <p style="font-size:0.8rem; color:var(--pico-muted-color); margin:0;">{{ r.rationale }}</p>
+  <p style="font-size:0.85rem; color:var(--pico-muted-color); margin:0;">{{ r.rationale }}</p>
 </article>

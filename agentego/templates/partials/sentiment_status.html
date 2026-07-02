@@ -45,12 +45,23 @@
     {% elif status.triggered %}
       <button class="secondary outline" style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;" disabled>Queued</button>
     {% else %}
-      <button
-        hx-post="/api/sentiment/trigger"
-        style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;"
-        {% if status.pending == 0 %}class="secondary outline"{% endif %}>
-        Run Now{% if status.pending > 0 %} ({{ status.pending }}){% endif %}
-      </button>
+      <div style="display:flex; gap:0.4rem;">
+        <button
+          hx-post="/api/sentiment/trigger"
+          style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;"
+          {% if status.pending == 0 %}class="secondary outline"{% endif %}>
+          Run Now{% if status.pending > 0 %} ({{ status.pending }}){% endif %}
+        </button>
+        <button
+          hx-post="/api/sentiment/rescore"
+          hx-swap="none"
+          hx-confirm="Re-score ALL recent rounds from scratch? This clears the existing emotion + mood scores and re-runs the worker (~10–15 min). Do this after adding or changing moods."
+          class="secondary outline"
+          style="margin:0; padding:0.3rem 0.8rem; font-size:0.82rem;"
+          title="Clear all round scores and re-score with the current mood catalog">
+          Re-score all
+        </button>
+      </div>
     {% endif %}
   </div>
 

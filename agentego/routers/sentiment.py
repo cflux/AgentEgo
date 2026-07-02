@@ -213,6 +213,37 @@ async def trigger_scoring():
     return JSONResponse({"status": "queued"}, headers={"HX-Trigger": "sentimentUpdate"})
 
 
+@router.post("/sentiment/rescore", status_code=202)
+async def rescore_all():
+    """Full re-score: clear existing round emotion + mood scores (making them pending) and trigger
+    the worker. Use after adding/changing moods so the LLM re-scores rounds with the new catalog.
+    Conversation sentiment is re-derived from rounds automatically as they're re-scored."""
+    conn = await get_ego_db()
+    try:
+        cutoff = time.time() - 7 * 86400
+        cursor = await conn.execute("SELECT id FROM rounds WHERE end_ts >= ?", (cutoff,))
+        round_ids = [r[0] for r in await cursor.fetchall()]
+        if round_ids:
+            ph = ",".join("?" * len(round_ids))
+            await conn.execute(
+                f"DELETE FROM module_data WHERE module='sentiment' AND key IN ({ph})", round_ids
+            )
+        await conn.execute("DELETE FROM module_data WHERE module='mood_scores'")
+        await conn.execute(
+            """
+            INSERT INTO module_data (module, key, value, updated_at)
+            VALUES ('_system', 'sentiment_trigger', '1', ?)
+            ON CONFLICT(module, key) DO UPDATE SET value='1', updated_at=excluded.updated_at
+            """,
+            (time.time(),),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+    return JSONResponse({"status": "queued", "rounds": len(round_ids)},
+                        headers={"HX-Trigger": "sentimentUpdate"})
+
+
 @router.post("/sentiment/heartbeat", status_code=202)
 async def worker_heartbeat():
     """Called by the worker each poll cycle to signal it's alive."""

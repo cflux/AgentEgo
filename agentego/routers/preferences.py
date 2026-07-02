@@ -1,7 +1,7 @@
 import json
 import time
 from fastapi import APIRouter, Request, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from pydantic import BaseModel
@@ -154,6 +154,13 @@ async def run_complete():
 async def trigger_run():
     await _set_flag("preference_trigger", "1")
     return JSONResponse({"status": "queued"}, headers={"HX-Trigger": "preferenceUpdate"})
+
+
+@router.post("/api/preferences/dedupe")
+async def dedupe(profile: str = "default"):
+    """Merge near-identical affinities (LLM-grouped) for a profile, then reload the page."""
+    await affinity_engine.dedupe_affinities(profile)
+    return Response(status_code=200, headers={"HX-Refresh": "true"})
 
 
 @router.post("/api/preferences/trigger-clear", status_code=202)

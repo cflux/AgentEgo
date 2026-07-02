@@ -46,6 +46,16 @@
 </article>
 
 {# --- Likes / Dislikes / Interests --- #}
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem; gap:0.5rem; flex-wrap:wrap;">
+  <strong style="font-size:0.9rem;">Affinities</strong>
+  <button
+    hx-post="/api/preferences/dedupe?profile={{ active_profile }}"
+    hx-confirm="Merge duplicate affinities? Uses the LLM to group near-identical entries (e.g. 'manga and anime' + 'manga/anime') and combine them into one. Seeded entries and their baselines are preserved."
+    class="secondary outline" style="margin:0; padding:0.3rem 0.9rem; font-size:0.82rem;"
+    title="Group and merge near-identical likes/dislikes">
+    Merge duplicates
+  </button>
+</div>
 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); gap:1rem;">
 
   <article style="padding:0; overflow:hidden;">

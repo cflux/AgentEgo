@@ -409,6 +409,110 @@ async def prune_generic_affinities(profile_name: str | None = None) -> int:
         await conn.close()
 
 
+_DEDUPE_SYSTEM = (
+    "You clean up an agent's list of liked/disliked things by finding DUPLICATES — entries that "
+    "refer to the SAME underlying thing, just phrased differently (e.g. 'manga and anime' = "
+    "'manga/anime'; 'athletic female bodies' = 'athletic women with large breasts'). Do NOT group "
+    "things that are merely related but distinct, or different levels of granularity (e.g. 'art' vs "
+    "'modern art' are different — keep separate unless clearly identical). For each duplicate group "
+    "of 2+ entries, pick the clearest EXISTING member as the canonical. Return ONLY JSON: "
+    '{"groups": [{"canonical": "<one of the members, verbatim>", "members": ["<verbatim>", ...]}]}. '
+    "Omit anything with no duplicate."
+)
+
+
+async def _find_duplicate_groups(entities: list[str]) -> list[dict]:
+    """Ask the LLM to group near-identical entities. Returns [{canonical, members}] (2+ members)."""
+    from .llm_client import chat, LLMError
+    listing = "\n".join(f"- {e}" for e in entities)
+    try:
+        raw = await chat(
+            [{"role": "system", "content": _DEDUPE_SYSTEM},
+             {"role": "user", "content": "Entries:\n" + listing}],
+            response_json=True, max_tokens=1200,
+        )
+        data = json.loads(raw)
+    except (LLMError, json.JSONDecodeError, ValueError):
+        return []
+    groups = data.get("groups") if isinstance(data, dict) else data
+    known = {e.lower(): e for e in entities}
+    out = []
+    for g in (groups or []):
+        members = [known[m.lower()] for m in g.get("members", []) if isinstance(m, str) and m.lower() in known]
+        members = list(dict.fromkeys(members))  # dedupe, preserve order
+        canon = g.get("canonical", "")
+        canon = known.get(canon.lower()) if isinstance(canon, str) else None
+        if canon and canon in members and len(members) >= 2:
+            out.append({"canonical": canon, "members": members})
+    return out
+
+
+async def _merge_affinity_group(profile_name: str, canonical: str, members: list[str]) -> None:
+    """Merge duplicate affinity rows into the canonical entity (mention-weighted valence/intensity,
+    summed mentions, widest date span, seed status preserved), then delete the others."""
+    conn = await get_ego_db()
+    try:
+        ph = ",".join("?" * len(members))
+        cursor = await conn.execute(
+            f"SELECT entity, valence, intensity, confidence, baseline_valence, baseline_intensity, "
+            f"source, rationale, category, mention_count, first_seen, last_seen "
+            f"FROM affinities WHERE profile_name = ? AND entity IN ({ph})",
+            [profile_name, *members],
+        )
+        rows = await cursor.fetchall()
+        if len(rows) < 2:
+            return
+        w = [max(int(r[9] or 1), 1) for r in rows]
+        W = sum(w) or 1
+        valence = round(sum(r[1] * wi for r, wi in zip(rows, w)) / W, 4)
+        intensity = round(sum(r[2] * wi for r, wi in zip(rows, w)) / W, 4)
+        confidence = max(r[3] for r in rows)
+        mention_count = sum(int(r[9] or 0) for r in rows)
+        first_seen = min((r[10] for r in rows if r[10] is not None), default=time.time())
+        last_seen = max((r[11] for r in rows if r[11] is not None), default=time.time())
+        source = "seed" if any(r[6] == "seed" for r in rows) else "inferred"
+        canon = next((r for r in rows if r[0] == canonical), rows[0])
+        # prefer a seed member's baseline (anchors SOUL-seeded evolution), else the canonical's
+        seed_base = next((r for r in rows if r[6] == "seed" and r[4] is not None), None)
+        base_v = seed_base[4] if seed_base else canon[4]
+        base_i = seed_base[5] if seed_base else canon[5]
+        await conn.execute(
+            """
+            UPDATE affinities SET valence=?, intensity=?, confidence=?, baseline_valence=?,
+                   baseline_intensity=?, source=?, mention_count=?, first_seen=?, last_seen=?,
+                   updated_at=? WHERE profile_name=? AND entity=?
+            """,
+            (valence, intensity, confidence, base_v, base_i, source, mention_count,
+             first_seen, last_seen, time.time(), profile_name, canonical),
+        )
+        losers = [m for m in members if m != canonical]
+        if losers:
+            lp = ",".join("?" * len(losers))
+            await conn.execute(
+                f"DELETE FROM affinities WHERE profile_name = ? AND entity IN ({lp})",
+                [profile_name, *losers],
+            )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def dedupe_affinities(profile_name: str) -> dict:
+    """LLM-group near-identical affinities and merge each group into one canonical entry."""
+    affinities = await get_affinities(profile_name)
+    entities = [a["entity"] for a in affinities]
+    if len(entities) < 2:
+        return {"merged": 0, "removed": 0, "groups": []}
+    groups = await _find_duplicate_groups(entities)
+    removed = 0
+    done = []
+    for g in groups:
+        await _merge_affinity_group(profile_name, g["canonical"], g["members"])
+        removed += len(g["members"]) - 1
+        done.append({"canonical": g["canonical"], "merged": g["members"]})
+    return {"merged": len(done), "removed": removed, "groups": done}
+
+
 # --- Dashboard helpers ---
 
 async def get_affinity_summary(profile_name: str, top_n: int = 8) -> dict:

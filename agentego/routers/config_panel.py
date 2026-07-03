@@ -42,10 +42,21 @@ async def config_page(request: Request):
         moods = [{"id": r[0], "name": r[1], "icon": r[2] or ""} for r in await cursor.fetchall()]
     finally:
         await conn.close()
+    # Reflection runs on the server's LOCAL clock (APScheduler default tz) — surface it so the
+    # "run hour" field is unambiguous.
+    from datetime import datetime
+    try:
+        from tzlocal import get_localzone
+        server_now = datetime.now(get_localzone())
+        server_tz = server_now.strftime("%Z (%z)")
+        server_time = server_now.strftime("%H:%M")
+    except Exception:
+        server_tz, server_time = "server local", ""
     return templates.TemplateResponse(
         "model_config.html",
         {"request": request, "settings": settings, "masked_key": _mask_key(settings.get("llm_api_key", "")),
-         "taxonomy": taxonomy, "low_signal": low_signal, "moods": moods},
+         "taxonomy": taxonomy, "low_signal": low_signal, "moods": moods,
+         "server_tz": server_tz, "server_time": server_time},
     )
 
 

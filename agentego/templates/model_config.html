@@ -319,7 +319,7 @@
         by chance dreams. Agent pulls its dream via <code>/api/reflection/dream.txt</code> and resets mood
         on waking via <code>/api/reflection/wake</code>. See the <a href="/reflections">Reflections</a> panel.</p>
       <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.6rem;">
-        <label style="font-size:0.82rem;">Run hour <small style="color:var(--pico-muted-color); font-weight:normal;">(UTC 0–23)</small>
+        <label style="font-size:0.82rem;">Run hour <small style="color:var(--pico-muted-color); font-weight:normal;">(0–23, {{ server_tz or 'server local' }}{% if server_time %} — now {{ server_time }}{% endif %})</small>
           <input type="number" name="reflection_hour" value="{{ settings.reflection_hour }}" min="0" max="23">
         </label>
         <label style="font-size:0.82rem;">Dream chance <small style="color:var(--pico-muted-color); font-weight:normal;">(0–1)</small>

@@ -81,7 +81,7 @@ DEFAULTS = {
     "affinity_dedupe_enabled": "1",
     # Daily reflection: nightly pass draws general takeaways, picks a day-mood, maybe a dream.
     "reflection_enabled": "1",
-    "reflection_hour": "4",              # UTC hour the nightly pass runs (container clock is UTC)
+    "reflection_hour": "4",              # server-local hour the nightly pass runs (APScheduler local clock)
     "reflection_dream_chance": "0.35",   # probability a dream is generated on a given night
     "reflection_lookback_hours": "24",   # window of activity a reflection considers
     "reflection_conclusions_prompt": (

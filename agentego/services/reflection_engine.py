@@ -10,7 +10,7 @@ import json
 import random
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import uuid4
 
 from ..db.ego import get_ego_db
@@ -25,7 +25,9 @@ DREAM_FRAME = (
 
 
 def _day_str(ts: float | None = None) -> str:
-    return datetime.fromtimestamp(ts or time.time(), tz=timezone.utc).strftime("%Y-%m-%d")
+    # Server-local day, to match the scheduler (APScheduler fires on the local clock) and the
+    # agent's sense of "today" when it hits wake/dream during the day.
+    return datetime.fromtimestamp(ts or time.time()).strftime("%Y-%m-%d")
 
 
 def _parse_json(raw: str) -> dict:

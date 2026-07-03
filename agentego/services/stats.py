@@ -56,7 +56,8 @@ async def _run_reflections_job() -> None:
 
 
 def _reflection_hour() -> int:
-    """Best-effort read of the configured UTC hour without an async context (scheduler setup)."""
+    """Best-effort read of the configured run hour without an async context (scheduler setup).
+    Interpreted on the server's local clock — APScheduler's default timezone."""
     import sqlite3
     from ..config import settings
     try:
@@ -90,7 +91,7 @@ def start_scheduler() -> AsyncIOScheduler:
         coalesce=True,
         next_run_time=datetime.now(timezone.utc),
     )
-    # Nightly reflection pass at the configured UTC hour: end-of-day conclusions, day-mood, dreams.
+    # Nightly reflection pass at the configured server-local hour: conclusions, day-mood, dreams.
     scheduler.add_job(
         _run_reflections_job,
         "cron",

@@ -550,6 +550,65 @@ async def _set_mood_cooldown(profile_name: str, mood_id: str) -> None:
         await conn.close()
 
 
+async def _get_mood_seed(profile_name: str) -> dict | None:
+    """A 'morning seed' planted by a reset (reflection wake): {mood, at}. While no round is newer
+    than `at`, evaluate_mood serves this mood instead of recomputing (the reset holds overnight)."""
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT value FROM module_data WHERE module = '_mood_seed' AND key = ?", (profile_name,)
+        )
+        row = await cursor.fetchone()
+        return json.loads(row[0]) if row else None
+    finally:
+        await conn.close()
+
+
+async def _set_mood_seed(profile_name: str, mood_id: str) -> None:
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            "INSERT INTO module_data (module, key, value, updated_at) VALUES ('_mood_seed', ?, ?, ?) "
+            "ON CONFLICT(module, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (profile_name, json.dumps({"mood": mood_id, "at": time.time()}), time.time()),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def _clear_mood_seed(profile_name: str) -> None:
+    conn = await get_ego_db()
+    try:
+        await conn.execute("DELETE FROM module_data WHERE module = '_mood_seed' AND key = ?", (profile_name,))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def _newest_round_ts(profile_name: str) -> float | None:
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT MAX(end_ts) FROM rounds WHERE profile_name = ?", (profile_name,)
+        )
+        row = await cursor.fetchone()
+        return row[0] if row and row[0] is not None else None
+    finally:
+        await conn.close()
+
+
+async def reset_mood(profile_name: str, mood_id: str) -> dict | None:
+    """Reset the cached mood and plant a morning seed so it holds until new activity arrives.
+    Used by the reflection 'wake' endpoint. Returns the mood dict, or None if mood_id is unknown."""
+    moods = await _load_moods()
+    if mood_id not in moods:
+        return None
+    await _set_mood_seed(profile_name, mood_id)
+    await _cache_result(profile_name, mood_id, 0, ["Reset (waking)"])
+    return {**moods[mood_id], "vote_count": 0, "breakdown": ["Reset (waking)"]}
+
+
 async def _decay_state(profile_name: str, effective: dict, cached_mood_id, decay_cfg: dict,
                        cascade: dict) -> dict:
     """Homeostatic anti-stuck decay. Mutates `effective`: as the current mood's tenure (rounds
@@ -732,8 +791,22 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
     Caches the result in agent_moods.
     """
     moods = await _load_moods()
-    rules = await _load_rules(profile_name)
 
+    # Morning-seed hold (reflection wake): a reset sticks until a round newer than it appears.
+    # Checked first — before rules/activity gates — so a reset always holds. Sync only on this rare
+    # path (so the normal path isn't double-synced) to detect and yield to genuinely new activity.
+    seed = await _get_mood_seed(profile_name)
+    if seed and seed.get("mood") in moods:
+        from .conversations import sync_recent_conversations
+        await sync_recent_conversations(profile_name, db_path=db_path)
+        newest = await _newest_round_ts(profile_name)
+        if newest is None or newest <= seed.get("at", 0):
+            note = ["Woke into this mood"]
+            await _cache_result(profile_name, seed["mood"], 0, note)
+            return {**moods[seed["mood"]], "vote_count": 0, "breakdown": note, "is_seed": True}
+        await _clear_mood_seed(profile_name)  # new activity supersedes the reset
+
+    rules = await _load_rules(profile_name)
     if not rules or not moods:
         await _cache_result(profile_name, None, 0, [])
         return None

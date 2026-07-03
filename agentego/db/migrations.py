@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -187,6 +187,21 @@ CREATE TABLE IF NOT EXISTS impulse_log (
     fired_at     REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_impulse_log_profile ON impulse_log(profile_name, fired_at DESC);
+
+CREATE TABLE IF NOT EXISTS reflections (
+    id             TEXT PRIMARY KEY,
+    profile_name   TEXT NOT NULL,
+    day            TEXT NOT NULL,
+    created_at     REAL NOT NULL,
+    conclusions    TEXT,
+    day_mood_id    TEXT,
+    dream_occurred INTEGER NOT NULL DEFAULT 0,
+    dream_prompt   TEXT,
+    dream_mood_id  TEXT,
+    dream_consumed INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(profile_name, day)
+);
+CREATE INDEX IF NOT EXISTS idx_reflections_profile ON reflections(profile_name, day DESC);
 """
 
 _DEFAULT_MOODS = [
@@ -272,6 +287,24 @@ _DEFAULT_SETTINGS = {
     ),
     "mood_directive_file": "",
     "affinity_dedupe_enabled": "1",
+    "reflection_enabled": "1",
+    "reflection_hour": "4",
+    "reflection_dream_chance": "0.35",
+    "reflection_lookback_hours": "24",
+    "reflection_conclusions_prompt": (
+        "You are the character described below, writing a few lines in a private journal at the end of "
+        "the day. Given today's conversations, your emotional arc, and anything you did on your own, "
+        "surface 2-4 SHORT, GENERAL reflections in your own first-person voice — impressions and "
+        "takeaways ('today felt scattered', 'I keep drifting back to the outdoors'), NOT pointed "
+        "factual claims or to-do items. Stay completely in character; keep each to one sentence. "
+        "Return ONLY JSON: {\"conclusions\": [\"...\", ...]}."
+    ),
+    "reflection_dream_prompt": (
+        "You are the character described below. Compose a DREAM they had tonight, woven from the day's "
+        "mood and a couple of its threads — surreal, first-person, vivid but brief (3-5 sentences). "
+        "Then name the single mood they wake in from the allowed list. Return ONLY JSON: "
+        "{\"dream\": \"...\", \"wake_mood\": \"<one mood id>\"}."
+    ),
 }
 
 
@@ -327,6 +360,10 @@ async def run_migrations(db_path: str) -> None:
 
         if current_version < 10:
             # mood_history created by DDL above; no ALTER needed
+            pass
+
+        if current_version < 11:
+            # reflections created by DDL above; no ALTER needed
             pass
 
         if current_version < SCHEMA_VERSION:

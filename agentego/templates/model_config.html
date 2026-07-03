@@ -305,6 +305,38 @@
       </div>
     </article>
 
+    {# ---------------- Daily reflection (full width) ---------------- #}
+    <article class="wide">
+      <div style="display:flex; align-items:center; gap:0.5rem;">
+        <label style="display:inline-flex; align-items:center; gap:0.35rem; margin:0; font-size:0.82rem; cursor:pointer;">
+          <input type="checkbox" name="reflection_enabled" value="1" {% if settings.reflection_enabled == '1' %}checked{% endif %}
+                 style="width:0.95rem; height:0.95rem; margin:0;">
+          On
+        </label>
+        <span class="cfg-h" style="margin:0;">Daily reflection (end-of-day journal, mood &amp; dreams)</span>
+      </div>
+      <p class="cfg-sub">A nightly pass draws general, in-character takeaways, settles on a day-mood, and
+        by chance dreams. Agent pulls its dream via <code>/api/reflection/dream.txt</code> and resets mood
+        on waking via <code>/api/reflection/wake</code>. See the <a href="/reflections">Reflections</a> panel.</p>
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.6rem;">
+        <label style="font-size:0.82rem;">Run hour <small style="color:var(--pico-muted-color); font-weight:normal;">(UTC 0–23)</small>
+          <input type="number" name="reflection_hour" value="{{ settings.reflection_hour }}" min="0" max="23">
+        </label>
+        <label style="font-size:0.82rem;">Dream chance <small style="color:var(--pico-muted-color); font-weight:normal;">(0–1)</small>
+          <input type="number" name="reflection_dream_chance" value="{{ settings.reflection_dream_chance }}" min="0" max="1" step="0.05">
+        </label>
+        <label style="font-size:0.82rem;">Lookback hours
+          <input type="number" name="reflection_lookback_hours" value="{{ settings.reflection_lookback_hours }}" min="1" max="168">
+        </label>
+      </div>
+      <label style="display:block; margin-top:0.5rem; font-size:0.82rem;">Conclusions prompt
+        <textarea name="reflection_conclusions_prompt" rows="4" style="font-size:0.8rem;">{{ settings.reflection_conclusions_prompt }}</textarea>
+      </label>
+      <label style="display:block; margin-top:0.4rem; font-size:0.82rem;">Dream prompt
+        <textarea name="reflection_dream_prompt" rows="3" style="font-size:0.8rem;">{{ settings.reflection_dream_prompt }}</textarea>
+      </label>
+    </article>
+
   </div>
 
   <div style="display:flex; gap:0.6rem; margin-top:1rem; align-items:center;">

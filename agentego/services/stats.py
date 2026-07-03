@@ -46,6 +46,28 @@ async def aggregate_platform_stats() -> None:
         await conn.close()
 
 
+async def _run_reflections_job() -> None:
+    """Scheduler wrapper: gated by reflection_enabled inside run_reflections()."""
+    from .reflection_engine import run_reflections
+    try:
+        await run_reflections()
+    except Exception:
+        logger.exception("reflection pass failed")
+
+
+def _reflection_hour() -> int:
+    """Best-effort read of the configured UTC hour without an async context (scheduler setup)."""
+    import sqlite3
+    from ..config import settings
+    try:
+        con = sqlite3.connect(settings.ego_db_path)
+        row = con.execute("SELECT value FROM app_settings WHERE key = 'reflection_hour'").fetchone()
+        con.close()
+        return max(0, min(23, int(row[0]))) if row else 4
+    except Exception:
+        return 4
+
+
 def start_scheduler() -> AsyncIOScheduler:
     from .mood_engine import refresh_all_moods
 
@@ -67,6 +89,16 @@ def start_scheduler() -> AsyncIOScheduler:
         max_instances=1,
         coalesce=True,
         next_run_time=datetime.now(timezone.utc),
+    )
+    # Nightly reflection pass at the configured UTC hour: end-of-day conclusions, day-mood, dreams.
+    scheduler.add_job(
+        _run_reflections_job,
+        "cron",
+        hour=_reflection_hour(),
+        minute=0,
+        id="run_reflections",
+        max_instances=1,
+        coalesce=True,
     )
     scheduler.start()
     return scheduler

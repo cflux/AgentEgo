@@ -79,6 +79,25 @@ DEFAULTS = {
     "mood_directive_file": "",    # optional: write the block here on mood change (blank = HTTP only)
     # Fold a newly-inferred affinity into an existing near-identical one (LLM canonicalize).
     "affinity_dedupe_enabled": "1",
+    # Daily reflection: nightly pass draws general takeaways, picks a day-mood, maybe a dream.
+    "reflection_enabled": "1",
+    "reflection_hour": "4",              # UTC hour the nightly pass runs (container clock is UTC)
+    "reflection_dream_chance": "0.35",   # probability a dream is generated on a given night
+    "reflection_lookback_hours": "24",   # window of activity a reflection considers
+    "reflection_conclusions_prompt": (
+        "You are the character described below, writing a few lines in a private journal at the end of "
+        "the day. Given today's conversations, your emotional arc, and anything you did on your own, "
+        "surface 2-4 SHORT, GENERAL reflections in your own first-person voice — impressions and "
+        "takeaways ('today felt scattered', 'I keep drifting back to the outdoors'), NOT pointed "
+        "factual claims or to-do items. Stay completely in character; keep each to one sentence. "
+        "Return ONLY JSON: {\"conclusions\": [\"...\", ...]}."
+    ),
+    "reflection_dream_prompt": (
+        "You are the character described below. Compose a DREAM they had tonight, woven from the day's "
+        "mood and a couple of its threads — surreal, first-person, vivid but brief (3-5 sentences). "
+        "Then name the single mood they wake in from the allowed list. Return ONLY JSON: "
+        "{\"dream\": \"...\", \"wake_mood\": \"<one mood id>\"}."
+    ),
 }
 
 

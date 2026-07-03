@@ -85,6 +85,11 @@ async def update_model_config(
     mood_decay_cooldown: str = Form("4"),
     mood_directive_template: str = Form(""),
     mood_directive_file: str = Form(""),
+    reflection_hour: str = Form("4"),
+    reflection_dream_chance: str = Form("0.35"),
+    reflection_lookback_hours: str = Form("24"),
+    reflection_conclusions_prompt: str = Form(""),
+    reflection_dream_prompt: str = Form(""),
 ):
     # Low-signal emotions come from checkboxes (zero or more 'low_signal' values).
     form = await request.form()
@@ -121,6 +126,12 @@ async def update_model_config(
         "mood_directive_template": mood_directive_template,
         "mood_directive_file": mood_directive_file.strip(),
         "affinity_dedupe_enabled": "1" if form.get("affinity_dedupe_enabled") else "0",
+        "reflection_enabled": "1" if form.get("reflection_enabled") else "0",
+        "reflection_hour": reflection_hour.strip(),
+        "reflection_dream_chance": reflection_dream_chance.strip(),
+        "reflection_lookback_hours": reflection_lookback_hours.strip(),
+        "reflection_conclusions_prompt": reflection_conclusions_prompt,
+        "reflection_dream_prompt": reflection_dream_prompt,
     }
     # Only overwrite JSON graph/cascade if valid JSON was submitted (avoid clobbering with junk).
     import json as _json

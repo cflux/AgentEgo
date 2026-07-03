@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Reflections — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>Reflections <small style="font-size:0.6em; color:var(--pico-muted-color);">End-of-day journal, mood &amp; dreams</small></h2>
+
+<p style="font-size:0.88rem; color:var(--pico-muted-color); max-width:62rem;">
+  Each night a reflection pass draws a few general, in-character takeaways from the day, settles on an
+  overall mood, and — by chance — dreams. The agent picks up its dream via
+  <code>/api/reflection/dream.txt</code> and resets its mood on waking via
+  <code>/api/reflection/wake</code>. Runs automatically at the configured hour; use the button to run
+  it now for testing.
+</p>
+
+{% if profiles and profiles|length > 1 %}
+<div class="profile-tabs">
+  {% for p in profiles %}
+  <a href="/reflections?profile={{ p.name }}" class="profile-tab {% if active_profile == p.name %}active{% endif %}">{{ p.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin:0.5rem 0 1rem;">
+  <strong>Recent reflections</strong>
+  <button style="margin:0; padding:0.3rem 0.9rem; font-size:0.82rem;"
+    hx-post="/api/reflection/run?profile={{ active_profile }}"
+    hx-target="#reflection-list" hx-swap="innerHTML"
+    hx-disabled-elt="this" hx-indicator="#refl-spin">
+    🌙 Run reflection now</button>
+</div>
+<span id="refl-spin" class="htmx-indicator" style="font-size:0.8rem; color:var(--pico-muted-color);">thinking through the day…</span>
+
+<div id="reflection-list">
+  {% include "partials/reflection_list.html" %}
+</div>
+
+{% endblock %}

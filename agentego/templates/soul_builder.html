@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Persona Builder — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>Persona Builder <small style="font-size:0.6em; color:var(--pico-muted-color);">describe a character → a proper SOUL.md</small></h2>
+
+<p style="font-size:0.88rem; color:var(--pico-muted-color); max-width:60rem;">
+  Describe a character in plain language. The builder interviews you, drafts a well-rounded SOUL.md
+  (concrete traits, a full range of moods — not one note), and wires in the AgentEgo tool directives
+  (mood injection, memory, image gen, the opinion-check API) automatically. Refine it, then copy or
+  download. It does <em>not</em> write to disk — paste it into <code>~/.hermes/profiles/&lt;name&gt;/SOUL.md</code> yourself.
+</p>
+
+<article style="padding:1rem 1.25rem;">
+  <form hx-post="/api/soul/interview" hx-target="#soul-flow" hx-swap="innerHTML">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+      <label style="margin:0;">Character name
+        <input type="text" name="name" placeholder="e.g. Kira">
+      </label>
+      <label style="margin:0;">Talks to (the human's name)
+        <input type="text" name="user" placeholder="e.g. Carbon">
+      </label>
+    </div>
+    <label style="margin:0.75rem 0 0; display:block;">Describe the character
+      <textarea name="description" rows="5" placeholder="A sardonic ex-detective raccoon who runs a late-night diner in a rain-soaked city. Sharp, world-weary, secretly soft. Loves noir films and terrible puns, hates small talk and being underestimated…"></textarea>
+    </label>
+
+    <details style="margin-top:0.6rem;">
+      <summary style="cursor:pointer; font-size:0.8rem; color:var(--pico-muted-color);">…or improve an existing profile's SOUL.md</summary>
+      <label style="margin:0.4rem 0 0; display:block; font-size:0.82rem;">Improve existing
+        <select name="improve">
+          <option value="">— none (build from scratch) —</option>
+          {% for p in profiles %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+        </select>
+        <small style="color:var(--pico-muted-color);">Pre-loads that profile's current SOUL.md as the starting point to rebalance.</small>
+      </label>
+    </details>
+
+    <div style="display:flex; gap:0.6rem; margin-top:0.9rem;">
+      <button type="submit" style="margin:0; padding:0.45rem 1.2rem;">Interview me →</button>
+      <button type="submit" class="secondary outline" style="margin:0; padding:0.45rem 1.2rem;"
+              hx-post="/api/soul/generate">Skip → draft it</button>
+    </div>
+  </form>
+</article>
+
+<div id="soul-flow" style="margin-top:1rem;"></div>
+
+{% endblock %}

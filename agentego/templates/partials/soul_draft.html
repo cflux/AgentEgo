@@ -1,0 +1,53 @@
+{# Generated SOUL.md: editable + copy/download + refine #}
+<article style="padding:1rem 1.25rem; margin:0;">
+  <form hx-post="/api/soul/refine" hx-target="#soul-flow" hx-swap="innerHTML">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+      <strong style="font-size:0.9rem;">SOUL.md{% if name %} — {{ name }}{% endif %}
+        <span style="font-weight:normal; color:var(--pico-muted-color); font-size:0.8rem;">(editable)</span></strong>
+      <span style="display:flex; gap:0.4rem;">
+        <button type="button" id="soul-copy" class="secondary outline" style="margin:0; padding:0.3rem 0.9rem; font-size:0.82rem;">Copy</button>
+        <button type="button" id="soul-dl" class="secondary outline" style="margin:0; padding:0.3rem 0.9rem; font-size:0.82rem;">Download</button>
+      </span>
+    </div>
+
+    <textarea id="soul-text" name="current" rows="26" style="font-size:0.78rem; font-family:monospace; line-height:1.4;">{{ soul }}</textarea>
+    <input type="hidden" name="name" value="{{ name }}">
+    <input type="hidden" name="user" value="{{ user }}">
+    <input type="hidden" name="profile" value="{{ profile }}">
+
+    <p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.4rem 0 0.6rem;">
+      Paste into <code>~/.hermes/profiles/{{ profile }}/SOUL.md</code>. It reloads live — no restart. Editing it
+      re-triggers trait re-abstraction on the next preference-worker cycle.
+    </p>
+
+    <div style="display:flex; gap:0.5rem; align-items:end; flex-wrap:wrap;">
+      <label style="flex:1; min-width:16rem; margin:0; font-size:0.82rem;">Refine
+        <input type="text" name="instruction" placeholder="e.g. give her more edge · add a creative obsession · make the registers sharper" autocomplete="off">
+      </label>
+      <button type="submit" style="margin:0; padding:0.45rem 1.1rem;">Refine ↻</button>
+    </div>
+  </form>
+</article>
+
+<script>
+(function () {
+  var ta = document.getElementById('soul-text');
+  var copy = document.getElementById('soul-copy');
+  var dl = document.getElementById('soul-dl');
+  if (!ta) return;
+  if (copy) copy.addEventListener('click', function () {
+    navigator.clipboard.writeText(ta.value).then(function () {
+      var t = copy.textContent; copy.textContent = 'Copied ✓';
+      setTimeout(function () { copy.textContent = t; }, 1200);
+    });
+  });
+  if (dl) dl.addEventListener('click', function () {
+    var blob = new Blob([ta.value], { type: 'text/markdown' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'SOUL.md';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+  });
+})();
+</script>

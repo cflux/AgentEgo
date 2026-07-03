@@ -1,0 +1,17 @@
+{# Interview questions -> generate #}
+<article style="padding:1rem 1.25rem; margin:0;">
+  <form hx-post="/api/soul/generate" hx-target="#soul-flow" hx-swap="innerHTML">
+    <input type="hidden" name="description" value="{{ description }}">
+    <input type="hidden" name="name" value="{{ name }}">
+    <input type="hidden" name="user" value="{{ user }}">
+    <p style="font-size:0.9rem; margin:0 0 0.6rem;"><strong>A few questions to sharpen the character</strong>
+      <span style="color:var(--pico-muted-color); font-weight:normal;">— answer what you like, skip the rest.</span></p>
+    {% for q in questions %}
+    <label style="margin:0 0 0.6rem; display:block; font-size:0.85rem;">{{ q }}
+      <input type="hidden" name="qt_{{ loop.index0 }}" value="{{ q }}">
+      <input type="text" name="q_{{ loop.index0 }}" autocomplete="off">
+    </label>
+    {% endfor %}
+    <button type="submit" style="margin:0.3rem 0 0; padding:0.45rem 1.2rem;">Draft the SOUL.md →</button>
+  </form>
+</article>

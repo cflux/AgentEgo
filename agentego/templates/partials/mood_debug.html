@@ -37,6 +37,7 @@
           {%- if t.rule_votes or t.llm_votes -%}
             {{ t.rule_votes }} rule{% if t.llm_votes %} <span style="color:#b47aff;">+ {{ t.llm_votes }} LLM</span>{% endif %}
           {%- endif -%}
+          {% if t.cascade %} <span style="color:#ff9f4a;">{{ '+' if t.cascade > 0 else '' }}{{ t.cascade }} cascade</span>{% endif %}
           {% if t.inertia %} <span style="color:#e0a04a;">+ {{ t.inertia }} inertia</span>{% endif %}
           {% if t.penalized %} <span style="color:#e57373;">− {{ d.jump_penalty }} jump</span>{% endif %}
         </td>

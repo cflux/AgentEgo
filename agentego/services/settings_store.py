@@ -116,8 +116,10 @@ async def get_transition_config() -> dict:
 
 
 async def get_mood_cascade() -> tuple[bool, dict]:
-    """(enabled, {mood_id: {"to": mood_id, "at": int}}). A mood winning with effective votes
-    >= 'at' escalates its intensity into 'to'."""
+    """(enabled, {mood_id: {"to": mood_id, "at": int, "release": int}}). When a source mood's
+    EARNED votes reach 'at' its votes transfer onto 'to' (escalation). Hysteresis: once escalated,
+    the source only needs to stay >= 'release' (< 'at') to keep feeding the target, so escalations
+    don't chatter at the boundary. 'release' defaults to a 2-vote deadband below 'at'."""
     import json
     enabled = (await get_setting("mood_cascade_enabled", "1")) == "1"
     raw = await get_setting("mood_cascade", DEFAULTS["mood_cascade"])
@@ -129,7 +131,9 @@ async def get_mood_cascade() -> tuple[bool, dict]:
     for m, c in (data.items() if isinstance(data, dict) else []):
         if isinstance(c, dict) and c.get("to"):
             try:
-                out[str(m)] = {"to": str(c["to"]), "at": int(c.get("at", 99))}
+                at = int(c.get("at", 99))
+                release = int(c.get("release", max(1, at - 2)))
+                out[str(m)] = {"to": str(c["to"]), "at": at, "release": max(1, min(release, at))}
             except (TypeError, ValueError):
                 pass
     return enabled, out

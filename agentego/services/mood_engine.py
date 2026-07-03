@@ -577,22 +577,54 @@ async def _decay_state(profile_name: str, effective: dict, cached_mood_id, decay
     return info
 
 
-def _apply_cascade(winner_id, effective: dict, moods: dict, cascade: dict) -> tuple:
-    """Escalate the winner along its cascade chain while its intensity (effective votes)
-    clears each step's 'at'. e.g. sustained Flirty -> Horny. Returns (final_id, notes)."""
-    cur = winner_id
+def _cascade_leads_to(src: str, cascade: dict, target) -> bool:
+    """True if `target` lies downstream of `src` along the cascade chain (excluding `src` itself)."""
     seen: set = set()
-    notes: list = []
+    cur = src
     while cur in cascade and cur not in seen:
         seen.add(cur)
-        c = cascade[cur]
-        tgt = c.get("to")
-        if tgt in moods and effective.get(cur, 0) >= c.get("at", 99):
-            notes.append(f"{moods[cur]['name']} ({effective.get(cur, 0)}≥{c['at']}) → {moods[tgt]['name']}")
-            cur = tgt
-        else:
+        cur = cascade[cur].get("to")
+        if cur == target:
+            return True
+    return False
+
+
+def _cascade_transfer(vote_map: dict, moods: dict, cached_mood_id, cascade: dict,
+                      enabled: bool) -> tuple[dict, list, dict]:
+    """Fold intensity cascades into vote formation: when a source mood's EARNED votes clear its
+    escalation threshold, transfer them onto the target BEFORE winner selection — so the target
+    competes (and then holds, via inertia) on genuine support, instead of being hijacked for a
+    single round and bouncing back. Hysteresis: once escalated (the current mood is the target or
+    downstream of the source) the source only needs to stay >= `release`; otherwise it must reach
+    `at`. Runs to a fixpoint so chains (A→B→C) flow through, zeroing each consumed source so votes
+    are never double-counted. Returns (new_vote_map, notes, net_delta_per_mood)."""
+    result = dict(vote_map)
+    notes: list = []
+    deltas: dict = {}
+    if not enabled or not cascade:
+        return result, notes, deltas
+    for _ in range(len(cascade) + 1):
+        changed = False
+        for src, edge in cascade.items():
+            tgt = edge.get("to")
+            if tgt not in moods:
+                continue
+            v = result.get(src, 0)
+            if v <= 0:
+                continue
+            escalated = (cached_mood_id == tgt) or _cascade_leads_to(src, cascade, cached_mood_id)
+            thr = edge.get("release", edge.get("at", 99)) if escalated else edge.get("at", 99)
+            if v >= thr:
+                result[tgt] = result.get(tgt, 0) + v
+                result[src] = 0
+                deltas[tgt] = deltas.get(tgt, 0) + v
+                deltas[src] = deltas.get(src, 0) - v
+                src_name = moods[src]["name"] if src in moods else src
+                notes.append(f"{src_name} ({v}≥{thr}) → {moods[tgt]['name']}")
+                changed = True
+        if not changed:
             break
-    return cur, notes
+    return result, notes, deltas
 
 
 async def _cache_result(profile_name: str, mood_id, votes: int, breakdown: list) -> None:
@@ -736,14 +768,21 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
             vote_map[mid] = vote_map.get(mid, 0) + v
         breakdown += llm_breakdown
 
-    # Natural transitions: incumbent inertia + penalty for non-adjacent "jumps".
     from .settings_store import get_transition_config, get_mood_cascade, get_mood_decay_config
     tcfg = await get_transition_config()
+    casc_enabled, cascade = await get_mood_cascade()
+
+    # Intensity cascades fold into vote formation (on earned votes, before inertia/decay) so an
+    # escalation target competes on real support and holds via inertia — no post-selection hijack
+    # that bounces back the next round.
+    vote_map, casc_notes, _casc_deltas = _cascade_transfer(vote_map, moods, cached_mood_id, cascade, casc_enabled)
+    if casc_notes:
+        breakdown.append("Cascade: " + " → ".join(casc_notes))
+
+    # Natural transitions: incumbent inertia + penalty for non-adjacent "jumps".
     effective, _allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg)
     if tinfo["inertia"] and cached_mood_id in moods:
         breakdown.append(f"Inertia +{tinfo['inertia']} (staying {moods[cached_mood_id]['name']})")
-
-    casc_enabled, cascade = await get_mood_cascade()
 
     # Homeostatic decay: fade a long-held mood (+ its cascade feeders) so it can't lock in.
     decay_cfg = await get_mood_decay_config()
@@ -771,16 +810,10 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
         await _cache_result(profile_name, chosen, 0, ["Default mood"])
         return {**moods[chosen], "vote_count": 0, "breakdown": ["Default mood"], "is_default": True}
 
-    # Rank by effective votes; report the raw count (incl. inertia) for the winner.
+    # Rank by effective votes; report the raw count (incl. inertia) for the winner. Cascade already
+    # folded into the votes above, so the winner is picked directly — no post-selection escalation.
     winner_id, _eff = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
     winner_votes = vote_map[winner_id]
-
-    # Cascade: a mood winning intensely escalates into its next mood (e.g. Flirty -> Horny).
-    if casc_enabled:
-        final_id, casc_notes = _apply_cascade(winner_id, effective, moods, cascade)
-        if final_id != winner_id:
-            breakdown.append("Cascade: " + " → ".join(casc_notes))
-            winner_id = final_id
 
     # If decay pushed us off the current mood, put the vacated chain on cooldown so it can't
     # immediately bounce back (prevents Horny<->Affectionate ping-pong).
@@ -833,13 +866,17 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
     for mid, v in llm_votes.items():
         vote_map[mid] = vote_map.get(mid, 0) + v
 
-    # Natural transitions: inertia on the incumbent + non-adjacent penalty (effective votes).
     from .settings_store import get_transition_config, get_mood_cascade, get_mood_decay_config
     tcfg = await get_transition_config()
+    _casc_enabled, cascade = await get_mood_cascade()
+
+    # Intensity cascades fold into vote formation (earned votes, before inertia/decay).
+    vote_map, cascade_notes, casc_deltas = _cascade_transfer(vote_map, moods, cached_mood_id, cascade, _casc_enabled)
+
+    # Natural transitions: inertia on the incumbent + non-adjacent penalty (effective votes).
     effective, allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg)
 
     # Homeostatic decay (read-only mirror of evaluate_mood; does not set the cooldown).
-    _casc_enabled, cascade = await get_mood_cascade()
     decay_cfg = await get_mood_decay_config()
     dstate = await _decay_state(profile_name, effective, cached_mood_id, decay_cfg, cascade)
 
@@ -847,6 +884,7 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
     for mid, votes in sorted(vote_map.items(), key=lambda x: -effective[x[0]]):
         th = _threshold(mid)
         lv = llm_votes.get(mid, 0)
+        casc_here = casc_deltas.get(mid, 0)
         inertia_here = tinfo["inertia"] if (mid == cached_mood_id and tinfo["inertia"]) else 0
         penalized = allowed is not None and mid not in allowed
         decayed_here = mid in dstate["decayed_chain"]
@@ -855,8 +893,8 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
             "mood_id": mid, "name": moods[mid]["name"] if mid in moods else mid,
             "votes": votes, "effective": effective[mid], "threshold": th,
             "meets": effective[mid] >= th and not on_cooldown,
-            "rule_votes": votes - lv - inertia_here, "llm_votes": lv,
-            "inertia": inertia_here, "penalized": penalized,
+            "rule_votes": votes - lv - inertia_here - casc_here, "llm_votes": lv,
+            "cascade": casc_here, "inertia": inertia_here, "penalized": penalized,
             "decayed": decayed_here, "on_cooldown": on_cooldown,
         })
 
@@ -864,13 +902,9 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
                   if effective[mid] >= _threshold(mid) and mid not in dstate["cooldown_excluded"]]
     winner = None
     is_default = False
-    cascade_notes: list = []
     if candidates:
         wid, _eff = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
-        source_votes = vote_map.get(wid, 0)
-        if _casc_enabled:
-            wid, cascade_notes = _apply_cascade(wid, effective, moods, cascade)
-        winner = {"id": wid, "name": moods[wid]["name"], "votes": source_votes}
+        winner = {"id": wid, "name": moods[wid]["name"], "votes": vote_map.get(wid, 0)}
     else:
         defaults = await _load_defaults(profile_name, moods)
         if defaults:

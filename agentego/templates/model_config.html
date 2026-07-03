@@ -228,10 +228,11 @@
         <strong style="font-size:0.85rem;">Intensity cascades</strong>
       </div>
       <p class="cfg-help" style="margin:0.35rem 0 0.5rem;">
-        When a mood wins by a big margin, its <em>intensity</em> tips it into the next mood up — so sustained
-        <em>Flirty</em> escalates to <em>Horny</em> rather than just staying very-flirty. Set each mood's escalation
-        target and the vote count that triggers it (leave as <em>— no cascade —</em> for moods that shouldn't
-        escalate). Chains follow through (flirty→horny→…) as each step's threshold is cleared.
+        When a mood's <em>intensity</em> (its earned votes) reaches <strong>at</strong>, those votes transfer into
+        the next mood up — so sustained <em>Flirty</em> escalates to <em>Horny</em> and actually holds there, rather
+        than bouncing back. <strong>hold until</strong> is the lower threshold it must fall below to de-escalate (a
+        deadband that stops it flickering at the boundary). Leave as <em>— no cascade —</em> for moods that shouldn't
+        escalate. Chains follow through (flirty→horny→…) as each step's threshold is cleared.
       </p>
       <div id="casc" class="tmap"></div>
       <input type="hidden" name="mood_cascade" id="casc-value" value="{{ settings.mood_cascade }}">
@@ -465,17 +466,29 @@
       var at = document.createElement('input');
       at.type = 'number'; at.min = '1'; at.max = '50'; at.style.width = '4rem'; at.style.margin = '0'; at.style.padding = '0.1rem 0.3rem';
       at.value = cur ? cur.at : 10;
+      var rel = document.createElement('input');
+      rel.type = 'number'; rel.min = '1'; rel.max = '50'; rel.style.width = '4rem'; rel.style.margin = '0'; rel.style.padding = '0.1rem 0.3rem';
+      rel.value = cur ? (cur.release != null ? cur.release : Math.max(1, cur.at - 2)) : 8;
       atWrap.appendChild(document.createTextNode('at'));
       atWrap.appendChild(at);
-      atWrap.appendChild(document.createTextNode('votes'));
+      atWrap.appendChild(document.createTextNode('votes, hold until'));
+      atWrap.appendChild(rel);
 
       function update() {
         if (!sel.value) { delete cfg[m.id]; atWrap.style.display = 'none'; }
-        else { cfg[m.id] = { to: sel.value, at: parseInt(at.value, 10) || 10 }; atWrap.style.display = 'inline-flex'; }
+        else {
+          var atv = parseInt(at.value, 10) || 10;
+          var relv = parseInt(rel.value, 10);
+          if (isNaN(relv)) relv = Math.max(1, atv - 2);
+          relv = Math.max(1, Math.min(relv, atv));
+          cfg[m.id] = { to: sel.value, at: atv, release: relv };
+          atWrap.style.display = 'inline-flex';
+        }
         sync();
       }
       sel.addEventListener('change', update);
       at.addEventListener('input', update);
+      rel.addEventListener('input', update);
 
       ctrl.appendChild(sel);
       ctrl.appendChild(atWrap);

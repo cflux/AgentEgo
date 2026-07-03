@@ -268,7 +268,72 @@ def _rule_item_predicate(rule: dict):
     return None
 
 
-def _rule_fires(rule: dict, enriched: list, cached_mood_id: str | None = None) -> bool:
+SENTIMENT_RULE_TYPES = ("sentiment_user", "sentiment_agent", "sentiment_mismatch", "sentiment_match")
+
+
+def _sentiment_hits(rule: dict, enriched: list, window: int | None = None) -> list:
+    """Per-anchor-round match booleans for a sentiment rule, newest-first. Anchors iterate the
+    first `window` rounds (all rounds if None). For match/mismatch, `fuzz` allows the two parties'
+    emotions to fall within F rounds of each other (fuzz=0 = same round) — neighbor lookups index
+    the FULL list so an edge anchor can still see a neighbor just outside the window."""
+    p = rule["params"]
+    rt = rule["rule_type"]
+    emotions = set(p.get("emotions", []))
+    n = len(enriched)
+    anchors = range(n if window is None else min(window, n))
+
+    def uset(i):
+        return set(enriched[i].get("sentiment_user_top3") or [])
+
+    def aset(i):
+        return set(enriched[i].get("sentiment_agent_top3") or [])
+
+    if rt == "sentiment_user":
+        return [bool(emotions & uset(i)) for i in anchors]
+    if rt == "sentiment_agent":
+        return [bool(emotions & aset(i)) for i in anchors]
+
+    fuzz = max(0, int(p.get("fuzz", 0) or 0))
+
+    def neighbors(i):
+        return range(max(0, i - fuzz), min(n - 1, i + fuzz) + 1)
+
+    if rt == "sentiment_match":
+        hits = []
+        for i in anchors:
+            u_i, a_i = uset(i), aset(i)
+            nb = list(neighbors(i))
+            matched = False
+            for e in emotions:
+                if (e in u_i and any(e in aset(j) for j in nb)) or \
+                   (e in a_i and any(e in uset(j) for j in nb)):
+                    matched = True
+                    break
+            hits.append(matched)
+        return hits
+
+    if rt == "sentiment_mismatch":
+        direction = p.get("direction", "either")
+        hits = []
+        for i in anchors:
+            u_i, a_i = uset(i), aset(i)
+            nb = list(neighbors(i))
+            uo = any(all(e not in aset(j) for j in nb) for e in (emotions & u_i))
+            ao = any(all(e not in uset(j) for j in nb) for e in (emotions & a_i))
+            if direction == "user_only":
+                hits.append(uo)
+            elif direction == "agent_only":
+                hits.append(ao)
+            else:
+                hits.append(uo or ao)
+        return hits
+
+    return [False for _ in anchors]
+
+
+def _nonsentiment_fires(rule: dict, enriched: list, cached_mood_id: str | None = None) -> bool:
+    """Boolean firing for the non-sentiment rule types (prev_mood / mode_streak / mode_count /
+    topic_keyword). Each casts a single vote — no cumulative/streak scaling."""
     p = rule["params"]
     rt = rule["rule_type"]
 
@@ -290,26 +355,67 @@ def _rule_fires(rule: dict, enriched: list, cached_mood_id: str | None = None) -
             return False
         return all(pred(s) for s in window)
 
-    # mode_count, sentiment_user, sentiment_agent, sentiment_mismatch, topic_keyword:
-    # count how many of the last `lookback` rounds satisfy the per-item predicate.
-    default_lookback = 5 if rt in ("mode_count", "topic_keyword") else 1
+    # mode_count, topic_keyword: count how many of the last `lookback` rounds satisfy the predicate.
+    default_lookback = 5
     default_min = 2 if rt == "mode_count" else 1
     lookback = max(1, int(p.get("lookback", default_lookback)))
     min_count = max(1, int(p.get("min_count", default_min)))
     return sum(1 for s in enriched[:lookback] if pred(s)) >= min_count
 
 
-def _round_matched_rules(rules: list, round_enriched: dict, moods: dict,
+def _rule_votes(rule: dict, enriched: list, cached_mood_id: str | None = None) -> int:
+    """Vote weight a rule casts (0 = doesn't fire). Non-sentiment rules cast 1. Sentiment rules
+    support cumulative counts (count mode) and streak scaling (streak mode); the vote is bounded
+    by the rounds evaluated, so no explicit cap is needed."""
+    p = rule["params"]
+    rt = rule["rule_type"]
+
+    if rt not in SENTIMENT_RULE_TYPES:
+        return 1 if _nonsentiment_fires(rule, enriched, cached_mood_id) else 0
+
+    if p.get("agg") == "streak":
+        # Streak = consecutive matches from the newest round; scanned across all evaluated rounds.
+        hits = _sentiment_hits(rule, enriched, window=None)
+        streak = 0
+        for h in hits:
+            if h:
+                streak += 1
+            else:
+                break
+        min_streak = max(1, int(p.get("min_streak", 2)))
+        if streak < min_streak:
+            return 0
+        return streak if p.get("scale") else 1
+
+    # count (default): how many of the last `lookback` rounds match.
+    lookback = max(1, int(p.get("lookback", 1)))
+    n = sum(1 for h in _sentiment_hits(rule, enriched, window=lookback) if h)
+    min_count = max(1, int(p.get("min_count", 1)))
+    if n < min_count:
+        return 0
+    return n if p.get("cumulative") else 1
+
+
+def _rule_fires(rule: dict, enriched: list, cached_mood_id: str | None = None) -> bool:
+    return _rule_votes(rule, enriched, cached_mood_id) > 0
+
+
+def _round_matched_rules(rules: list, enriched: list, idx: int, moods: dict,
                          cached_mood_id: str | None = None) -> list:
-    """Which active rules' per-round signal THIS single round satisfies, for the debug
-    expansion. Excludes prev_mood (not a per-round signal). Each entry: {label, mood_name}."""
+    """Which active rules' per-round signal the round at `idx` satisfies, for the debug
+    expansion. Excludes prev_mood (not a per-round signal). Sentiment rules use the temporal
+    hit list (so match/mismatch fuzz is reflected). Each entry: {label, mood_name}."""
     matched = []
     for rule in rules:
-        pred = _rule_item_predicate(rule)
-        if pred is None:
-            continue
         try:
-            if pred(round_enriched):
+            if rule["rule_type"] in SENTIMENT_RULE_TYPES:
+                hit = _sentiment_hits(rule, enriched, window=None)[idx]
+            else:
+                pred = _rule_item_predicate(rule)
+                if pred is None:
+                    continue
+                hit = pred(enriched[idx])
+            if hit:
                 mid = rule["mood_id"]
                 matched.append({
                     "label": rule.get("label") or _rule_label(rule),
@@ -616,10 +722,11 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
         # Mood gate: skip rule if current cached mood doesn't match
         if rule.get("mood_gate") and rule["mood_gate"] != cached_mood_id:
             continue
-        if _rule_fires(rule, enriched, cached_mood_id):
-            vote_map[rule["mood_id"]] = vote_map.get(rule["mood_id"], 0) + 1
+        v = _rule_votes(rule, enriched, cached_mood_id)
+        if v:
+            vote_map[rule["mood_id"]] = vote_map.get(rule["mood_id"], 0) + v
             label = rule.get("label") or _rule_label(rule)
-            breakdown.append(label)
+            breakdown.append(f"{label} (+{v})" if v > 1 else label)
 
     # LLM mood predictions vote alongside rules (can carry a mood on their own).
     enabled, thr, wt = await _llm_vote_config()
@@ -697,8 +804,8 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
 
     from .settings_store import get_low_signal_emotions
     low_signal = sorted(await get_low_signal_emotions())
-    for r in enriched:
-        r["matched_rules"] = _round_matched_rules(rules, r, moods, cached_mood_id)
+    for idx, r in enumerate(enriched):
+        r["matched_rules"] = _round_matched_rules(rules, enriched, idx, moods, cached_mood_id)
 
     def _threshold(mid: str) -> int:
         return thresholds.get(mid, moods[mid]["min_votes"] if mid in moods else 1)
@@ -708,13 +815,15 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
     for rule in rules:
         in_catalog = rule["mood_id"] in moods
         gated = bool(rule.get("mood_gate") and rule["mood_gate"] != cached_mood_id)
-        fired = in_catalog and not gated and _rule_fires(rule, enriched, cached_mood_id)
+        v = _rule_votes(rule, enriched, cached_mood_id) if (in_catalog and not gated) else 0
+        fired = v > 0
         if fired:
-            vote_map[rule["mood_id"]] = vote_map.get(rule["mood_id"], 0) + 1
+            vote_map[rule["mood_id"]] = vote_map.get(rule["mood_id"], 0) + v
         rule_results.append({
             "label": rule.get("label") or _rule_label(rule),
             "mood_id": rule["mood_id"], "rule_type": rule["rule_type"],
             "gated": gated, "mood_gate": rule.get("mood_gate"), "fired": fired,
+            "votes": v,
         })
 
     # LLM mood votes (tracked separately so the tally can show their contribution).
@@ -795,6 +904,22 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
     }
 
 
+def _sentiment_suffix(p: dict) -> str:
+    """Human hint for the aggregation/fuzz knobs on a sentiment rule."""
+    bits = []
+    if p.get("agg") == "streak":
+        s = f"streak ≥{max(1, int(p.get('min_streak', 2)))}"
+        if p.get("scale"):
+            s += ", ×streak"
+        bits.append(s)
+    elif p.get("cumulative"):
+        bits.append("cumulative")
+    fz = int(p.get("fuzz", 0) or 0)
+    if fz:
+        bits.append(f"±{fz} round" + ("s" if fz != 1 else ""))
+    return f" ({'; '.join(bits)})" if bits else ""
+
+
 def _rule_label(rule: dict) -> str:
     p = rule["params"]
     rt = rule["rule_type"]
@@ -810,15 +935,18 @@ def _rule_label(rule: dict) -> str:
         return f"{gate}{p.get('min_count',2)}+ of last {p.get('lookback',5)} sessions {op} {p.get('mode','?')} mode"
     elif rt == "sentiment_user":
         emo = ", ".join(p.get("emotions", [])[:3])
-        return f"{gate}User felt {emo} recently"
+        return f"{gate}User felt {emo} recently{_sentiment_suffix(p)}"
     elif rt == "sentiment_agent":
         emo = ", ".join(p.get("emotions", [])[:3])
-        return f"{gate}Agent expressed {emo} recently"
+        return f"{gate}Agent expressed {emo} recently{_sentiment_suffix(p)}"
+    elif rt == "sentiment_match":
+        emo = ", ".join(p.get("emotions", [])[:3])
+        return f"{gate}Both felt {emo}{_sentiment_suffix(p)}"
     elif rt == "sentiment_mismatch":
         emo = ", ".join(p.get("emotions", [])[:3])
         dir_map = {"user_only": "user/not agent", "agent_only": "agent/not user"}
         direction = dir_map.get(p.get("direction", "either"), "either direction")
-        return f"{gate}Mismatch ({emo}) — {direction}"
+        return f"{gate}Mismatch ({emo}) — {direction}{_sentiment_suffix(p)}"
     elif rt == "topic_keyword":
         kw = ", ".join(p.get("keywords", [])[:3])
         return f"{gate}Topic contained '{kw}'"

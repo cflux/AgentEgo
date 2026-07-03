@@ -1,15 +1,6 @@
 {% set p = params|default({}) %}
 {% set sel = p.get('emotions') or [] %}
-{% set dir = p.get('direction', 'either') %}
 <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-start;">
-  <label style="flex:1; min-width:160px; margin:0;">
-    Direction
-    <select name="params_direction" required>
-      <option value="either" {% if dir == 'either' %}selected{% endif %}>Either direction</option>
-      <option value="user_only" {% if dir == 'user_only' %}selected{% endif %}>User felt it, agent didn't</option>
-      <option value="agent_only" {% if dir == 'agent_only' %}selected{% endif %}>Agent felt it, user didn't</option>
-    </select>
-  </label>
   <label style="flex:2; min-width:200px; margin:0;">
     Emotions to watch (hold Ctrl/Cmd for multiple)
     <select name="params_emotions" multiple size="8" required style="height:auto;">
@@ -32,4 +23,4 @@
     {% include "partials/rule_params/_agg_fields.html" %}
   </div>
 </div>
-<p style="margin:0.4rem 0 0; font-size:0.78rem; color:var(--pico-muted-color);">Fires when a selected emotion appears in one party's top-3 but <em>not</em> the other's. <em>Fuzz</em> lets the other party's absence be checked within ± that many rounds. Aggregation, cumulative and streak behave as for the other sentiment rules.</p>
+<p style="margin:0.4rem 0 0; font-size:0.78rem; color:var(--pico-muted-color);">Fires when a selected emotion appears in <em>both</em> parties' top-3. <em>Fuzz</em> lets the two parties' emotions land within ± that many rounds of each other and still count as a match. Aggregation, cumulative and streak behave as for the other sentiment rules.</p>

@@ -9,13 +9,14 @@
   </label>
   <div style="display:flex; flex-direction:column; gap:0.6rem;">
     <label style="margin:0;">
-      Look back (sessions)
-      <input type="number" name="params_lookback" value="{{ p.get('lookback', 1) }}" min="1" max="20" required>
+      Look back (sessions) <small style="color:var(--pico-muted-color); font-size:0.72rem;">(count mode)</small>
+      <input type="number" name="params_lookback" value="{{ p.get('lookback', 1) }}" min="1" max="20">
     </label>
     <label style="margin:0;">
-      Min matches
-      <input type="number" name="params_min_count" value="{{ p.get('min_count', 1) }}" min="1" max="20" required>
+      Min matches <small style="color:var(--pico-muted-color); font-size:0.72rem;">(count mode)</small>
+      <input type="number" name="params_min_count" value="{{ p.get('min_count', 1) }}" min="1" max="20">
     </label>
+    {% include "partials/rule_params/_agg_fields.html" %}
   </div>
 </div>
-<p style="margin:0.4rem 0 0; font-size:0.78rem; color:var(--pico-muted-color);">Fires when the agent's dominant emotion matches any selected emotion in <em>min</em> of the last <em>lookback</em> sessions.</p>
+<p style="margin:0.4rem 0 0; font-size:0.78rem; color:var(--pico-muted-color);">Fires when the agent's emotion is among those selected. <em>Count</em>: in at least <em>min matches</em> of the last <em>look back</em> sessions (optionally cumulative — vote = # matches). <em>Streak</em>: in <em>min streak</em>+ consecutive recent sessions (optionally scaled by length).</p>

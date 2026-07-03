@@ -17,7 +17,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 
 VALID_RULE_TYPES = {
     "mode_streak", "mode_count",
-    "sentiment_user", "sentiment_agent", "sentiment_mismatch",
+    "sentiment_user", "sentiment_agent", "sentiment_mismatch", "sentiment_match",
     "topic_keyword", "prev_mood",
 }
 VALID_MODES = {"work", "social", "informative", "serious", "flirting", "creative", "support"}
@@ -146,6 +146,36 @@ async def _get_defaults(profile_name: str) -> set:
         await conn.close()
 
 
+def _form_int(form, key: str, default: int) -> int:
+    try:
+        return int(form.get(key, default) or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_sentiment(form, with_fuzz: bool = False) -> dict:
+    """Emotions + aggregation knobs shared by the sentiment rule types. Only the params relevant
+    to the chosen aggregation are stored (so dupe detection stays meaningful and legacy count-mode
+    rules keep their exact shape)."""
+    raw = form.getlist("params_emotions") if hasattr(form, "getlist") else []
+    if isinstance(raw, str):
+        raw = [raw]
+    d = {"emotions": [e for e in raw if e]}
+    if str(form.get("params_agg", "count")) == "streak":
+        d["agg"] = "streak"
+        d["min_streak"] = max(1, _form_int(form, "params_min_streak", 2))
+        if form.get("params_scale") == "1":
+            d["scale"] = True
+    else:
+        d["lookback"] = max(1, _form_int(form, "params_lookback", 1))
+        d["min_count"] = max(1, _form_int(form, "params_min_count", 1))
+        if form.get("params_cumulative") == "1":
+            d["cumulative"] = True
+    if with_fuzz:
+        d["fuzz"] = max(0, _form_int(form, "params_fuzz", 0))
+    return d
+
+
 def _parse_params(rule_type: str, form) -> dict:
     if rule_type == "prev_mood":
         raw = form.getlist("params_moods") if hasattr(form, "getlist") else []
@@ -166,24 +196,12 @@ def _parse_params(rule_type: str, form) -> dict:
             "negate": form.get("params_negate") == "1",
         }
     elif rule_type in ("sentiment_user", "sentiment_agent"):
-        raw = form.getlist("params_emotions") if hasattr(form, "getlist") else []
-        if isinstance(raw, str):
-            raw = [raw]
-        return {
-            "emotions": [e for e in raw if e],
-            "lookback": max(1, int(form.get("params_lookback", 1))),
-            "min_count": max(1, int(form.get("params_min_count", 1))),
-        }
+        return _parse_sentiment(form)
+    elif rule_type == "sentiment_match":
+        return _parse_sentiment(form, with_fuzz=True)
     elif rule_type == "sentiment_mismatch":
-        raw = form.getlist("params_emotions") if hasattr(form, "getlist") else []
-        if isinstance(raw, str):
-            raw = [raw]
-        return {
-            "emotions": [e for e in raw if e],
-            "direction": str(form.get("params_direction", "either")),
-            "lookback": max(1, int(form.get("params_lookback", 1))),
-            "min_count": max(1, int(form.get("params_min_count", 1))),
-        }
+        return {**_parse_sentiment(form, with_fuzz=True),
+                "direction": str(form.get("params_direction", "either"))}
     elif rule_type == "topic_keyword":
         raw = str(form.get("params_keywords", ""))
         keywords = [k.strip() for k in raw.split(",") if k.strip()]
@@ -193,6 +211,22 @@ def _parse_params(rule_type: str, form) -> dict:
             "min_count": max(1, int(form.get("params_min_count", 1))),
         }
     return {}
+
+
+def _agg_summary(p: dict) -> str:
+    """Human phrasing for a sentiment rule's aggregation + fuzz knobs."""
+    if p.get("agg") == "streak":
+        s = f"for a streak of {p.get('min_streak', 2)}+"
+        if p.get("scale"):
+            s += " (×streak)"
+    else:
+        s = f"in {p.get('min_count', 1)}+ of last {p.get('lookback', 1)}"
+        if p.get("cumulative"):
+            s += " (cumulative)"
+    fz = int(p.get("fuzz", 0) or 0)
+    if fz:
+        s += f", ±{fz}r"
+    return s
 
 
 def _rule_summary(rule: dict) -> str:
@@ -211,7 +245,10 @@ def _rule_summary(rule: dict) -> str:
     elif rt in ("sentiment_user", "sentiment_agent"):
         who = "User" if rt == "sentiment_user" else "Agent"
         emo = ", ".join(p.get("emotions", [])[:4]) or "—"
-        return f"{who} felt <strong>{emo}</strong> in {p.get('min_count', 1)}+ of last {p.get('lookback', 1)}"
+        return f"{who} felt <strong>{emo}</strong> {_agg_summary(p)}"
+    elif rt == "sentiment_match":
+        emo = ", ".join(p.get("emotions", [])[:4]) or "—"
+        return f"Both felt <strong>{emo}</strong> {_agg_summary(p)}"
     elif rt == "sentiment_mismatch":
         emo = ", ".join(p.get("emotions", [])[:4]) or "—"
         dir_labels = {
@@ -220,7 +257,7 @@ def _rule_summary(rule: dict) -> str:
             "either": "either direction",
         }
         dir_str = dir_labels.get(p.get("direction", "either"), "either direction")
-        return f"Mismatch <strong>{emo}</strong> ({dir_str}) in {p.get('min_count', 1)}+ of last {p.get('lookback', 1)}"
+        return f"Mismatch <strong>{emo}</strong> ({dir_str}) {_agg_summary(p)}"
     elif rt == "topic_keyword":
         kw = ", ".join(f"'{k}'" for k in p.get("keywords", [])[:4]) or "—"
         return f"Topic contains {kw} in {p.get('min_count', 1)}+ of last {p.get('lookback', 5)}"
@@ -635,8 +672,10 @@ _RULE_BUILDER_TAIL = (
     '- sentiment_user: {"emotions": [...], "lookback": N, "min_count": K} — the USER felt one of these emotions in K+ of the last N.\n'
     '- sentiment_agent: {"emotions": [...], "lookback": N, "min_count": K} — the AGENT expressed one of these emotions in K+ of the last N.\n'
     '- sentiment_mismatch: {"emotions": [...], "direction": "either"|"user_only"|"agent_only", "lookback": N, "min_count": K} — emotion present for one party but not the other.\n'
+    '- sentiment_match: {"emotions": [...], "lookback": N, "min_count": K} — BOTH parties felt the same one of these emotions.\n'
     '- topic_keyword: {"keywords": [...], "lookback": N, "min_count": K} — the conversation topic contained a keyword.\n'
     '- prev_mood: {"moods": [<mood_id>...], "negate": bool} — the mood from the PREVIOUS evaluation is (or is not) one of these mood ids. Good for momentum/transitions.\n\n'
+    "Optional on any sentiment rule (user/agent/mismatch/match): add \"cumulative\": true so the vote equals the number of matching rounds; OR set \"agg\":\"streak\" with \"min_streak\": K (and optional \"scale\": true) to require K CONSECUTIVE recent rounds and scale the vote by the streak length. match/mismatch also accept \"fuzz\": F (default 0) to let the two parties' emotions fall within F rounds of each other (0 = same round).\n"
     "Valid modes: work, social, informative, serious, flirting, creative, support.\n"
     "{emotion_line}"
     "Map synonyms (flirty/romantic->flirting, coding/technical->work, helping->support, etc.)."
@@ -683,6 +722,25 @@ def _clean_llm_params(rule_type: str, params: dict | None, valid_emotions: set |
             raw = [raw]
         return [str(e).strip().lower() for e in raw if str(e).strip().lower() in allowed_emotions]
 
+    def _agg(with_fuzz):
+        d = {}
+        if str(p.get("agg", "count")).strip().lower() == "streak":
+            d["agg"] = "streak"
+            d["min_streak"] = _i("min_streak", 2)
+            if bool(p.get("scale", False)):
+                d["scale"] = True
+        else:
+            d["lookback"] = _i("lookback", 1)
+            d["min_count"] = _i("min_count", 1)
+            if bool(p.get("cumulative", False)):
+                d["cumulative"] = True
+        if with_fuzz:
+            try:
+                d["fuzz"] = max(0, int(p.get("fuzz", 0)))
+            except (TypeError, ValueError):
+                d["fuzz"] = 0
+        return d
+
     if rule_type == "prev_mood":
         raw = p.get("moods", [])
         if isinstance(raw, str):
@@ -694,12 +752,14 @@ def _clean_llm_params(rule_type: str, params: dict | None, valid_emotions: set |
         return {"mode": _mode("mode"), "min_count": _i("min_count", 2),
                 "lookback": _i("lookback", 5), "negate": bool(p.get("negate", False))}
     if rule_type in ("sentiment_user", "sentiment_agent"):
-        return {"emotions": _emos(), "lookback": _i("lookback", 1), "min_count": _i("min_count", 1)}
+        return {"emotions": _emos(), **_agg(with_fuzz=False)}
+    if rule_type == "sentiment_match":
+        return {"emotions": _emos(), **_agg(with_fuzz=True)}
     if rule_type == "sentiment_mismatch":
         d = str(p.get("direction", "either")).strip().lower()
         if d not in ("either", "user_only", "agent_only"):
             d = "either"
-        return {"emotions": _emos(), "direction": d, "lookback": _i("lookback", 1), "min_count": _i("min_count", 1)}
+        return {"emotions": _emos(), "direction": d, **_agg(with_fuzz=True)}
     if rule_type == "topic_keyword":
         raw = p.get("keywords", [])
         if isinstance(raw, str):
@@ -797,7 +857,7 @@ async def create_rule_from_text(request: Request, profile_name: str = Form(...),
             skipped.append(f"mood '{mood_id or '—'}' doesn't exist")
             continue
         params = _clean_llm_params(rule_type, item.get("params"), valid_emotions)
-        if rule_type in ("sentiment_user", "sentiment_agent", "sentiment_mismatch") and not params.get("emotions"):
+        if rule_type in ("sentiment_user", "sentiment_agent", "sentiment_mismatch", "sentiment_match") and not params.get("emotions"):
             skipped.append(f"{label or rule_type}: no valid emotions")
             continue
         if rule_type == "topic_keyword" and not params.get("keywords"):

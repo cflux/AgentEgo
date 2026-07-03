@@ -1,0 +1,21 @@
+{# Shared aggregation knobs for sentiment rules. Expects `p` (params dict) in scope. #}
+{% set agg = p.get('agg', 'count') %}
+<label style="margin:0;">
+  Aggregation
+  <select name="params_agg">
+    <option value="count" {% if agg == 'count' %}selected{% endif %}>Count — N of last M</option>
+    <option value="streak" {% if agg == 'streak' %}selected{% endif %}>Streak — consecutive recent</option>
+  </select>
+</label>
+<label style="margin:0;">
+  Min streak <small style="color:var(--pico-muted-color); font-size:0.72rem;">(streak mode)</small>
+  <input type="number" name="params_min_streak" value="{{ p.get('min_streak', 2) }}" min="1" max="20">
+</label>
+<label style="display:flex; gap:0.4rem; align-items:center; margin:0; font-size:0.85rem;">
+  <input type="checkbox" name="params_cumulative" value="1" {% if p.get('cumulative') %}checked{% endif %} style="width:auto; margin:0;">
+  <span>Cumulative <small style="color:var(--pico-muted-color); font-size:0.72rem;">(count: vote = # matches)</small></span>
+</label>
+<label style="display:flex; gap:0.4rem; align-items:center; margin:0; font-size:0.85rem;">
+  <input type="checkbox" name="params_scale" value="1" {% if p.get('scale') %}checked{% endif %} style="width:auto; margin:0;">
+  <span>Scale by streak <small style="color:var(--pico-muted-color); font-size:0.72rem;">(streak: vote = length)</small></span>
+</label>

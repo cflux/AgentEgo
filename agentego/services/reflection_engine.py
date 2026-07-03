@@ -219,14 +219,14 @@ async def _dream(persona: str, day_text: str, day_mood_id: str | None, moods: di
 # --- Storage ---
 
 async def _store(profile: str, day: str, conclusions: list, day_mood_id, dream_text: str,
-                 dream_mood_id, dream_occurred: bool) -> None:
+                 dream_mood_id, dream_occurred: bool, debug: dict | None = None) -> None:
     conn = await get_ego_db()
     try:
         await conn.execute(
             """
             INSERT INTO reflections (id, profile_name, day, created_at, conclusions, day_mood_id,
-                                     dream_occurred, dream_prompt, dream_mood_id, dream_consumed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                                     dream_occurred, dream_prompt, dream_mood_id, dream_consumed, debug)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
             ON CONFLICT(profile_name, day) DO UPDATE SET
                 created_at = excluded.created_at,
                 conclusions = excluded.conclusions,
@@ -234,10 +234,12 @@ async def _store(profile: str, day: str, conclusions: list, day_mood_id, dream_t
                 dream_occurred = excluded.dream_occurred,
                 dream_prompt = excluded.dream_prompt,
                 dream_mood_id = excluded.dream_mood_id,
-                dream_consumed = 0
+                dream_consumed = 0,
+                debug = excluded.debug
             """,
             (str(uuid4()), profile, day, time.time(), json.dumps(conclusions), day_mood_id,
-             1 if dream_occurred else 0, dream_text or None, dream_mood_id),
+             1 if dream_occurred else 0, dream_text or None, dream_mood_id,
+             json.dumps(debug) if debug else None),
         )
         await conn.commit()
     finally:
@@ -249,15 +251,20 @@ def _row_to_dict(row) -> dict:
         conclusions = json.loads(row[4]) if row[4] else []
     except (json.JSONDecodeError, TypeError):
         conclusions = []
+    try:
+        debug = json.loads(row[10]) if row[10] else None
+    except (json.JSONDecodeError, TypeError):
+        debug = None
     return {
         "id": row[0], "profile_name": row[1], "day": row[2], "created_at": row[3],
         "conclusions": conclusions, "day_mood_id": row[5], "dream_occurred": bool(row[6]),
         "dream_prompt": row[7], "dream_mood_id": row[8], "dream_consumed": bool(row[9]),
+        "debug": debug,
     }
 
 
 _COLS = ("id, profile_name, day, created_at, conclusions, day_mood_id, dream_occurred, "
-         "dream_prompt, dream_mood_id, dream_consumed")
+         "dream_prompt, dream_mood_id, dream_consumed, debug")
 
 
 async def get_today_reflection(profile: str) -> dict | None:
@@ -321,12 +328,27 @@ async def reflect(profile: str, db_path: str | None = None, force: bool = False)
     except (TypeError, ValueError):
         chance = 0.35
     dream_text, dream_mood_id = "", None
-    dream_occurred = random.random() < chance
-    if dream_occurred:
+    dream_rolled = random.random() < chance
+    if dream_rolled:
         dream_text, dream_mood_id = await _dream(persona, day_text, day_mood_id, moods)
-        dream_occurred = bool(dream_text)
+    dream_occurred = bool(dream_text)
 
-    await _store(profile, _day_str(), conclusions, day_mood_id, dream_text, dream_mood_id, dream_occurred)
+    # Debug history: exactly what this run saw + how the dice fell, for after-the-fact inspection.
+    debug = {
+        "generated_at": time.time(),
+        "forced": force,
+        "n_rounds": day["n_rounds"],
+        "n_convs": day["n_convs"],
+        "mood_signal": {moods.get(m, {}).get("name", m): n for m, n in day["mood_signal"].items()},
+        "day_material": day_text,
+        "persona": persona,
+        "dream_chance": chance,
+        "dream_rolled": dream_rolled,
+        "dream_produced": bool(dream_text),
+    }
+
+    await _store(profile, _day_str(), conclusions, day_mood_id, dream_text, dream_mood_id,
+                 dream_occurred, debug)
     return await get_today_reflection(profile)
 
 

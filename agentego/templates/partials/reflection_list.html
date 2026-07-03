@@ -32,6 +32,33 @@
     <p style="font-size:0.85rem; white-space:pre-wrap; margin:0.5rem 0 0; color:var(--pico-color);">{{ r.dream_prompt }}</p>
   </details>
   {% endif %}
+
+  {% if r.debug %}
+  {% set d = r.debug %}
+  <details style="margin-top:0.5rem;">
+    <summary style="cursor:pointer; font-size:0.78rem; color:var(--pico-muted-color);">🔧 Debug — what this reflection saw</summary>
+    <div style="font-size:0.78rem; margin:0.5rem 0 0; color:var(--pico-muted-color);">
+      <p style="margin:0 0 0.3rem;">
+        {{ d.n_rounds }} round(s) · {{ d.n_convs }} conversation(s)
+        · dream roll {{ '%.2f'|format(d.dream_chance) }} → {{ 'hit' if d.dream_rolled else 'miss' }}{% if d.dream_rolled and not d.dream_produced %} (LLM produced none){% endif %}
+        {% if d.forced %} · <em>forced run</em>{% endif %}
+      </p>
+      {% if d.mood_signal %}
+      <p style="margin:0 0 0.3rem;">Measured mood signal:
+        {% for name, n in d.mood_signal.items() %}<code>{{ name }}×{{ n }}</code> {% endfor %}
+      </p>
+      {% endif %}
+      <details style="margin:0.3rem 0;">
+        <summary style="cursor:pointer;">Day material fed to the LLM</summary>
+        <pre style="white-space:pre-wrap; font-size:0.74rem; margin:0.4rem 0 0; padding:0.5rem; background:var(--pico-code-background-color); border-radius:0.3rem;">{{ d.day_material }}</pre>
+      </details>
+      <details style="margin:0.3rem 0;">
+        <summary style="cursor:pointer;">Persona conditioning</summary>
+        <pre style="white-space:pre-wrap; font-size:0.74rem; margin:0.4rem 0 0; padding:0.5rem; background:var(--pico-code-background-color); border-radius:0.3rem;">{{ d.persona }}</pre>
+      </details>
+    </div>
+  </details>
+  {% endif %}
 </article>
 {% endfor %}
 {% endif %}

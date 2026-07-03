@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -199,6 +199,7 @@ CREATE TABLE IF NOT EXISTS reflections (
     dream_prompt   TEXT,
     dream_mood_id  TEXT,
     dream_consumed INTEGER NOT NULL DEFAULT 0,
+    debug          TEXT,
     UNIQUE(profile_name, day)
 );
 CREATE INDEX IF NOT EXISTS idx_reflections_profile ON reflections(profile_name, day DESC);
@@ -365,6 +366,12 @@ async def run_migrations(db_path: str) -> None:
         if current_version < 11:
             # reflections created by DDL above; no ALTER needed
             pass
+
+        if current_version < 12:
+            try:
+                await conn.execute("ALTER TABLE reflections ADD COLUMN debug TEXT")
+            except Exception:
+                pass  # column already exists
 
         if current_version < SCHEMA_VERSION:
             if current_version == 0:

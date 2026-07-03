@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ..db.ego import get_ego_db
 from ..services.mood_engine import evaluate_mood, explain_mood, get_cached_mood
+from ..services import mood_presets
 from ..services.profiles import discover_profiles, resolve_profile
 from ..services.llm_client import chat, LLMError
 from ..services.affinity_engine import get_traits
@@ -301,6 +302,7 @@ async def mood_rules_page(request: Request, profile: str = "default"):
     for h in history:
         h["from"] = moods_by_id.get(h["prev"])
         h["to"] = moods_by_id.get(h["mood"])
+    preset = await mood_presets.get_preset()
     return templates.TemplateResponse(
         "mood_rules.html",
         {
@@ -313,8 +315,23 @@ async def mood_rules_page(request: Request, profile: str = "default"):
             "thresholds": thresholds,
             "defaults": defaults,
             "history": history,
+            "preset": preset,
         },
     )
+
+
+@router.post("/api/mood/preset/save")
+async def save_preset(profile: str = "default"):
+    """Capture this profile's mood rules + thresholds + resting set as the default preset."""
+    await mood_presets.save_preset(profile)
+    return Response(status_code=204, headers={"HX-Redirect": f"/moods/rules?profile={profile}"})
+
+
+@router.post("/api/mood/preset/apply")
+async def apply_preset(profile: str = "default"):
+    """Apply the saved default preset to this profile (replaces its rules/thresholds/resting set)."""
+    await mood_presets.apply_preset(profile, replace=True)
+    return Response(status_code=204, headers={"HX-Redirect": f"/moods/rules?profile={profile}"})
 
 
 # --- Canonical mood CRUD ---

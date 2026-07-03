@@ -36,6 +36,31 @@
   </article>
 </div>
 
+<article style="padding:0.75rem 1rem; margin:0 0 1.5rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+  <div style="font-size:0.82rem;">
+    <strong>Default mood set</strong>
+    {% if preset %}
+    <span style="color:var(--pico-muted-color);">— {{ preset.rules|length }} rule{{ 's' if preset.rules|length != 1 else '' }},
+      {{ preset.thresholds|length }} threshold{{ 's' if preset.thresholds|length != 1 else '' }},
+      {{ preset.defaults|length }} resting · saved from <strong>{{ preset.saved_from }}</strong> {{ preset.saved_at | ts }}</span>
+    {% else %}
+    <span style="color:var(--pico-muted-color);">— none saved yet. Save a profile's rules to reuse them as a starting point elsewhere.</span>
+    {% endif %}
+  </div>
+  <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+    {% if preset %}
+    <button class="secondary outline" style="margin:0; padding:0.3rem 0.9rem; font-size:0.8rem;"
+      hx-post="/api/mood/preset/apply?profile={{ active_profile }}"
+      hx-confirm="Replace {{ active_profile }}'s mood rules, vote thresholds, and resting set with the default set (saved from {{ preset.saved_from }})? This overwrites {{ active_profile }}'s current mood config.">
+      ⬇ Apply to {{ active_profile }}</button>
+    {% endif %}
+    <button class="secondary outline" style="margin:0; padding:0.3rem 0.9rem; font-size:0.8rem;"
+      hx-post="/api/mood/preset/save?profile={{ active_profile }}"
+      hx-confirm="{% if preset %}Overwrite the saved default set with {{ active_profile }}'s current rules, thresholds, and resting set?{% else %}Save {{ active_profile }}'s mood rules, thresholds, and resting set as the default set?{% endif %}">
+      💾 Save {{ active_profile }}'s set as default</button>
+  </div>
+</article>
+
 <details style="margin-bottom:1.5rem;">
   <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; padding:0.35rem 0;">🔬 Debug mood computation</summary>
   <div id="mood-debug"

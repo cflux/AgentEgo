@@ -14,29 +14,35 @@
     {% endif %}
   </div>
 
+  {# ---- OUTPUT: what the agent actually receives ---- #}
+  <p style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; color:#4adbae; margin:0.6rem 0 0.2rem;">
+    📤 Delivered to the agent</p>
+
   {% if r.conclusions %}
-  <ul style="margin:0.5rem 0 0; padding-left:1.1rem; font-size:0.88rem;">
+  <p style="font-size:0.74rem; color:var(--pico-muted-color); margin:0 0 0.15rem;">Conclusions <span style="opacity:0.8;">— returned by <code>/api/reflection/wake</code></span></p>
+  <ul style="margin:0.1rem 0 0; padding-left:1.1rem; font-size:0.88rem;">
     {% for c in r.conclusions %}<li style="margin:0.15rem 0;">{{ c }}</li>{% endfor %}
   </ul>
   {% else %}
-  <p style="font-size:0.82rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">No conclusions recorded.</p>
+  <p style="font-size:0.82rem; color:var(--pico-muted-color); margin:0.2rem 0 0;">No conclusions recorded.</p>
   {% endif %}
 
   {% if r.dream_occurred and r.dream_prompt %}
   {% set wm = mood_map.get(r.dream_mood_id) %}
-  <details style="margin-top:0.6rem;">
+  <details style="margin-top:0.5rem;">
     <summary style="cursor:pointer; font-size:0.82rem; color:#b47aff;">🌙 Dream
-      {% if wm %}<span style="color:var(--pico-muted-color);">— wakes {{ wm.icon }} {{ wm.name }}</span>{% endif %}
-      {% if r.dream_consumed %}<span style="color:var(--pico-muted-color); font-size:0.75rem;">(delivered)</span>{% endif %}
+      <span style="color:var(--pico-muted-color); font-weight:normal;">— returned by <code>/api/reflection/dream.txt</code>{% if wm %}, wakes {{ wm.icon }} {{ wm.name }}{% endif %}</span>
+      {% if r.dream_consumed %}<span style="color:var(--pico-muted-color); font-size:0.75rem;">(already delivered)</span>{% endif %}
     </summary>
     <p style="font-size:0.85rem; white-space:pre-wrap; margin:0.5rem 0 0; color:var(--pico-color);">{{ r.dream_prompt }}</p>
   </details>
   {% endif %}
 
+  {# ---- INPUT / DEBUG: what the reflection read (never sent to the agent) ---- #}
   {% if r.debug %}
   {% set d = r.debug %}
-  <details style="margin-top:0.5rem;">
-    <summary style="cursor:pointer; font-size:0.78rem; color:var(--pico-muted-color);">🔧 Debug — what this reflection saw</summary>
+  <details style="margin-top:0.6rem; border-top:1px solid var(--pico-muted-border-color); padding-top:0.4rem;">
+    <summary style="cursor:pointer; font-size:0.78rem; color:var(--pico-muted-color);">🔧 Debug — input this reflection read <span style="opacity:0.75;">(not sent to the agent)</span></summary>
     <div style="font-size:0.78rem; margin:0.5rem 0 0; color:var(--pico-muted-color);">
       <p style="margin:0 0 0.3rem;">
         {{ d.n_rounds }} round(s) · {{ d.n_convs }} conversation(s)
@@ -44,16 +50,16 @@
         {% if d.forced %} · <em>forced run</em>{% endif %}
       </p>
       {% if d.mood_signal %}
-      <p style="margin:0 0 0.3rem;">Measured mood signal:
+      <p style="margin:0 0 0.3rem;">Measured mood signal (from the day's rounds):
         {% for name, n in d.mood_signal.items() %}<code>{{ name }}×{{ n }}</code> {% endfor %}
       </p>
       {% endif %}
       <details style="margin:0.3rem 0;">
-        <summary style="cursor:pointer;">Day material fed to the LLM</summary>
+        <summary style="cursor:pointer;">Day material fed to the LLM <span style="opacity:0.75;">(input, not output)</span></summary>
         <pre style="white-space:pre-wrap; font-size:0.74rem; margin:0.4rem 0 0; padding:0.5rem; background:var(--pico-code-background-color); border-radius:0.3rem;">{{ d.day_material }}</pre>
       </details>
       <details style="margin:0.3rem 0;">
-        <summary style="cursor:pointer;">Persona conditioning</summary>
+        <summary style="cursor:pointer;">Persona conditioning <span style="opacity:0.75;">(input, not output)</span></summary>
         <pre style="white-space:pre-wrap; font-size:0.74rem; margin:0.4rem 0 0; padding:0.5rem; background:var(--pico-code-background-color); border-radius:0.3rem;">{{ d.persona }}</pre>
       </details>
     </div>

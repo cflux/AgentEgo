@@ -2,6 +2,17 @@
 {% block title %}The Den — AgentEgo{% endblock %}
 {% block content %}
 
+<style>
+  /* Pico floats summary::after (the disclosure chevron) after the last line of content; on these
+     multi-line cards that drops it to the bottom-right where it clips the rounded corner. Pin it to
+     the card's top-right instead. */
+  #den-list details { position: relative; }
+  #den-list details > summary { padding-right: 2.3rem; }
+  #den-list details > summary::after {
+    position: absolute; top: 0.7rem; right: 0.9rem; float: none; margin: 0;
+  }
+</style>
+
 <h2>The Den <small style="font-size:0.6em; color:var(--pico-muted-color);">Curated journal of meaning (read-only)</small></h2>
 
 <p style="font-size:0.88rem; color:var(--pico-muted-color); max-width:62rem;">

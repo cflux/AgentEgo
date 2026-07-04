@@ -173,6 +173,84 @@ async def impulse_next_txt(profile: str = "default"):
     return PlainTextResponse(result["prompt"] if result["fired"] else "")
 
 
+# --- Impulse v2: brief (consumed by the plugin pre_llm_call) + outcome (from post_llm_call) ---
+
+def _is_cron_session(s: dict) -> bool:
+    """Skip our own sidequest/cron sessions — they aren't 'conversations with the user'."""
+    if str(s.get("id") or "").startswith("cron_"):
+        return True
+    src = s.get("source") or ""
+    if "cron" in str(src).lower():
+        return True
+    return False
+
+
+async def _recent_gist(profile: str, max_turns: int = 8) -> str:
+    """A short recent user/agent transcript for briefing an outward impulse (the cron turn is cold).
+    Excludes cron/sidequest sessions so it reflects the actual conversation with the user."""
+    from ..db.hermes import get_recent_sessions, get_session_messages
+    db_path = resolve_profile(profile)
+    try:
+        sessions = [s for s in await get_recent_sessions(db_path=db_path) if not _is_cron_session(s)]
+        if not sessions:
+            return ""
+        msgs = await get_session_messages(sessions[0]["id"], db_path=db_path)
+    except Exception:
+        return ""
+    turns = [m for m in msgs if m.get("role") in ("user", "assistant") and m.get("content")]
+    return "\n".join(f"{m['role']}: {m['content'][:300]}" for m in turns[-max_turns:])
+
+
+@router.get("/api/impulse/brief")
+async def impulse_brief(profile: str = "default", kind: str = "inward") -> dict:
+    """Context brief for an impulse agent turn, injected by the plugin's pre_llm_call hook (the cron
+    session is cold — no mnemosyne, no live history). Phase-1: mood directive always; recent-
+    conversation gist for outward. Richer Den/affinity/recall context lands in later phases."""
+    from ..services.mood_engine import get_cached_mood
+    from ..services import settings_store
+    parts: list[str] = []
+    mood = await get_cached_mood(profile)
+    if mood:
+        tmpl = await settings_store.get_setting("mood_directive_template", "") or ""
+        directive = tmpl.replace("{mood}", mood["name"]).replace("{description}", mood.get("description", "")).strip()
+        if directive:
+            parts.append(directive)
+    if kind == "outward":
+        gist = await _recent_gist(profile)
+        if gist:
+            parts.append("Where things stand with the user right now (recent messages):\n" + gist)
+    return {"profile": profile, "kind": kind, "context": "\n\n".join(parts)}
+
+
+@router.post("/api/impulse/outcome")
+async def impulse_outcome(request: Request) -> dict:
+    """Receive a sidequest outcome from the plugin's post_llm_call hook. Phase-1 stub: persist it;
+    the sidequest scorer (agent-solo emotion → mood) arrives in Phase 3."""
+    import json as _json
+    from uuid import uuid4
+    body = await request.json()
+    profile = str(body.get("profile") or "default")
+    session_id = str(body.get("session_id") or "")
+    record = {
+        "profile": profile,
+        "label": str(body.get("label") or ""),
+        "kind": str(body.get("kind") or ""),
+        "response": str(body.get("response") or ""),
+        "at": time.time(),
+    }
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            "INSERT INTO module_data (module, key, value, updated_at) VALUES ('impulse_outcome', ?, ?, ?) "
+            "ON CONFLICT(module, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (session_id or str(uuid4()), _json.dumps(record), time.time()),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+    return {"ok": True, "stored": True}
+
+
 # --- Dry-run / dashboard ---
 
 @router.get("/api/impulse/preview")

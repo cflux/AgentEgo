@@ -180,9 +180,14 @@ sadness (independent scorer), disliked subject → negative valence (affinity ch
 0. **Foundations/verify — ✅ DONE (§11).** Empirically confirmed: plugin tools + `pre_llm_call`
    (with injection reaching the model) + `post_llm_call` all fire in a real tala cron turn; profile-DB
    routing resolves via `HERMES_HOME`; mnemosyne absent in cron.
-1. **Plugin + endpoints** — `companion_message` (send + mirror); `pre_llm_call` brief injection;
-   `post_llm_call` → `/api/impulse/outcome`. AgentEgo: `/api/impulse/brief` + `/api/impulse/outcome`
-   stubs. Prove an outward message lands in the DM *and* the transcript.
+1. **Plugin + endpoints — ✅ DONE.** AgentEgo `/api/impulse/brief` + `/api/impulse/outcome`; the
+   `agentego-impulse` plugin (`pre_llm_call` brief-injection, `post_llm_call` outcome-forward + DM
+   mirror). Simplification vs. the original sketch: **no custom send tool** — Hermes' native
+   `deliver=telegram:<dm>` sends, the plugin adds the mirror auto-delivery omits (`wrap_response:false`
+   for clean DMs; outward signalled by a `[IMPULSE-OUTWARD]` prompt marker). Verified live: tala sent a
+   natural DM (human-confirmed), it was mirrored into the transcript, the outcome reached AgentEgo, and
+   the `pre_llm_call` brief demonstrably shaped the message (she referenced recent-conversation
+   context). Plugin source versioned at `hermes-plugins/agentego-impulse/`.
 2. **LLM arbiter + cron jobs** — inward/outward selection over full state; two `deliver=local` cron
    jobs; the briefer. Prove inward silent-run and outward-in-context end-to-end.
 3. **Sidequest scorer** — solo round representation, three-input scoring, agent-solo mood rules,

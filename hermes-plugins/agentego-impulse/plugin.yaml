@@ -1,0 +1,11 @@
+name: agentego-impulse
+version: 0.1.0
+description: >
+  AgentEgo impulse bridge. On impulse cron turns it (1) injects AgentEgo's context brief via
+  pre_llm_call (the cron session is cold), and (2) on post_llm_call forwards the outcome to AgentEgo
+  for sidequest scoring and, for OUTWARD impulses, mirrors the message into the user's DM session
+  transcript (Hermes' native deliver=telegram:<dm> sends it; auto-delivery skips the mirror, so the
+  plugin adds it). Cron-gated — completely inert for live gateway turns.
+provides_hooks:
+  - pre_llm_call
+  - post_llm_call

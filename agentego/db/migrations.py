@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -200,6 +200,7 @@ CREATE TABLE IF NOT EXISTS reflections (
     dream_mood_id  TEXT,
     dream_consumed INTEGER NOT NULL DEFAULT 0,
     debug          TEXT,
+    den            TEXT,
     UNIQUE(profile_name, day)
 );
 CREATE INDEX IF NOT EXISTS idx_reflections_profile ON reflections(profile_name, day DESC);
@@ -306,6 +307,8 @@ _DEFAULT_SETTINGS = {
         "Then name the single mood they wake in from the allowed list. Return ONLY JSON: "
         "{\"dream\": \"...\", \"wake_mood\": \"<one mood id>\"}."
     ),
+    "den_enabled": "1",
+    "reflection_dream_den_chance": "0.5",
 }
 
 
@@ -370,6 +373,12 @@ async def run_migrations(db_path: str) -> None:
         if current_version < 12:
             try:
                 await conn.execute("ALTER TABLE reflections ADD COLUMN debug TEXT")
+            except Exception:
+                pass  # column already exists
+
+        if current_version < 13:
+            try:
+                await conn.execute("ALTER TABLE reflections ADD COLUMN den TEXT")
             except Exception:
                 pass  # column already exists
 

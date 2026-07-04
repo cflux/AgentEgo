@@ -38,6 +38,19 @@
   </details>
   {% endif %}
 
+  {% if r.den %}
+  {% set dn = r.den %}
+  <div style="margin-top:0.6rem; font-size:0.82rem;">
+    <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; color:#4a9eff;">🏠 Den — {{ dn.day }}</span>
+    <p style="margin:0.2rem 0 0;">Wrote <strong>{{ dn.count }}</strong> entr{{ 'y' if dn.count == 1 else 'ies' }}{% if dn.tags %} · tags: {% for t in dn.tags %}<code style="font-size:0.7rem;">{{ t }}</code> {% endfor %}{% endif %}</p>
+    {% if dn.top %}
+    <ul style="margin:0.3rem 0 0; padding-left:1.1rem;">
+      {% for e in dn.top %}<li style="margin:0.1rem 0;"><span style="color:var(--pico-muted-color);">[{{ e.type }}{% if e.importance is not none %} ★{{ '%.2f'|format(e.importance) }}{% endif %}]</span> {{ e.summary }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endif %}
+
   {# ---- INPUT / DEBUG: what the reflection read (never sent to the agent) ---- #}
   {% if r.debug %}
   {% set d = r.debug %}
@@ -47,6 +60,7 @@
       <p style="margin:0 0 0.3rem;">
         {{ d.n_rounds }} round(s) · {{ d.n_convs }} conversation(s)
         · dream roll {{ '%.2f'|format(d.dream_chance) }} → {{ 'hit' if d.dream_rolled else 'miss' }}{% if d.dream_rolled and not d.dream_produced %} (LLM produced none){% endif %}
+        {% if d.den_dream_seed %} · dream seeded by Den entry <code>{{ d.den_dream_seed }}</code>{% endif %}
         {% if d.forced %} · <em>forced run</em>{% endif %}
       </p>
       {% if d.mood_signal %}

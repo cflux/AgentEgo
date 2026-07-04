@@ -98,6 +98,9 @@ DEFAULTS = {
         "Then name the single mood they wake in from the allowed list. Return ONLY JSON: "
         "{\"dream\": \"...\", \"wake_mood\": \"<one mood id>\"}."
     ),
+    # The Den: feed yesterday's entries digest into the reflection; chance a dream weaves in a text entry.
+    "den_enabled": "1",
+    "reflection_dream_den_chance": "0.5",
 }
 
 

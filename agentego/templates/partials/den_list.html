@@ -1,0 +1,32 @@
+{# Den entry cards — each expands to lazy-load the full entry #}
+{% set type_colors = {
+  "feeling": "#e57391", "art": "#ff9f4a", "discovery": "#b47aff",
+  "transcript": "#4adbae", "gift": "#4a9eff", "fantasy": "#d94f9f"} %}
+{% if not entries %}
+<p style="color:var(--pico-muted-color); font-size:0.88rem;">No entries match.</p>
+{% else %}
+<p style="font-size:0.75rem; color:var(--pico-muted-color); margin:0 0 0.5rem;">{{ entries|length }} entr{{ 'y' if entries|length == 1 else 'ies' }}</p>
+{% for e in entries %}
+{% set c = type_colors.get(e.type, "#888") %}
+<details style="margin:0 0 0.6rem;">
+  <summary style="cursor:pointer; list-style:none; padding:0.7rem 0.9rem; border:1px solid var(--pico-muted-border-color); border-radius:var(--pico-border-radius); border-left:3px solid {{ c }};">
+    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.25rem;">
+      <span style="font-size:0.72rem; padding:0.1rem 0.5rem; border-radius:1rem; background:{{ c }}22; color:{{ c }}; text-transform:uppercase; letter-spacing:0.03em;">{{ e.type or '—' }}</span>
+      <span style="font-size:0.78rem; color:var(--pico-muted-color);">{{ e.date }}</span>
+      {% if e.importance is not none %}<span title="importance" style="font-size:0.75rem; color:var(--pico-muted-color);">★ {{ '%.2f'|format(e.importance) }}</span>{% endif %}
+      {% if e.has_media %}<span style="font-size:0.72rem; color:#ff9f4a;">🖼 media</span>{% endif %}
+      {% if e.mood %}<span style="font-size:0.72rem; color:var(--pico-muted-color);">· {{ e.mood }}</span>{% endif %}
+    </div>
+    <div style="font-size:0.9rem;">{{ e.summary or e.slug }}</div>
+    {% if e.tags %}<div style="margin-top:0.3rem; display:flex; gap:0.3rem; flex-wrap:wrap;">
+      {% for t in e.tags %}<code style="font-size:0.7rem;">{{ t }}</code>{% endfor %}
+    </div>{% endif %}
+  </summary>
+  <div style="padding:0.4rem 0.9rem 0;"
+       hx-get="/den/entry?profile={{ active_profile }}&path={{ e.relpath|urlencode }}"
+       hx-trigger="toggle once from:closest details" hx-swap="innerHTML">
+    <p style="font-size:0.8rem; color:var(--pico-muted-color);">Loading…</p>
+  </div>
+</details>
+{% endfor %}
+{% endif %}

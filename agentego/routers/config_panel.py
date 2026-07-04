@@ -101,6 +101,7 @@ async def update_model_config(
     reflection_lookback_hours: str = Form("24"),
     reflection_conclusions_prompt: str = Form(""),
     reflection_dream_prompt: str = Form(""),
+    reflection_dream_den_chance: str = Form("0.5"),
 ):
     # Low-signal emotions come from checkboxes (zero or more 'low_signal' values).
     form = await request.form()
@@ -143,6 +144,8 @@ async def update_model_config(
         "reflection_lookback_hours": reflection_lookback_hours.strip(),
         "reflection_conclusions_prompt": reflection_conclusions_prompt,
         "reflection_dream_prompt": reflection_dream_prompt,
+        "den_enabled": "1" if form.get("den_enabled") else "0",
+        "reflection_dream_den_chance": reflection_dream_den_chance.strip(),
     }
     # Only overwrite JSON graph/cascade if valid JSON was submitted (avoid clobbering with junk).
     import json as _json

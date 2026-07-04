@@ -8,11 +8,18 @@ services:
     volumes:
       # Hermes data dir read-only — provides state.db + WAL files (-shm, -wal)
       - /home/cflux/.hermes:/hermes:ro
+      # The Den (read-only): entries + index + the files symlink. Mounted at the identical host path
+      # so absolute file: paths and the files symlink resolve with no translation.
+      - /home/cflux/.the-den:/home/cflux/.the-den:ro
+      # The files symlink target lives on a separate real path; mount it at the identical path too so
+      # the symlink resolves inside the container (media reads).
+      - /mnt/LargeStorage/the-den:/mnt/LargeStorage/the-den:ro
       # Persistent volume for ego.db
       - agentego_data:/data
     environment:
       - EGO_HERMES_DB_PATH=/hermes/state.db
       - EGO_EGO_DB_PATH=/data/ego.db
+      - EGO_DEN_PATH=/home/cflux/.the-den
       - EGO_RETENTION_DAYS=7
       - EGO_LOG_LEVEL=info
       - EGO_DISPLAY_TIMEZONE=America/Los_Angeles

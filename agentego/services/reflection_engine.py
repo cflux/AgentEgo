@@ -197,13 +197,20 @@ async def _pick_day_mood(persona: str, day_text: str, conclusions: list[str],
     return None
 
 
-async def _dream(persona: str, day_text: str, day_mood_id: str | None, moods: dict) -> tuple[str, str | None]:
-    """Return (framed_dream_text, wake_mood_id) or ("", None) on failure."""
+async def _dream(persona: str, day_text: str, day_mood_id: str | None, moods: dict,
+                 den_seed: dict | None = None) -> tuple[str, str | None]:
+    """Return (framed_dream_text, wake_mood_id) or ("", None) on failure. If den_seed is given (a
+    text Den entry {summary, body}), the dream is asked to let it surface as imagery, not recount it."""
     system = await get_setting("reflection_dream_prompt", "")
     allowed = ", ".join(f"{mid} ({m['name']})" for mid, m in moods.items())
     mood_name = moods.get(day_mood_id, {}).get("name", "unsettled") if day_mood_id else "unsettled"
-    user = (f"{persona}\n\nThe day's overall mood was: {mood_name}.\nAllowed wake moods: {allowed}\n\n"
-            f"--- TODAY ---\n{day_text}")
+    seed_block = ""
+    if den_seed:
+        seed_block = ("\n\nLet this memory from yesterday surface in the dream as distorted, symbolic "
+                      "imagery — do NOT recount or explain it, just let its feeling and images bleed in:\n"
+                      f"\"{den_seed.get('summary', '')}\"\n{den_seed.get('body', '')}")
+    user = (f"{persona}\n\nThe day's overall mood was: {mood_name}.\nAllowed wake moods: {allowed}"
+            f"{seed_block}\n\n--- TODAY ---\n{day_text}")
     try:
         raw = await chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
                          response_json=True, max_tokens=1200)
@@ -221,14 +228,15 @@ async def _dream(persona: str, day_text: str, day_mood_id: str | None, moods: di
 # --- Storage ---
 
 async def _store(profile: str, day: str, conclusions: list, day_mood_id, dream_text: str,
-                 dream_mood_id, dream_occurred: bool, debug: dict | None = None) -> None:
+                 dream_mood_id, dream_occurred: bool, debug: dict | None = None,
+                 den_digest: dict | None = None) -> None:
     conn = await get_ego_db()
     try:
         await conn.execute(
             """
             INSERT INTO reflections (id, profile_name, day, created_at, conclusions, day_mood_id,
-                                     dream_occurred, dream_prompt, dream_mood_id, dream_consumed, debug)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                                     dream_occurred, dream_prompt, dream_mood_id, dream_consumed, debug, den)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
             ON CONFLICT(profile_name, day) DO UPDATE SET
                 created_at = excluded.created_at,
                 conclusions = excluded.conclusions,
@@ -237,11 +245,13 @@ async def _store(profile: str, day: str, conclusions: list, day_mood_id, dream_t
                 dream_prompt = excluded.dream_prompt,
                 dream_mood_id = excluded.dream_mood_id,
                 dream_consumed = 0,
-                debug = excluded.debug
+                debug = excluded.debug,
+                den = excluded.den
             """,
             (str(uuid4()), profile, day, time.time(), json.dumps(conclusions), day_mood_id,
              1 if dream_occurred else 0, dream_text or None, dream_mood_id,
-             json.dumps(debug) if debug else None),
+             json.dumps(debug) if debug else None,
+             json.dumps(den_digest) if den_digest else None),
         )
         await conn.commit()
     finally:
@@ -257,16 +267,20 @@ def _row_to_dict(row) -> dict:
         debug = json.loads(row[10]) if row[10] else None
     except (json.JSONDecodeError, TypeError):
         debug = None
+    try:
+        den = json.loads(row[11]) if len(row) > 11 and row[11] else None
+    except (json.JSONDecodeError, TypeError):
+        den = None
     return {
         "id": row[0], "profile_name": row[1], "day": row[2], "created_at": row[3],
         "conclusions": conclusions, "day_mood_id": row[5], "dream_occurred": bool(row[6]),
         "dream_prompt": row[7], "dream_mood_id": row[8], "dream_consumed": bool(row[9]),
-        "debug": debug,
+        "debug": debug, "den": den,
     }
 
 
 _COLS = ("id, profile_name, day, created_at, conclusions, day_mood_id, dream_occurred, "
-         "dream_prompt, dream_mood_id, dream_consumed, debug")
+         "dream_prompt, dream_mood_id, dream_consumed, debug, den")
 
 
 async def get_today_reflection(profile: str) -> dict | None:
@@ -325,6 +339,20 @@ async def reflect(profile: str, db_path: str | None = None, force: bool = False)
     conclusions = await _conclusions(persona, day_text)
     day_mood_id = await _pick_day_mood(persona, day_text, conclusions, day["mood_signal"], moods)
 
+    # The Den: yesterday's digest (count + top-5 by importance + tags) and a candidate to seed a dream.
+    from . import den as den_svc
+    den_date = _day_str(time.time() - 86400)  # local calendar yesterday
+    den_digest, den_seed = None, None
+    if (await get_setting("den_enabled", "1")) == "1" and den_svc.has_den(profile):
+        try:
+            den_digest = den_svc.reflection_digest(profile, den_date)
+        except Exception:
+            den_digest = None
+        try:
+            den_seed_chance = float(await get_setting("reflection_dream_den_chance", "0.5"))
+        except (TypeError, ValueError):
+            den_seed_chance = 0.5
+
     try:
         chance = float(await get_setting("reflection_dream_chance", "0.35"))
     except (TypeError, ValueError):
@@ -332,7 +360,12 @@ async def reflect(profile: str, db_path: str | None = None, force: bool = False)
     dream_text, dream_mood_id = "", None
     dream_rolled = random.random() < chance
     if dream_rolled:
-        dream_text, dream_mood_id = await _dream(persona, day_text, day_mood_id, moods)
+        # Give the dream a chance to weave in one text-based Den entry from yesterday.
+        if den_digest and random.random() < den_seed_chance:
+            candidates = den_svc.text_entries(profile, den_date)
+            if candidates:
+                den_seed = random.choice(candidates)
+        dream_text, dream_mood_id = await _dream(persona, day_text, day_mood_id, moods, den_seed)
     dream_occurred = bool(dream_text)
 
     # Debug history: exactly what this run saw + how the dice fell, for after-the-fact inspection.
@@ -347,10 +380,12 @@ async def reflect(profile: str, db_path: str | None = None, force: bool = False)
         "dream_chance": chance,
         "dream_rolled": dream_rolled,
         "dream_produced": bool(dream_text),
+        "den_date": den_date,
+        "den_dream_seed": den_seed["slug"] if den_seed else None,
     }
 
     await _store(profile, _day_str(), conclusions, day_mood_id, dream_text, dream_mood_id,
-                 dream_occurred, debug)
+                 dream_occurred, debug, den_digest)
     return await get_today_reflection(profile)
 
 

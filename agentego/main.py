@@ -11,7 +11,7 @@ from pathlib import Path
 from .config import settings
 from .db.migrations import run_migrations
 from .services.stats import start_scheduler
-from .routers import events, sessions, dashboard, sentiment, topic, mood, preferences, config_panel, impulse, soul, reflection
+from .routers import events, sessions, dashboard, sentiment, topic, mood, preferences, config_panel, impulse, soul, reflection, den
 from .modules import load_modules
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
@@ -43,6 +43,21 @@ def _fmt_ts(value, fmt=None) -> str:
     return f"{dt.strftime('%b %-d, %Y')}, {t}"
 
 
+def _den_md(text) -> "Markup":
+    """Minimal, safe markdown for Den entry bodies: escape, then **bold** / *italic* / paragraphs."""
+    from markupsafe import Markup, escape
+    import re
+    if not text:
+        return Markup("")
+    out = []
+    for para in re.split(r"\n\s*\n", str(text).strip()):
+        safe = str(escape(para))
+        safe = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", safe)
+        safe = re.sub(r"\*(.+?)\*", r"<em>\1</em>", safe)
+        out.append("<p>" + safe.replace("\n", "<br>") + "</p>")
+    return Markup("".join(out))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs(os.path.dirname(settings.ego_db_path), exist_ok=True)
@@ -64,6 +79,7 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 _templates_dir = Path(__file__).parent / "templates"
 _shared_templates = Jinja2Templates(directory=str(_templates_dir))
 _shared_templates.env.filters["ts"] = _fmt_ts
+_shared_templates.env.filters["den_md"] = _den_md
 
 # Patch the router instances to use the shared templates environment
 dashboard.templates = _shared_templates
@@ -72,6 +88,8 @@ mood.templates = _shared_templates
 preferences.templates = _shared_templates
 config_panel.templates = _shared_templates
 impulse.templates = _shared_templates
+reflection.templates = _shared_templates
+den.templates = _shared_templates
 
 app.include_router(events.router)
 app.include_router(sessions.router)
@@ -84,3 +102,4 @@ app.include_router(config_panel.router)
 app.include_router(impulse.router)
 app.include_router(soul.router)
 app.include_router(reflection.router)
+app.include_router(den.router)

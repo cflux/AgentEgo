@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     hermes_db_path: str = "/home/cflux/.hermes/state.db"
     ego_db_path: str = "/mnt/LargeStorage/AgentEgo/data/ego.db"
+    den_path: str = "/home/cflux/.the-den"
     retention_days: int = 7
     host: str = "0.0.0.0"
     port: int = 8765

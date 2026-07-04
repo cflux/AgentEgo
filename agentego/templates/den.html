@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}The Den — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>The Den <small style="font-size:0.6em; color:var(--pico-muted-color);">Curated journal of meaning (read-only)</small></h2>
+
+<p style="font-size:0.88rem; color:var(--pico-muted-color); max-width:62rem;">
+  The Den holds an agent's curated entries — feelings, art, discoveries, gifts — the moments that
+  matter between conversations. AgentEgo reads it; the agent writes it. Browse and search below.
+</p>
+
+{% if profiles and profiles|length > 1 %}
+<div class="profile-tabs">
+  {% for p in profiles %}
+  <a href="/den?profile={{ p }}" class="profile-tab {% if active_profile == p %}active{% endif %}">{{ p }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if not active_profile %}
+<p style="color:var(--pico-muted-color); font-size:0.9rem;">No Den profiles found.</p>
+{% else %}
+<form style="display:flex; gap:0.6rem; flex-wrap:wrap; align-items:end; margin-bottom:1rem;"
+      hx-get="/partials/den-list" hx-target="#den-list" hx-swap="innerHTML"
+      hx-trigger="input changed delay:250ms from:input, change from:select, submit"
+      hx-include="this">
+  <input type="hidden" name="profile" value="{{ active_profile }}">
+  <label style="flex:1; min-width:16rem; margin:0; font-size:0.82rem;">Search
+    <input type="search" name="q" value="{{ q }}" placeholder="text, tag, or slug…" autocomplete="off">
+  </label>
+  <label style="margin:0; font-size:0.82rem;">Type
+    <select name="type">
+      <option value="">any</option>
+      {% for t in types %}<option value="{{ t }}" {% if type == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+    </select>
+  </label>
+  <label style="margin:0; font-size:0.82rem;">Tag
+    <select name="tag">
+      <option value="">any</option>
+      {% for t in all_tags %}<option value="{{ t }}" {% if tag == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+    </select>
+  </label>
+</form>
+
+<div id="den-list">
+  {% include "partials/den_list.html" %}
+</div>
+{% endif %}
+
+{% endblock %}

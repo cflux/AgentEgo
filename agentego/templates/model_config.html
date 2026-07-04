@@ -335,6 +335,19 @@
       <label style="display:block; margin-top:0.4rem; font-size:0.82rem;">Dream prompt
         <textarea name="reflection_dream_prompt" rows="3" style="font-size:0.8rem;">{{ settings.reflection_dream_prompt }}</textarea>
       </label>
+      <div style="display:flex; align-items:center; gap:1rem; margin-top:0.6rem; flex-wrap:wrap;">
+        <label style="display:inline-flex; align-items:center; gap:0.35rem; margin:0; font-size:0.82rem; cursor:pointer;">
+          <input type="checkbox" name="den_enabled" value="1" {% if settings.den_enabled == '1' %}checked{% endif %}
+                 style="width:0.95rem; height:0.95rem; margin:0;">
+          Feed the Den into reflections
+        </label>
+        <label style="font-size:0.82rem; margin:0;">Dream Den-seed chance <small style="color:var(--pico-muted-color); font-weight:normal;">(0–1)</small>
+          <input type="number" name="reflection_dream_den_chance" value="{{ settings.reflection_dream_den_chance }}" min="0" max="1" step="0.05" style="width:6rem;">
+        </label>
+      </div>
+      <p class="cfg-help" style="margin:0.3rem 0 0;">When on, the reflection appends yesterday's Den digest
+        (count, top entries by importance, tags); a dream may weave in one text-based Den entry at the chance above.
+        See the <a href="/den">Den</a> browser.</p>
     </article>
 
   </div>

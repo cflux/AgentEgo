@@ -68,7 +68,22 @@ async def wake(profile: str = "default") -> dict:
         "mood": reset["name"] if reset else None,
         "from_dream": from_dream,
         "conclusions": (r["conclusions"] if r else []),
+        "den": (r["den"] if r else None),
     }
+
+
+def _den_lines(den: dict) -> list[str]:
+    """Format the Den digest for the agent: count + tags line, then the top-entry summaries."""
+    if not den:
+        return []
+    n = den.get("count", 0)
+    tags = ", ".join(den.get("tags", [])) or "—"
+    lines = [f"You wrote {n} Den entr{'y' if n == 1 else 'ies'} yesterday. Tags: {tags}"]
+    for e in den.get("top", []):
+        imp = e.get("importance")
+        lines.append(f"  • [{e.get('type', '?')}] {e.get('summary', '')}"
+                     + (f" (importance {imp:.2f})" if isinstance(imp, (int, float)) else ""))
+    return lines
 
 
 @router.get("/api/reflection/wake.txt", response_class=PlainTextResponse)
@@ -81,6 +96,10 @@ async def wake_txt(profile: str = "default"):
     if res["conclusions"]:
         lines.append("Yesterday left you thinking:")
         lines += [f"- {c}" for c in res["conclusions"]]
+    den_lines = _den_lines(res.get("den"))
+    if den_lines:
+        lines.append("")
+        lines += den_lines
     return PlainTextResponse("\n".join(lines))
 
 

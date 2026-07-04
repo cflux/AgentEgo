@@ -201,14 +201,16 @@ async def _dream(persona: str, day_text: str, day_mood_id: str | None, moods: di
                  den_seed: dict | None = None) -> tuple[str, str | None]:
     """Return (framed_dream_text, wake_mood_id) or ("", None) on failure. If den_seed is given (a
     text Den entry {summary, body}), the dream is asked to let it surface as imagery, not recount it."""
-    system = await get_setting("reflection_dream_prompt", "")
+    # A Den-seeded dream uses its own editable prompt; a plain dream uses the standard one.
+    if den_seed:
+        system = await get_setting("reflection_dream_den_prompt", "")
+        seed_block = (f'\n\nMEMORY FROM YESTERDAY (weave in per your instructions):\n'
+                      f'"{den_seed.get("summary", "")}"\n{den_seed.get("body", "")}')
+    else:
+        system = await get_setting("reflection_dream_prompt", "")
+        seed_block = ""
     allowed = ", ".join(f"{mid} ({m['name']})" for mid, m in moods.items())
     mood_name = moods.get(day_mood_id, {}).get("name", "unsettled") if day_mood_id else "unsettled"
-    seed_block = ""
-    if den_seed:
-        seed_block = ("\n\nLet this memory from yesterday surface in the dream as distorted, symbolic "
-                      "imagery — do NOT recount or explain it, just let its feeling and images bleed in:\n"
-                      f"\"{den_seed.get('summary', '')}\"\n{den_seed.get('body', '')}")
     user = (f"{persona}\n\nThe day's overall mood was: {mood_name}.\nAllowed wake moods: {allowed}"
             f"{seed_block}\n\n--- TODAY ---\n{day_text}")
     try:

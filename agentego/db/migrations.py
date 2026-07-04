@@ -309,6 +309,13 @@ _DEFAULT_SETTINGS = {
     ),
     "den_enabled": "1",
     "reflection_dream_den_chance": "0.5",
+    "reflection_dream_den_prompt": (
+        "You are the character described below. Compose a DREAM they had tonight — surreal, "
+        "first-person, vivid but brief (3-5 sentences). A MEMORY from yesterday is provided below; let "
+        "it surface in the dream as distorted, symbolic imagery — do NOT recount or explain it, just "
+        "let its feeling and images bleed in. Then name the single mood they wake in from the allowed "
+        "list. Return ONLY JSON: {\"dream\": \"...\", \"wake_mood\": \"<one mood id>\"}."
+    ),
 }
 
 

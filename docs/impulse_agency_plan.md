@@ -166,9 +166,10 @@ sadness (independent scorer), disliked subject → negative valence (affinity ch
 - One model: **both classes run in a clean isolated cron session.** Outward composes clean; only the
   *message* is mirrored into the live DM thread. Inward runs clean, no delivery, **full tools except
   mnemosyne**; persists via the **Den**.
-- **Profile-DB routing** is the one cross-cutting implementation checkpoint: the mirror (§4) and the
-  solo-round scoring (§5.3) must land in **tala's profile DB** for AgentEgo to see them. Verify the
-  cron/mirror `SessionDB()` path and the sidequest scoring attribution during build.
+- **Profile-DB routing — RESOLVED (Phase 0, §11).** `SessionDB()` → `get_hermes_home()/state.db`, and a
+  tala cron turn runs with `HERMES_HOME=~/.hermes/profiles/tala`, so the mirror *and* solo-scoring land
+  in tala's profile DB automatically — no special handling. (tala runs as a **separate gateway with its
+  own HERMES_HOME**; the real plugin + cron live in tala's home, driven via `hermes -p tala`.)
 - Mnemosyne: recall replaced by AgentEgo-injected context via `pre_llm_call`; fact-saving deferred to
   the Den + the next live turn (don't fight the cron constraint).
 
@@ -176,9 +177,9 @@ sadness (independent scorer), disliked subject → negative valence (affinity ch
 
 ## 8. Phasing
 
-0. **Foundations/verify** — trivial plugin proving `pre_llm_call`/`post_llm_call` fire in cron with
-   `platform="cron"`; confirm `mirror_to_session` + target resolution land in tala's profile DB;
-   confirm plugin toolset is available in cron.
+0. **Foundations/verify — ✅ DONE (§11).** Empirically confirmed: plugin tools + `pre_llm_call`
+   (with injection reaching the model) + `post_llm_call` all fire in a real tala cron turn; profile-DB
+   routing resolves via `HERMES_HOME`; mnemosyne absent in cron.
 1. **Plugin + endpoints** — `companion_message` (send + mirror); `pre_llm_call` brief injection;
    `post_llm_call` → `/api/impulse/outcome`. AgentEgo: `/api/impulse/brief` + `/api/impulse/outcome`
    stubs. Prove an outward message lands in the DM *and* the transcript.
@@ -214,3 +215,29 @@ sadness (independent scorer), disliked subject → negative valence (affinity ch
 - Modifying Hermes source (everything via plugin + config).
 - Semantic "late reference" reply attribution (gap-based is v1).
 - Multi-agent / cross-agent impulses.
+
+---
+
+## 11. Phase 0 results (verified 2026-07-04)
+
+Ran a throwaway probe plugin (`probe_ping` tool + `pre_llm_call`/`post_llm_call` hooks, gated to
+`platform=="cron"`) in tala's home, fired via a one-shot `deliver=local` cron. **All load-bearing
+assumptions hold:**
+
+- **Plugin tools available in cron** — `probe_ping` was callable and ran.
+- **`pre_llm_call` fires in cron AND its injection reaches the model** — the turn logged
+  `platform="cron"` and the agent quoted the injected marker back ("present in the system message").
+  → the **briefer** mechanism is proven.
+- **`post_llm_call` fires in cron** with the full `assistant_response` (captured) → the **sidequest
+  scoring capture** is proven.
+- **mnemosyne absent in cron** — `mnemosyne_*` tools not callable (Den is the sidequest memory).
+
+**Two refinements this surfaced:**
+- **Everything is per-profile with a separate gateway + `HERMES_HOME`.** default=becca (`~/.hermes`),
+  tala (`~/.hermes/profiles/tala`) with its own `config.yaml`/`plugins/`/`cron/`. The real plugin +
+  cron go in **tala's home**, driven via `hermes -p tala …`. Enabling a plugin needs a **gateway
+  restart** to load (discovery is cached per-process; no hot-reload).
+- **`companion_message` must target the DM chat_id explicitly** (tala's DM = `8674538437`, from
+  `TELEGRAM_ALLOWED_USERS` / the `agent:main:telegram:dm:8674538437` session key) — **not**
+  `TELEGRAM_HOME_CHANNEL`, which is set to a *group* (`-1004378535607`). The mirror matches the DM
+  session by that chat_id in tala's `sessions.json`.

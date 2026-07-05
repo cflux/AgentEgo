@@ -120,14 +120,19 @@ async def toggle_action(action_id: str) -> None:
 # --- Recency / idle ---
 
 async def get_last_activity_ts(profile_name: str, db_path: str | None = None) -> float | None:
-    """Most recent conversation end_ts for the profile = 'last talked to user'."""
+    """Most recent *user* conversation end_ts = 'last talked to user'. Excludes cron/sidequest
+    sessions (e.g. impulse turns, session id 'cron_…') so a self-initiated action doesn't reset the
+    idle clock — otherwise the outward idle-gate would never see genuine user absence."""
     from .conversations import sync_recent_conversations, get_recent_conversations
     try:
         await sync_recent_conversations(profile_name, db_path=db_path)
     except Exception:
         pass
-    convs = await get_recent_conversations(profile_name, limit=1)
-    return convs[0]["end_ts"] if convs else None
+    for c in await get_recent_conversations(profile_name, limit=25):
+        if str(c.get("session_id") or "").startswith("cron_"):
+            continue
+        return c["end_ts"]
+    return None
 
 
 # --- Logging ---

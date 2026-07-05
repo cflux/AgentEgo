@@ -19,6 +19,39 @@ DEFAULTS = {
     "trait_drift_delta": "0.1",
     "impulse_enabled": "1",
     "impulse_restraint_weight": "0.5",
+    # Impulse v2 — the generative arbiter's capability manifest: the curated, cron-verified set of
+    # affordances it may choose among (fences composition to what the agent can actually do). Each
+    # entry: {id, intent, enabled, backing_kind (tool|skill|plugin-tool), skill, description,
+    # operational_hint}. Unverified capabilities ship enabled:false until demonstrated in a cron turn.
+    "impulse_capabilities": (
+        '[{"id":"web-explore","intent":"explore","enabled":true,"backing_kind":"tool","skill":"",'
+        '"description":"Search the web and read pages to dig into a topic you are curious about.",'
+        '"operational_hint":"Use the web_search tool to search the web and read what you find."},'
+        '{"id":"image-create","intent":"create","enabled":true,"backing_kind":"skill",'
+        '"skill":"local-image-gen","description":"Make an image on a whim using the local ComfyUI '
+        'setup.","operational_hint":"Use your local-image-gen skill to generate an image on the local '
+        'ComfyUI server, then save it into your Den."},'
+        '{"id":"den-write","intent":"write-den","enabled":true,"backing_kind":"tool","skill":"",'
+        '"description":"Write a private entry into your Den — a thought, a note, something you want to '
+        'keep.","operational_hint":"Write a new markdown entry into your Den using your file tools."},'
+        '{"id":"reach-out","intent":"reach-out","enabled":true,"backing_kind":"plugin-tool","skill":"",'
+        '"description":"Send the user a message — a thought, a check-in, something you want to '
+        'share.","operational_hint":"Compose a natural, in-character message to the user; it is '
+        'delivered to their DM and remembered."}]'
+    ),
+    # System instruction for the arbiter LLM. Persona + the capability fence + current state are
+    # appended by impulse_arbiter at call time; this is the role/rules/JSON-contract skeleton.
+    "impulse_arbiter_prompt": (
+        "You are the character described below. It's a quiet moment — no one is talking to you right "
+        "now. Looking honestly at your current mood, what's been on your mind, and what you're "
+        "actually capable of doing, decide: is there something you genuinely feel like doing right "
+        "now, of your own accord? Most of the time the honest answer is nothing — only act if a real "
+        "pull is there; don't manufacture one. You may ONLY choose a capability from the list you're "
+        "given (by its id) — nothing else exists to you right now. If you act, write the specific "
+        "thing you're about to do as a concrete first-person note to yourself. Stay fully in "
+        "character. Return ONLY JSON: {\"capability_id\": \"<id from the list>\", \"prompt\": \"<what "
+        "you're about to do, first person, specific>\"} — or {\"capability_id\": \"none\"} to stay quiet."
+    ),
     "taste_pool_size": "15",
     "taste_sample_size": "5",
     "conv_gap_minutes": "120",
@@ -115,6 +148,25 @@ async def get_low_signal_emotions() -> set:
     """Emotions filtered out of the 'top' emotions (dominant GoEmotions noise)."""
     raw = await get_setting("low_signal_emotions", DEFAULTS["low_signal_emotions"])
     return {e.strip().lower() for e in (raw or "").split(",") if e.strip()}
+
+
+async def get_impulse_capabilities(enabled_only: bool = True) -> list:
+    """The arbiter's capability manifest (see DEFAULTS['impulse_capabilities']). Parsed from JSON;
+    malformed entries are skipped. enabled_only filters to capabilities cleared for use in cron."""
+    import json
+    raw = await get_setting("impulse_capabilities", DEFAULTS["impulse_capabilities"])
+    try:
+        items = json.loads(raw or "[]")
+    except (ValueError, TypeError):
+        items = []
+    out = []
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict) or not it.get("id") or not it.get("intent"):
+            continue
+        if enabled_only and not it.get("enabled"):
+            continue
+        out.append(it)
+    return out
 
 
 async def get_mood_adjacency() -> dict:

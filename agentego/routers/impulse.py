@@ -1,5 +1,5 @@
 import time
-from fastapi import APIRouter, Request, Form
+from fastapi import APIRouter, Request, Form, Query
 from fastapi.responses import Response, RedirectResponse, PlainTextResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
@@ -175,39 +175,36 @@ async def impulse_next_txt(profile: str = "default"):
 
 # --- Impulse v2: brief (consumed by the plugin pre_llm_call) + outcome (from post_llm_call) ---
 
-def _is_cron_session(s: dict) -> bool:
-    """Skip our own sidequest/cron sessions — they aren't 'conversations with the user'."""
-    if str(s.get("id") or "").startswith("cron_"):
-        return True
-    src = s.get("source") or ""
-    if "cron" in str(src).lower():
-        return True
-    return False
-
-
-async def _recent_gist(profile: str, max_turns: int = 8) -> str:
-    """A short recent user/agent transcript for briefing an outward impulse (the cron turn is cold).
-    Excludes cron/sidequest sessions so it reflects the actual conversation with the user."""
-    from ..db.hermes import get_recent_sessions, get_session_messages
-    db_path = resolve_profile(profile)
+async def _den_affinity_block(profile: str) -> str:
+    """A short 'what's been on your mind' block for the inward brief — recent Den meaning + interests,
+    replacing the absent mnemosyne recall (targeted recall injection is still deferred)."""
+    from ..services import den
+    from ..services.affinity_engine import get_taste_context
+    lines: list[str] = []
     try:
-        sessions = [s for s in await get_recent_sessions(db_path=db_path) if not _is_cron_session(s)]
-        if not sessions:
-            return ""
-        msgs = await get_session_messages(sessions[0]["id"], db_path=db_path)
+        entries = den.list_entries(profile)[:3]
     except Exception:
-        return ""
-    turns = [m for m in msgs if m.get("role") in ("user", "assistant") and m.get("content")]
-    return "\n".join(f"{m['role']}: {m['content'][:300]}" for m in turns[-max_turns:])
+        entries = []
+    den_lines = [f"{e['date']}: {e['summary'] or e['slug']}" for e in entries if (e.get("summary") or e.get("slug"))]
+    if den_lines:
+        lines.append("Recently in your Den:\n- " + "\n- ".join(den_lines))
+    try:
+        taste = await get_taste_context(profile, sample=True)
+    except Exception:
+        taste = {}
+    if taste.get("interests") and taste["interests"] != "—":
+        lines.append(f"You've been drawn to: {taste['interests']}.")
+    return "\n\n".join(lines)
 
 
 @router.get("/api/impulse/brief")
 async def impulse_brief(profile: str = "default", kind: str = "inward") -> dict:
     """Context brief for an impulse agent turn, injected by the plugin's pre_llm_call hook (the cron
-    session is cold — no mnemosyne, no live history). Phase-1: mood directive always; recent-
-    conversation gist for outward. Richer Den/affinity/recall context lands in later phases."""
+    session is cold — no mnemosyne, no live history). Mood directive always; recent-conversation gist
+    for outward; recent Den/affinity context for inward (stands in for the absent recall)."""
     from ..services.mood_engine import get_cached_mood
     from ..services import settings_store
+    from ..services.impulse_arbiter import recent_gist
     parts: list[str] = []
     mood = await get_cached_mood(profile)
     if mood:
@@ -216,10 +213,33 @@ async def impulse_brief(profile: str = "default", kind: str = "inward") -> dict:
         if directive:
             parts.append(directive)
     if kind == "outward":
-        gist = await _recent_gist(profile)
+        gist = await recent_gist(profile)
         if gist:
             parts.append("Where things stand with the user right now (recent messages):\n" + gist)
+    else:
+        ctx = await _den_affinity_block(profile)
+        if ctx:
+            parts.append(ctx)
     return {"profile": profile, "kind": kind, "context": "\n\n".join(parts)}
+
+
+# --- Impulse v2: the arbiter decision (the new cron target, replaces the v1 lottery relay) ---
+
+@router.get("/api/impulse/decide")
+async def impulse_decide_json(profile: str = "default", cls: str = Query("inward", alias="class")) -> dict:
+    """Dry-run arbiter decision for the dashboard/testing (no fire logged)."""
+    from ..services import impulse_arbiter
+    return await impulse_arbiter.arbitrate(profile, cls, db_path=resolve_profile(profile), commit=False)
+
+
+@router.get("/api/impulse/decide.txt", response_class=PlainTextResponse)
+async def impulse_decide_txt(profile: str = "default", cls: str = Query("inward", alias="class")):
+    """Plain-text relay for the cron check-in scripts: the composed impulse prompt, or EMPTY when the
+    arbiter stays quiet. Empty stdout makes Hermes skip the agent entirely (no LLM call). Commits the
+    fire (logs to impulse_log)."""
+    from ..services import impulse_arbiter
+    result = await impulse_arbiter.arbitrate(profile, cls, db_path=resolve_profile(profile), commit=True)
+    return PlainTextResponse(result["prompt"] if result["fired"] else "")
 
 
 @router.post("/api/impulse/outcome")

@@ -188,8 +188,11 @@ sadness (independent scorer), disliked subject → negative valence (affinity ch
    natural DM (human-confirmed), it was mirrored into the transcript, the outcome reached AgentEgo, and
    the `pre_llm_call` brief demonstrably shaped the message (she referenced recent-conversation
    context). Plugin source versioned at `hermes-plugins/agentego-impulse/`.
-2. **LLM arbiter + cron jobs** — inward/outward selection over full state; two `deliver=local` cron
-   jobs; the briefer. Prove inward silent-run and outward-in-context end-to-end.
+2. **LLM arbiter + cron jobs — ✅ DONE (§13).** Generative arbiter (`impulse_arbiter.py`) replaces the
+   lottery; class-scoped `/api/impulse/decide[.txt]`; briefer enriched; two cron jobs. Both paths
+   verified live: inward fired → rendered a real image → wrote a Den entry → **silent** (no DM);
+   outward fired → composed a natural DM → **delivered to Telegram** → **mirrored** into the DM
+   transcript → outcome POSTed. Design pinned §12; build findings §13.
 3. **Sidequest scorer** — solo round representation, three-input scoring, agent-solo mood rules,
    asymmetric solo vote weights. Prove "read something sad → mood dips (dampened)".
 4. **Solitude pressure + pacing** — idle→lonely/bored driver; per-class cooldowns/budgets; mood-gated
@@ -246,3 +249,90 @@ assumptions hold:**
   `TELEGRAM_ALLOWED_USERS` / the `agent:main:telegram:dm:8674538437` session key) — **not**
   `TELEGRAM_HOME_CHANNEL`, which is set to a *group* (`-1004378535607`). The mirror matches the DM
   session by that chat_id in tala's `sessions.json`.
+
+---
+
+## 12. Phase 2 design — arbiter & capability manifest (decided 2026-07-04)
+
+**Shape B (generative arbiter), not a smarter jukebox.** The v1 `impulse_actions` table (hand-authored
+prompt rows drawn by the lottery) is **retired** — nothing external depends on it. The arbiter chooses
+among the fixed intent classes (`explore` / `create` / `write-den` / `reach-out` / `nothing`) and
+**composes the specific impulse prompt itself**, shaped by current state. Novelty lives in the choosing
++ composition; the v1 CRUD/UI for authored actions is removed (or repurposed for the manifest).
+
+**Capability manifest — the correctness fence.** The one thing v1's authored prompts secretly provided
+was confidence the agent could *actually accomplish* the action. Shape B relocates that from "author
+the sentence" to "declare the affordance." A curated, configurable **capability manifest** is the
+arbiter's ground truth about what it can do. Each entry declares:
+
+- the **intent class** it serves,
+- a **plain-language capability description** the arbiter reads,
+- the **backing kind** — `tool` / `skill` / `plugin-tool` — plus an **operational hint** (which
+  tool/skill, roughly how) that gets folded into the composed prompt so the cron agent knows how to
+  execute,
+- optional budget/rate + enablement toggle.
+
+The arbiter system prompt fences the LLM: *"here is exactly what you can do right now; choose an impulse
+one of these can carry out, or choose nothing."* Emergence within the fence; guardrail at the fence.
+
+**Manifest is only true if the capability is real in the cron turn** — same empirical discipline as
+Phase 0. A capability that can't be demonstrated in a tala cron turn ships **disabled**, not
+aspirational. Status:
+
+| capability | intent | backed by | cron-verified? |
+|---|---|---|---|
+| web explore | `explore` | native `web_search` **tool** (not a skill — `research` is a category) | ✅ verified in tala cron (2026-07-04) |
+| image gen | `create` | **`local-image-gen` skill → local ComfyUI** (same machine) | ✅ verified in tala cron (2026-07-04, rendered a real PNG) |
+| write to Den | `write-den` | file/bash tools | ✅ (Phase 0) |
+| reach out | `reach-out` | `companion_message` + mirror | ✅ (Phase 1) |
+
+`create` is **skill-backed**: ComfyUI runs on the same host and tala has skills that drive it, so the
+operational hint just names the skill and the creative intent; the skill carries the how-to. Open
+question folded into Phase 2 as an explicit probe: **skills load via a different path than plugin tools
+and cron does not load AGENTS.md/CLAUDE.md unless the job sets a `workdir`** — so skill availability in
+cron must be probed (may hinge on `workdir`).
+
+**Not auto-detection.** AgentEgo can't see the cron turn's toolset from outside, and "tool present" ≠
+"good outcome." The curated manifest asserts the stronger, judgment-based claim — that's where the
+human "I know she can do this" confidence lives. The Phase 3 scorer + Phase 5 learning loop are the
+reactive backstop for a capability that flops; the manifest is the up-front fence.
+
+---
+
+## 13. Phase 2 results (verified 2026-07-04)
+
+Built the generative arbiter and wired two cron jobs in tala's home. Both classes proven end-to-end in
+real tala cron turns. Findings & corrections that emerged from live verification:
+
+- **Arbiter (`agentego/services/impulse_arbiter.py`)** — assembles state (mood, tastes, reflection
+  conclusions, recent Den, idle, anti-repetition log, + outward gist) and an LLM picks one enabled
+  capability id (or "none") and composes the prompt. Class-scoped: inward job → explore/create/write-den,
+  outward job → reach-out. New endpoints `/api/impulse/decide[.txt]?class=`; briefer enriched with
+  Den/affinity context for inward. New settings `impulse_capabilities` (JSON manifest) + `impulse_arbiter_prompt`.
+- **Capability manifest corrections (verified in cron, not assumed):**
+  - `web-explore` is backed by the **native `web_search` tool**, NOT a skill — `research` is a skill
+    *category*, not a skill; `--skill research` was silently skipped. Web search works with no `--skill`.
+  - `image-create` → the **`local-image-gen`** skill (bare name; not `creative/comfyui`). Verified: a
+    real PNG rendered in-cron in <1 min. Attach via `--skill local-image-gen` on the inward job.
+- **Cron deployment facts (cost real debugging):**
+  - Scripts must live in the **profile** script dir `~/.hermes/profiles/<profile>/scripts/`, NOT the
+    global `~/.hermes/scripts/`. (tala noticed this herself mid-impulse and fixed it.)
+  - **Outward must use `--deliver telegram:<dm_chat_id>`**, not `deliver=local`. Native delivery does the
+    *send*; the plugin only adds the *mirror* (it has no send tool — the Phase 1 simplification). With
+    `deliver=local` the DM is composed but never sent. Inward correctly stays `deliver=local` (silent).
+    `cron.wrap_response:false` (already set in tala's config) gives clean DMs.
+  - The mirror writes to tala's **`state.db` `messages`** table (via `SessionDB`, HERMES_HOME-routed),
+    not `sessions.json` — confirmed the §11 checkpoint. The delivered DM landed as an `assistant` row in
+    the DM session right after the user's last message → tala will see it next live turn.
+- **Idle-signal bug fixed (blocked outward entirely):** `get_last_activity_ts` counted **cron/impulse
+  turns as "conversations,"** so every self-initiated turn reset the idle clock to ~0 and the outward
+  idle-gate never saw genuine absence. Fixed to skip `cron_…` sessions. After the fix idle read a true
+  ~25 min and outward began firing.
+- **Arbiter fire rate ~20%** at ~26 min idle for outward (deliberately conservative — "usually the honest
+  answer is nothing"). Raising this responsively to solitude/mood is **Phase 4** (solitude pressure +
+  mood-gated act-at-all probability), not a bug.
+- **Friction noted for later:** the cron dangerous-command guard blocks inline `python -c` script
+  execution (no user to approve), so an image sidequest that improvises inline python thrashes/retries
+  (one turn hit ~35 API calls / ~10 min before completing). The `local-image-gen` skill's own scripted
+  path works; steering the composed prompt toward the skill (vs ad-hoc python) is a Phase 6 prompt-tuning item.
+- **Jobs left PAUSED** (`enabled:false`) pending a decision to run them autonomously.

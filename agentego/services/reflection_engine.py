@@ -380,7 +380,8 @@ async def reflect(profile: str, db_path: str | None = None, force: bool = False)
     dream_text, dream_mood_id = "", None
     dream_rolled = random.random() < chance
     if dream_rolled:
-        # Give the dream a chance to weave in one text-based Den entry from yesterday.
+        # Give the dream a chance to weave in the text of one Den entry from yesterday (any entry
+        # with writing, including media+text; media-only entries are skipped).
         if den_digest and random.random() < den_seed_chance:
             candidates = den_svc.text_entries(profile, den_date)
             if candidates:

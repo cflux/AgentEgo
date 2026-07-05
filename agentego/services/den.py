@@ -204,9 +204,10 @@ def tags_touched(profile: str, day) -> list[str]:
 
 
 def text_entries(profile: str, day) -> list[dict]:
-    """Entries created on `day` that are text-based (no media reference) with a non-empty body —
-    the ones eligible to seed a dream."""
-    return [e for e in entries_on(profile, day) if not e["has_media"] and e["body"]]
+    """Entries created on `day` that carry writing (non-empty body) — the ones eligible to seed a
+    dream. Media-only entries (a file with no text) are excluded; media+text entries qualify and
+    seed the dream from their text portion, same as text-only ones."""
+    return [e for e in entries_on(profile, day) if e["body"]]
 
 
 def reflection_digest(profile: str, day) -> dict:

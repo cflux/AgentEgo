@@ -202,6 +202,119 @@ def correction_votes(corrections: list[dict], enriched: list[dict], cfg: dict) -
     return per_mood, per_corr
 
 
+# --- The corrective-layer view (UI data: Now/Why, backbone-vs-corrections, Gaps, shadow) ---
+
+def _narrative(current: dict | None, bb_ranked: list, corrs: list, moods: dict) -> str:
+    """Deterministic one-liner from the structured state — no LLM, truthful by construction."""
+    parts = [f"Currently **{current['name']}**." if current else "No mood set."]
+    if bb_ranked:
+        parts.append(f"The LLM reads {bb_ranked[0]['name']} strongest ({bb_ranked[0]['votes']:.0f})")
+        if len(bb_ranked) > 1:
+            parts[-1] += f", then {bb_ranked[1]['name']} ({bb_ranked[1]['votes']:.0f})."
+        else:
+            parts[-1] += "."
+    firing = [c for c in corrs if c.get("firing")]
+    if firing:
+        parts.append("Corrections firing: " + ", ".join(
+            f"{moods[c['target_mood']]['name']} +{c['contribution']:.1f}" for c in firing) + ".")
+    else:
+        parts.append("No corrections are firing right now.")
+    return " ".join(parts)
+
+
+async def _compute_gaps(profile_name: str, enr: list, moods: dict, corrs: list,
+                        backbone: dict, vote_map: dict) -> list:
+    """Deterministic gap analysis (no LLM): dead corrections, uncovered frequent emotions, and
+    cascade-escape interactions. Turns tuning into reacting to surfaced issues."""
+    from .settings_store import get_mood_cascade
+    gaps = []
+    for c in corrs:
+        if c.get("enabled") and c.get("contribution", 0.0) <= 0.05:
+            gaps.append({"kind": "dead", "text":
+                f"Correction for {moods[c['target_mood']]['name']} isn't firing — no matching emotion in recent rounds."})
+    covered: set = set()
+    for c in corrs:
+        covered |= set((c.get("agent_emotions") or {}).keys())
+    emo_freq: Counter = Counter()
+    for rnd in enr[:12]:
+        for e, s in (rnd.get("agent_scores") or {}).items():
+            if float(s) >= 0.5 and e not in ("neutral", "approval"):
+                emo_freq[e] += 1
+    for e, cnt in emo_freq.most_common(8):
+        if cnt >= 3 and e not in covered:
+            gaps.append({"kind": "uncovered", "text":
+                f"‘{e}’ scored in {cnt} recent rounds but no correction references it — add one?"})
+    _, cascade = await get_mood_cascade()
+    for c in corrs:
+        m = c["target_mood"]
+        if m in cascade and vote_map.get(m, 0) >= cascade[m].get("at", 99):
+            tgt = cascade[m].get("to")
+            gaps.append({"kind": "cascade", "text":
+                f"{moods[m]['name']} ({vote_map[m]:.0f}) exceeds its cascade threshold → escalates into "
+                f"{moods.get(tgt, {}).get('name', tgt)}; this correction's boost may be funneled away."})
+    return gaps
+
+
+async def _shadow_stats(profile_name: str) -> dict:
+    conn = await get_ego_db()
+    try:
+        cur = await conn.execute(
+            "SELECT value FROM module_data WHERE module='mood_shadow' AND key=?", (profile_name,))
+        row = await cur.fetchone()
+    finally:
+        await conn.close()
+    if not row:
+        return {"total": 0, "agree": 0, "disagreements": []}
+    try:
+        return json.loads(row[0])
+    except (TypeError, ValueError):
+        return {"total": 0, "agree": 0, "disagreements": []}
+
+
+async def corrective_view(profile_name: str, db_path: str | None = None) -> dict:
+    """Assemble everything the corrective-layer UI needs, for the shadow trial."""
+    from . import mood_engine as ME
+    from .settings_store import get_setting
+    from .profiles import resolve_profile
+    db_path = db_path or resolve_profile(profile_name)
+    moods = await ME._load_moods()
+    enr = await ME._build_round_enriched(profile_name, db_path)
+    cfg = await get_correction_config()
+    mode = await get_setting("mood_scoring_mode", "legacy")
+
+    vote_map, dbg = await v2_vote_map(profile_name, enr, moods, cfg)
+    backbone = dbg.get("backbone", {}); per_corr = dbg.get("per_correction", {})
+    bb_ranked = sorted(
+        ({"mood": m, "name": moods[m]["name"], "votes": backbone[m]} for m in backbone if m in moods),
+        key=lambda x: -x["votes"])[:8]
+
+    cached = await ME._load_cached_mood(profile_name)
+    thresholds = await ME._load_thresholds(profile_name)
+    v2_winner = await ME._resolve_mood(profile_name, dict(vote_map), [], moods, cached, thresholds, commit=False)
+    current = await ME.get_cached_mood(profile_name)
+
+    corrs = await list_corrections(profile_name)
+    for c in corrs:
+        c["contribution"] = round(per_corr.get(c["id"], 0.0), 2)
+        c["firing"] = c["contribution"] > 0.05
+        c["target_name"] = moods.get(c["target_mood"], {}).get("name", c["target_mood"])
+
+    gaps = await _compute_gaps(profile_name, enr, moods, corrs, backbone, vote_map)
+    shadow = await _shadow_stats(profile_name)
+    if shadow.get("disagreements"):
+        import datetime as _dt
+        for d in shadow["disagreements"]:
+            d["when"] = _dt.datetime.fromtimestamp(d.get("at", 0)).strftime("%m-%d %H:%M") if d.get("at") else ""
+
+    return {
+        "profile": profile_name, "mode": mode, "rounds": len(enr),
+        "current": current, "v2_winner": v2_winner,
+        "backbone": bb_ranked, "corrections": corrs, "gaps": gaps, "shadow": shadow,
+        "narrative": _narrative(current, bb_ranked, corrs, moods),
+        "config": cfg,
+    }
+
+
 # --- Derivation from the flip analysis (seeding) ---
 
 async def derive_corrections(profile_name: str, db_path: str | None = None,

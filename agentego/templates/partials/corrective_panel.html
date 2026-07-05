@@ -1,0 +1,135 @@
+{# Expects: v (corrective_view result), active_profile #}
+{% set maxbb = (v.backbone[0].votes if v.backbone else 1) or 1 %}
+
+<article style="padding:1rem 1.25rem; margin:0 0 1rem;">
+  <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center; justify-content:space-between;">
+    <div>
+      <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Now (legacy drives)</span><br>
+      <strong style="font-size:1.15rem; color:{{ v.current.color if v.current else '#888' }};">
+        {{ (v.current.icon ~ ' ' ~ v.current.name) if v.current else '—' }}</strong>
+    </div>
+    <div style="font-size:1.3rem; color:var(--pico-muted-color);">
+      {% if v.v2_winner and v.current and v.v2_winner.id == v.current.id %}✓ v2 agrees{% else %}⚠ v2 differs{% endif %}
+    </div>
+    <div style="text-align:right;">
+      <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">v2 would pick</span><br>
+      <strong style="font-size:1.15rem; color:#b47aff;">{{ v.v2_winner.name if v.v2_winner else '—' }}</strong>
+      {% if v.v2_winner %}<span style="font-size:0.78rem; color:var(--pico-muted-color);">({{ v.v2_winner.vote_count }})</span>{% endif %}
+    </div>
+  </div>
+  <p style="font-size:0.86rem; margin:0.75rem 0 0; color:var(--pico-color);">{{ v.narrative | safe }}</p>
+  <span style="font-size:0.72rem; color:var(--pico-muted-color);">mode: <strong>{{ v.mode }}</strong> · {{ v.rounds }} rounds · backbone×{{ v.config.backbone_scale }} · halflife {{ v.config.halflife }}</span>
+</article>
+
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+
+  {# --- Backbone --- #}
+  <article style="padding:1rem 1.25rem; margin:0;">
+    <h6 style="margin:0 0 0.6rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">LLM read (backbone)</h6>
+    {% for b in v.backbone %}
+    <div style="margin-bottom:0.4rem;">
+      <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
+        <span>{{ b.name }}</span><span style="color:var(--pico-muted-color);">{{ '%.1f'|format(b.votes) }}</span>
+      </div>
+      <div style="height:6px; background:var(--pico-muted-border-color); border-radius:3px; overflow:hidden;">
+        <div style="height:100%; width:{{ (b.votes / maxbb * 100)|round(0) }}%; background:#6a8fff;"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </article>
+
+  {# --- Corrections --- #}
+  <article style="padding:1rem 1.25rem; margin:0;">
+    <h6 style="margin:0 0 0.6rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Corrections (yours)</h6>
+    {% if not v.corrections %}<p style="font-size:0.82rem; color:var(--pico-muted-color);">None yet.</p>{% endif %}
+    {% for c in v.corrections %}
+    <div style="border:1px solid var(--pico-muted-border-color); border-radius:6px; padding:0.5rem 0.7rem; margin-bottom:0.5rem; {% if not c.enabled %}opacity:0.5;{% endif %}">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <strong style="font-size:0.9rem;">{{ c.target_name }}</strong>
+        <span style="font-size:0.8rem; color:{% if c.firing %}#4caf50{% else %}var(--pico-muted-color){% endif %};">
+          {% if c.firing %}▲ +{{ c.contribution }} firing{% else %}dormant{% endif %}</span>
+      </div>
+      <div style="font-size:0.76rem; color:var(--pico-muted-color); margin:0.2rem 0;">
+        ← {% for e,w in c.agent_emotions.items() %}{{ e }}{% if w < 1 %}·{{ w }}{% endif %}{{ ', ' if not loop.last }}{% endfor %}
+        {% if c.relation != 'none' %} · <em>{{ c.relation }}</em>{% endif %}
+        {% if c.mode %} · mode:{{ c.mode|join('/') }}{% endif %}
+      </div>
+      <div style="display:flex; gap:0.4rem; align-items:center; font-size:0.72rem;">
+        <span style="color:var(--pico-muted-color);">strength {{ c.strength }}</span>
+        <button class="secondary outline" style="margin:0; padding:0.1rem 0.5rem; font-size:0.72rem;"
+          hx-patch="/api/corrections/{{ c.id }}/toggle" hx-on::after-request="htmx.trigger('#corrective-panel','refresh')">
+          {{ 'disable' if c.enabled else 'enable' }}</button>
+        <button class="secondary outline" style="margin:0; padding:0.1rem 0.5rem; font-size:0.72rem;"
+          hx-delete="/api/corrections/{{ c.id }}" hx-confirm="Delete this correction?"
+          hx-on::after-request="htmx.trigger('#corrective-panel','refresh')">delete</button>
+        <details style="margin:0;"><summary style="cursor:pointer; font-size:0.72rem;">edit</summary>
+          <form method="post" action="/api/corrections/{{ c.id }}/edit" style="margin-top:0.4rem;">
+            <input type="hidden" name="profile" value="{{ active_profile }}">
+            <input name="agent_emotions" value="{% for e,w in c.agent_emotions.items() %}{{ e }}:{{ w }}{{ ', ' if not loop.last }}{% endfor %}" style="font-size:0.75rem; margin-bottom:0.3rem;" placeholder="emotion:weight, ...">
+            <input name="mode" value="{{ c.mode|join(',') }}" style="font-size:0.75rem; margin-bottom:0.3rem;" placeholder="modes (comma)">
+            <select name="relation" style="font-size:0.75rem; margin-bottom:0.3rem;">
+              {% for r in ['none','mutual','mismatch'] %}<option value="{{ r }}" {{ 'selected' if c.relation==r }}>{{ r }}</option>{% endfor %}
+            </select>
+            <input name="strength" type="number" step="0.05" min="0" max="1" value="{{ c.strength }}" style="font-size:0.75rem; margin-bottom:0.3rem;">
+            <button type="submit" style="margin:0; padding:0.2rem 0.7rem; font-size:0.75rem;">save</button>
+          </form>
+        </details>
+      </div>
+    </div>
+    {% endfor %}
+  </article>
+</div>
+
+{# --- Gaps --- #}
+<article style="padding:1rem 1.25rem; margin:1rem 0 0;">
+  <h6 style="margin:0 0 0.6rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Gaps <span style="text-transform:none; font-weight:400;">— deterministic, no LLM</span></h6>
+  {% if not v.gaps %}<p style="font-size:0.82rem; color:#4caf50;">✓ nothing flagged.</p>{% endif %}
+  {% for g in v.gaps %}
+  <div style="font-size:0.82rem; margin-bottom:0.35rem; color:{% if g.kind=='cascade' %}#ff9f4a{% elif g.kind=='dead' %}#e57373{% else %}var(--pico-color){% endif %};">
+    {% if g.kind=='uncovered' %}➕{% elif g.kind=='dead' %}💤{% elif g.kind=='cascade' %}⚡{% endif %} {{ g.text }}
+  </div>
+  {% endfor %}
+</article>
+
+{# --- Shadow comparison --- #}
+<article style="padding:1rem 1.25rem; margin:1rem 0 0;">
+  <h6 style="margin:0 0 0.6rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Shadow trial — v2 vs legacy</h6>
+  {% if v.shadow.total %}
+  <p style="font-size:0.85rem; margin:0 0 0.5rem;">
+    <strong>{{ v.shadow.agree }}/{{ v.shadow.total }}</strong> agree
+    ({{ (v.shadow.agree / v.shadow.total * 100)|round(0) }}%) over the trial.
+  </p>
+  {% if v.shadow.disagreements %}
+  <table style="font-size:0.78rem; margin:0;">
+    <thead><tr><th>when</th><th>legacy</th><th>v2</th><th>why (v2 backbone/corrections)</th></tr></thead>
+    <tbody>
+      {% for d in v.shadow.disagreements[:8] %}
+      <tr>
+        <td style="color:var(--pico-muted-color);">{{ d.when }}</td>
+        <td>{{ d.legacy }}</td><td style="color:#b47aff;">{{ d.v2 }}</td>
+        <td style="color:var(--pico-muted-color); font-size:0.72rem;">
+          {% if d.corrections %}corr: {% for m,x in d.corrections.items() %}{{ m }}+{{ x }} {% endfor %}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p style="font-size:0.8rem; color:#4caf50;">✓ no disagreements yet.</p>{% endif %}
+  {% else %}
+  <p style="font-size:0.82rem; color:var(--pico-muted-color);">No comparisons logged yet — accrues as moods are evaluated in shadow mode.</p>
+  {% endif %}
+</article>
+
+{# --- Add correction --- #}
+<details style="margin-top:1rem;">
+  <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">➕ Add a correction</summary>
+  <form method="post" action="/api/corrections" style="margin-top:0.6rem; display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:0.5rem; align-items:end;">
+    <input type="hidden" name="profile" value="{{ active_profile }}">
+    <label style="font-size:0.78rem;">Target mood<input name="target_mood" placeholder="flirty" required></label>
+    <label style="font-size:0.78rem;">Emotions<input name="agent_emotions" placeholder="desire:1.0, arousal:0.8" required></label>
+    <label style="font-size:0.78rem;">Relation<select name="relation">{% for r in ['none','mutual','mismatch'] %}<option>{{ r }}</option>{% endfor %}</select></label>
+    <label style="font-size:0.78rem;">Mode<input name="mode" placeholder="flirting"></label>
+    <label style="font-size:0.78rem;">Strength<input name="strength" type="number" step="0.05" min="0" max="1" value="0.6"></label>
+    <button type="submit" style="margin:0;">Add</button>
+  </form>
+</details>

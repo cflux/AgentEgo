@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Mood v2 (Corrective) — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>Mood Scoring v2 <small style="font-size:0.55em; color:var(--pico-muted-color);">LLM backbone + corrective layer · shadow trial</small></h2>
+
+{% if profiles and profiles|length > 1 %}
+<div class="profile-tabs">
+  {% for p in profiles %}
+  <a href="/corrective?profile={{ p.name }}" class="profile-tab {% if active_profile == p.name %}active{% endif %}">{{ p.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div style="text-align:right; margin-bottom:0.5rem;">
+  <button class="secondary outline" style="margin:0; padding:0.25rem 0.9rem; font-size:0.8rem;"
+    hx-get="/partials/corrective-panel?profile={{ active_profile }}" hx-target="#corrective-panel" hx-swap="innerHTML">↻ refresh</button>
+</div>
+
+<div id="corrective-panel"
+     hx-get="/partials/corrective-panel?profile={{ active_profile }}"
+     hx-trigger="refresh"
+     hx-swap="innerHTML">
+  {% include "partials/corrective_panel.html" %}
+</div>
+
+{% endblock %}

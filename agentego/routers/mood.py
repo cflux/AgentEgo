@@ -941,3 +941,84 @@ async def mood_badge_partial(request: Request, profile: str = ""):
         "partials/mood_badge.html",
         {"request": request, "profiles_moods": profiles_moods, "multi": multi},
     )
+
+
+# --- Mood scoring v2: corrective-layer view + CRUD (shadow trial) ---
+from ..services import mood_corrections as _mc
+
+
+def _parse_emotions(raw: str) -> dict:
+    """Parse 'desire:1.0, excitement:0.67' into {emotion: weight}."""
+    out = {}
+    for part in (raw or "").replace("\n", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if ":" in part:
+            e, w = part.split(":", 1)
+            try:
+                out[e.strip().lower()] = round(max(0.0, min(1.0, float(w))), 2)
+            except ValueError:
+                pass
+        else:
+            out[part.strip().lower()] = 1.0
+    return out
+
+
+@router.get("/corrective")
+async def corrective_page(request: Request, profile: str = "default"):
+    view = await _mc.corrective_view(profile, db_path=resolve_profile(profile))
+    return templates.TemplateResponse(
+        "corrective.html",
+        {"request": request, "v": view, "profiles": discover_profiles(), "active_profile": profile},
+    )
+
+
+@router.get("/partials/corrective-panel")
+async def corrective_panel(request: Request, profile: str = "default"):
+    view = await _mc.corrective_view(profile, db_path=resolve_profile(profile))
+    return templates.TemplateResponse(
+        "partials/corrective_panel.html", {"request": request, "v": view, "active_profile": profile},
+    )
+
+
+@router.post("/api/corrections")
+async def create_correction_ep(request: Request):
+    form = await request.form()
+    profile = str(form.get("profile", "default"))
+    target = str(form.get("target_mood", "")).strip()
+    emos = _parse_emotions(str(form.get("agent_emotions", "")))
+    if target and emos:
+        await _mc.create_correction(
+            profile, target, emos,
+            relation=str(form.get("relation", "none")),
+            mode=[m for m in str(form.get("mode", "")).split(",") if m.strip()],
+            strength=float(form.get("strength", 0.6) or 0.6),
+            note=str(form.get("note", "")).strip())
+    return RedirectResponse(f"/corrective?profile={profile}", status_code=303)
+
+
+@router.post("/api/corrections/{cid}/edit")
+async def edit_correction_ep(request: Request, cid: str):
+    form = await request.form()
+    profile = str(form.get("profile", "default"))
+    await _mc.update_correction(
+        cid,
+        agent_emotions=_parse_emotions(str(form.get("agent_emotions", ""))),
+        relation=str(form.get("relation", "none")),
+        mode=[m for m in str(form.get("mode", "")).split(",") if m.strip()],
+        strength=float(form.get("strength", 0.6) or 0.6),
+        note=str(form.get("note", "")).strip())
+    return RedirectResponse(f"/corrective?profile={profile}", status_code=303)
+
+
+@router.patch("/api/corrections/{cid}/toggle")
+async def toggle_correction_ep(cid: str):
+    await _mc.toggle_correction(cid)
+    return Response(status_code=200)
+
+
+@router.delete("/api/corrections/{cid}")
+async def delete_correction_ep(cid: str):
+    await _mc.delete_correction(cid)
+    return Response(status_code=200)

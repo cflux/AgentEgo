@@ -641,9 +641,13 @@ async def _mood_tenure(profile_name: str) -> int:
 
 
 async def _cooldown_excluded(profile_name: str, decay_cfg: dict, cascade: dict) -> set:
-    """Moods barred from winning because they were just vacated (+ their reverse-cascade chain).
-    Barred for grace + cooldown_buffer rounds — anchored to outlast the NEW mood's grace so the
-    lookback signal turns over before the old mood is eligible again (no synced A→B→A bounce)."""
+    """Bar ONLY the just-vacated mood from winning for grace + cooldown_buffer rounds — anchored to
+    outlast the NEW mood's grace so the lookback signal turns over before it's eligible again (no synced
+    A→B→A bounce). We deliberately do NOT bar its reverse-cascade feeders: they're legitimate alternative
+    moods, and barring the whole chain muted a family of moods (e.g. Affectionate/Playful/Hopeful when
+    Creative cooled) — including correction targets. A feeder that cascades into the barred mood simply
+    can't win anyway (the target stays excluded), so the anti-bounce still holds. `cascade` kept for
+    signature stability."""
     if not decay_cfg.get("enabled"):
         return set()
     cd = await _get_mood_cooldown(profile_name)
@@ -651,7 +655,7 @@ async def _cooldown_excluded(profile_name: str, decay_cfg: dict, cascade: dict) 
         return set()
     bar = decay_cfg.get("grace", 0) + decay_cfg.get("cooldown", 0)
     if await _rounds_since(profile_name, cd.get("at", 0)) < bar:
-        return _reverse_cascade_chain(cd["mood"], cascade)
+        return {cd["mood"]}
     return set()
 
 

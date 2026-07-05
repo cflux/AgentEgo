@@ -18,6 +18,13 @@
     </div>
   </div>
   <p style="font-size:0.86rem; margin:0.75rem 0 0; color:var(--pico-color);">{{ v.narrative | safe }}</p>
+  {% if v.shaping.note or v.shaping.cooldown %}
+  <div style="font-size:0.78rem; margin-top:0.45rem;">
+    {% if v.shaping.note %}<span style="color:#e0a04a;">⚙ {{ v.shaping.note }}</span>{% endif %}
+    {% if v.shaping.cooldown %}<span style="color:var(--pico-muted-color);"> · cooldown: {{ v.shaping.cooldown | join(', ') }}</span>{% endif %}
+    <span style="color:var(--pico-muted-color);"> · held {{ v.shaping.tenure }}r{% if v.shaping.bias %}, bias {{ v.shaping.bias }}{% endif %}</span>
+  </div>
+  {% endif %}
   <span style="font-size:0.72rem; color:var(--pico-muted-color);">mode: <strong>{{ v.mode }}</strong> · {{ v.rounds }} rounds · backbone×{{ v.config.backbone_scale }} · halflife {{ v.config.halflife }}</span>
 </article>
 
@@ -79,6 +86,26 @@
     {% endfor %}
   </article>
 </div>
+
+{# --- Per-round detail (what the corrections react to) --- #}
+<details style="margin-top:1rem;">
+  <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">🔬 Recent rounds — agent emotions (what corrections react to)</summary>
+  <table style="font-size:0.78rem; margin-top:0.5rem;">
+    <thead><tr><th style="width:5rem;">when</th><th style="width:5rem;">mode</th><th>agent emotions <span style="font-weight:400; color:var(--pico-muted-color);">(purple = referenced by a correction)</span></th></tr></thead>
+    <tbody>
+      {% for r in v.rounds_detail %}
+      <tr>
+        <td style="color:var(--pico-muted-color);">{{ r.when }}</td>
+        <td>{{ r.mode or '—' }}</td>
+        <td>
+          {% for em in r.emotions %}<span style="{% if em.corr %}font-weight:700; color:#b47aff;{% endif %}">{{ em.e }}&nbsp;{{ em.v }}</span>{{ ', ' if not loop.last }}{% endfor %}
+          {% if not r.emotions %}<span style="color:var(--pico-muted-color);">—</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
 
 {# --- Gaps --- #}
 <article style="padding:1rem 1.25rem; margin:1rem 0 0;">

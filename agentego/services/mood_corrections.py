@@ -332,6 +332,51 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
         c["firing"] = c["contribution"] > 0.05
         c["target_name"] = moods.get(c["target_mood"], {}).get("name", c["target_mood"])
 
+    # Shaping visibility — what the cascade/bias/cooldown layer does AFTER the scores (why the winner
+    # can differ from the top LLM read).
+    from .settings_store import get_mood_decay_config, get_transition_config, get_mood_cascade
+    decay_cfg = await get_mood_decay_config(); tcfg = await get_transition_config()
+    _, cascade = await get_mood_cascade()
+    cooldown = await ME._cooldown_excluded(profile_name, decay_cfg, cascade)
+    tenure = await ME._mood_tenure(profile_name)
+    bias = ME._incumbent_bias(tenure, tcfg, decay_cfg)
+    ranked = sorted(vote_map, key=vote_map.get, reverse=True)
+    winner_id = v2_winner["id"] if v2_winner else None
+    barred_higher = [moods[m]["name"] for m in ranked
+                     if m in cooldown and m in moods
+                     and (winner_id is None or vote_map[m] > vote_map.get(winner_id, 0))]
+    top_raw = ranked[0] if ranked else None
+    note = ""
+    if winner_id and top_raw and top_raw != winner_id:
+        if barred_higher:
+            note = f"{', '.join(barred_higher)} outscore {moods[winner_id]['name']} but are on cooldown — so it wins by elimination."
+        elif top_raw in cascade and cascade[top_raw].get("to") in cooldown:
+            tgt = cascade[top_raw]["to"]
+            note = (f"{moods[top_raw]['name']} (top) cascades into {moods.get(tgt, {}).get('name', tgt)}, "
+                    f"which is on cooldown — so its votes are lost and {moods[winner_id]['name']} wins.")
+        elif winner_id == cached and bias > 0:
+            note = f"{moods[winner_id]['name']} is held on inertia (+{bias})."
+        else:
+            note = f"{moods[winner_id]['name']} wins after shaping (cascade/bias)."
+    shaping = {"cooldown": [moods[m]["name"] for m in cooldown if m in moods],
+               "tenure": tenure, "bias": bias, "note": note}
+
+    # Per-round emotion detail — what the corrections are reacting to (helps tune weights/strength).
+    import datetime as _dt
+    corr_emos: set = set()
+    for c in corrs:
+        corr_emos |= set((c.get("agent_emotions") or {}).keys())
+    rounds_detail = []
+    for rnd in enr[:10]:
+        sc = rnd.get("agent_scores") or {}
+        tops = sorted(((e, round(float(v), 2)) for e, v in sc.items()
+                       if e not in ("neutral", "approval") and float(v) >= 0.2), key=lambda x: -x[1])[:6]
+        rounds_detail.append({
+            "when": _dt.datetime.fromtimestamp(rnd.get("end_ts", 0)).strftime("%m-%d %H:%M") if rnd.get("end_ts") else "",
+            "mode": rnd.get("mode"),
+            "emotions": [{"e": e, "v": v, "corr": e in corr_emos} for e, v in tops],
+        })
+
     gaps = await _compute_gaps(profile_name, enr, moods, corrs, backbone, vote_map)
     shadow = await _shadow_stats(profile_name)
     if shadow.get("disagreements"):
@@ -343,6 +388,7 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
         "profile": profile_name, "mode": mode, "rounds": len(enr),
         "current": current, "v2_winner": v2_winner,
         "backbone": bb_ranked, "corrections": corrs, "gaps": gaps, "shadow": shadow,
+        "shaping": shaping, "rounds_detail": rounds_detail,
         "narrative": _narrative(current, bb_ranked, corrs, moods),
         "config": cfg,
     }

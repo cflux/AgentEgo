@@ -82,7 +82,14 @@ async def _round_exchanges() -> int:
 def split_into_rounds(messages: list, exchanges_per_round: int = 3) -> list:
     """Group a conversation's messages into 'rounds' of ~N exchanges. An exchange is a
     contiguous run of user message(s) followed by a contiguous run of agent message(s);
-    a new exchange begins when the user speaks again after the agent replied."""
+    a new exchange begins when the user speaks again after the agent replied.
+
+    Only real *dialogue* forms rounds: user/assistant turns with actual text content. Tool-result
+    messages and empty pure-tool-call assistant turns (skill/tool execution — image gen, terminal,
+    vision, etc.) carry no conversational or emotional signal; counting them bloats msg_count and
+    creates text-less 'odd' rounds, so they're excluded from round formation and scoring windows."""
+    messages = [m for m in messages
+                if m.get("role") in ("user", "assistant") and (m.get("content") or "").strip()]
     if not messages:
         return []
     exchanges: list[list] = []

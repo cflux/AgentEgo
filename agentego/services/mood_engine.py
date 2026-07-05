@@ -472,23 +472,25 @@ def _transition_effective(vote_map: dict, moods: dict, cached_mood_id, tcfg: dic
     penalty = tcfg.get("penalty", 0)
     allowed = None
     applied = 0
-    decayed_chain: set = set()
+    feeder_chain: set = set()
     if tcfg.get("enabled") and cached_mood_id in moods:
         if bias:
             vote_map[cached_mood_id] = vote_map.get(cached_mood_id, 0) + bias
             applied = bias
-        if bias < 0 and cascade:
-            decayed_chain = _reverse_cascade_chain(cached_mood_id, cascade)
-            for x in decayed_chain:
-                if x != cached_mood_id and x in vote_map:
-                    vote_map[x] = vote_map[x] + bias
+        # The incumbent's cascade feeders are tracked ONLY for the cooldown-destination guard (so we
+        # never bar a mood we're handing off to). They are NOT decayed — feeders are legitimate
+        # alternative moods, and dragging them down with the incumbent blocks a genuine handoff (e.g.
+        # an affectionate stretch could never surface as Affectionate while Creative — which it feeds
+        # — was the overstayed incumbent). Re-cascade bounce is handled by the post-eviction cooldown.
+        if cascade:
+            feeder_chain = _reverse_cascade_chain(cached_mood_id, cascade)
         allowed = set(tcfg.get("adjacency", {}).get(cached_mood_id, set())) | {cached_mood_id}
     effective = {}
     for mid, v in vote_map.items():
         pen = penalty if (allowed is not None and mid not in allowed) else 0
         effective[mid] = v - pen
     return effective, allowed, {"bias": applied, "penalty": penalty, "cached": cached_mood_id,
-                                "enabled": bool(allowed is not None), "decayed_chain": decayed_chain}
+                                "enabled": bool(allowed is not None), "feeder_chain": feeder_chain}
 
 
 def _reverse_cascade_chain(target, cascade: dict) -> set:
@@ -959,9 +961,10 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
     winner_votes = vote_map[winner_id]
 
     # Anti-stuck eviction only: if we left the current mood while it was over-tenure (bias negative),
-    # bar it (+ its cascade chain) until the new mood has had its run — no synced bounce-back.
+    # bar it until the new mood has had its run — no synced bounce-back. Skip when we handed off to one
+    # of its feeders (the cooldown would otherwise bar the mood we just moved to).
     if cached_mood_id and winner_id != cached_mood_id and tinfo["bias"] < 0 \
-            and winner_id not in tinfo["decayed_chain"]:
+            and winner_id not in tinfo["feeder_chain"]:
         await _set_mood_cooldown(profile_name, cached_mood_id)
 
     winner = {**moods[winner_id], "vote_count": winner_votes, "breakdown": breakdown}
@@ -1032,7 +1035,7 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
         casc_here = casc_deltas.get(mid, 0)
         bias_here = tinfo["bias"] if (mid == cached_mood_id) else 0
         penalized = allowed is not None and mid not in allowed
-        decayed_here = mid in tinfo["decayed_chain"]
+        decayed_here = mid == cached_mood_id and tinfo["bias"] < 0
         on_cooldown = mid in cooldown_excluded
         tally.append({
             "mood_id": mid, "name": moods[mid]["name"] if mid in moods else mid,
@@ -1084,7 +1087,8 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
         "decay_enabled": decay_cfg["enabled"],
         "tenure": tenure,
         "decay": -tinfo["bias"] if tinfo["bias"] < 0 else 0,
-        "decayed_chain": sorted(moods[m]["name"] for m in tinfo["decayed_chain"] if m in moods),
+        "decayed_chain": ([moods[cached_mood_id]["name"]]
+                          if (tinfo["bias"] < 0 and cached_mood_id in moods) else []),
         "cooldown_moods": sorted(moods[m]["name"] for m in cooldown_excluded if m in moods),
     }
 

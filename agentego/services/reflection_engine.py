@@ -30,6 +30,20 @@ def _day_str(ts: float | None = None) -> str:
     return datetime.fromtimestamp(ts or time.time()).strftime("%Y-%m-%d")
 
 
+def _match_mood(raw: str, moods: dict) -> str | None:
+    """Resolve an LLM-returned mood to a known id: exact id, else case-insensitive id or name
+    (the model sometimes returns the display name, e.g. "Playful", instead of the id)."""
+    if not raw:
+        return None
+    if raw in moods:
+        return raw
+    low = raw.strip().lower()
+    for mid, m in moods.items():
+        if mid.lower() == low or str(m.get("name", "")).lower() == low:
+            return mid
+    return None
+
+
 def _parse_json(raw: str) -> dict:
     """Tolerant JSON parse: direct, else first {...} block."""
     try:
@@ -222,8 +236,12 @@ async def _dream(persona: str, day_text: str, day_mood_id: str | None, moods: di
     dream = str(data.get("dream", "")).strip()
     if not dream:
         return "", None
-    wake = str(data.get("wake_mood", "")).strip()
-    wake_id = wake if wake in moods else None
+    # A dream occurred, so it should steer the wake mood. Take the model's pick (tolerant of
+    # name-vs-id), and if it gave nothing usable, let the day's mood carry the wake rather than
+    # leak into the random resting-default fallback (which is reserved for dreamless nights).
+    wake_id = _match_mood(str(data.get("wake_mood", "")).strip(), moods)
+    if wake_id is None and day_mood_id in moods:
+        wake_id = day_mood_id
     return DREAM_FRAME + dream, wake_id
 
 

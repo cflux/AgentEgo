@@ -61,7 +61,9 @@ async def wake(profile: str = "default") -> dict:
     r = await reflection_engine.get_today_reflection(profile)
     from_dream = bool(r and r["dream_occurred"] and r["dream_mood_id"])
     target = r["dream_mood_id"] if from_dream else await _resting_mood(profile)
-    reset = await mood_engine.reset_mood(profile, target) if target else None
+    note = (["Woke from last night's dream"] if from_dream
+            else ["Woke into a resting mood — random pick from the default set (no dream, no rule fired)"])
+    reset = await mood_engine.reset_mood(profile, target, note) if target else None
     return {
         "profile": profile,
         "reset_to": reset["id"] if reset else None,

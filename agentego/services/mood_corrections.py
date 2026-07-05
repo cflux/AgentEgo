@@ -17,6 +17,40 @@ from ..db.ego import get_ego_db
 _COLS = ("id, profile_name, target_mood, agent_emotions, relation, user_emotions, mode, "
          "topic_contains, strength, note, enabled, created_at")
 
+# Conversation modes available as the "undercurrent" trigger (mirrors the mood rule-builder).
+CONVERSATION_MODES = ["work", "social", "informative", "serious", "flirting", "creative", "support"]
+
+# Grouping for the emotion picker so it's scannable (unknown/extra taxonomy emotions → "Other").
+_EMOTION_GROUP_MAP = {
+    "Warm / positive": ["admiration", "affection", "amusement", "approval", "awe", "caring",
+                        "contentment", "gratitude", "joy", "love", "optimism", "pride", "relief",
+                        "tenderness", "trust"],
+    "Desire / romantic": ["desire", "arousal", "lust", "horny", "yearning", "longing",
+                          "infatuation", "passion", "possessiveness"],
+    "Negative": ["anger", "annoyance", "boredom", "contempt", "disappointment", "disapproval",
+                "disgust", "embarrassment", "fear", "grief", "jealousy", "loneliness",
+                "nervousness", "remorse", "sadness"],
+    "Cognitive / other": ["anticipation", "confusion", "curiosity", "excitement", "realization",
+                          "surprise", "neutral", "approval"],
+}
+
+
+async def emotion_groups() -> dict:
+    """{group: [emotion]} over the configured taxonomy, for the picker (extras → 'Other')."""
+    from .settings_store import get_emotion_taxonomy
+    tax = set(await get_emotion_taxonomy())
+    groups: dict = {}
+    placed: set = set()
+    for grp, emos in _EMOTION_GROUP_MAP.items():
+        picks = [e for e in emos if e in tax and e not in placed]
+        if picks:
+            groups[grp] = picks
+            placed |= set(picks)
+    extra = sorted(tax - placed)
+    if extra:
+        groups["Other"] = extra
+    return groups
+
 
 def _j(v, default):
     try:
@@ -399,6 +433,9 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
         "shaping": shaping, "rounds_detail": rounds_detail,
         "narrative": _narrative(current, bb_ranked, net_ranked, corrs, moods),
         "config": cfg,
+        "all_moods": sorted(({"id": m, "name": moods[m]["name"]} for m in moods), key=lambda x: x["name"]),
+        "all_modes": CONVERSATION_MODES,
+        "emotion_groups": await emotion_groups(),
     }
 
 

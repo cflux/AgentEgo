@@ -1,4 +1,5 @@
 {# Expects: v (corrective_view result), active_profile #}
+{% from "partials/correction_form.html" import correction_fields %}
 {% set maxbb = (v.backbone[0].votes if v.backbone else 1) or 1 %}
 
 <article style="padding:1rem 1.25rem; margin:0 0 1rem;">
@@ -74,15 +75,10 @@
           hx-delete="/api/corrections/{{ c.id }}" hx-confirm="Delete this correction?"
           hx-on::after-request="htmx.trigger('#corrective-panel','refresh')">delete</button>
         <details style="margin:0;"><summary style="cursor:pointer; font-size:0.72rem;">edit</summary>
-          <form method="post" action="/api/corrections/{{ c.id }}/edit" style="margin-top:0.4rem;">
+          <form method="post" action="/api/corrections/{{ c.id }}/edit" style="margin-top:0.5rem;">
             <input type="hidden" name="profile" value="{{ active_profile }}">
-            <input name="agent_emotions" value="{% for e,w in c.agent_emotions.items() %}{{ e }}:{{ w }}{{ ', ' if not loop.last }}{% endfor %}" style="font-size:0.75rem; margin-bottom:0.3rem;" placeholder="emotion:weight, ...">
-            <input name="mode" value="{{ c.mode|join(',') }}" style="font-size:0.75rem; margin-bottom:0.3rem;" placeholder="modes (comma)">
-            <select name="relation" style="font-size:0.75rem; margin-bottom:0.3rem;">
-              {% for r in ['none','mutual','mismatch'] %}<option value="{{ r }}" {{ 'selected' if c.relation==r }}>{{ r }}</option>{% endfor %}
-            </select>
-            <input name="strength" type="number" step="0.05" min="0" max="1" value="{{ c.strength }}" style="font-size:0.75rem; margin-bottom:0.3rem;">
-            <button type="submit" style="margin:0; padding:0.2rem 0.7rem; font-size:0.75rem;">save</button>
+            {{ correction_fields(v, c) }}
+            <button type="submit" style="margin:0.5rem 0 0; padding:0.25rem 0.9rem; font-size:0.78rem;">save</button>
           </form>
         </details>
       </div>
@@ -154,13 +150,9 @@
 {# --- Add correction --- #}
 <details style="margin-top:1rem;">
   <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">➕ Add a correction</summary>
-  <form method="post" action="/api/corrections" style="margin-top:0.6rem; display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:0.5rem; align-items:end;">
+  <form method="post" action="/api/corrections" style="margin-top:0.6rem;">
     <input type="hidden" name="profile" value="{{ active_profile }}">
-    <label style="font-size:0.78rem;">Target mood<input name="target_mood" placeholder="flirty" required></label>
-    <label style="font-size:0.78rem;">Emotions<input name="agent_emotions" placeholder="desire:1.0, arousal:0.8" required></label>
-    <label style="font-size:0.78rem;">Relation<select name="relation">{% for r in ['none','mutual','mismatch'] %}<option>{{ r }}</option>{% endfor %}</select></label>
-    <label style="font-size:0.78rem;">Mode<input name="mode" placeholder="flirting"></label>
-    <label style="font-size:0.78rem;">Strength<input name="strength" type="number" step="0.05" min="0" max="1" value="0.6"></label>
-    <button type="submit" style="margin:0;">Add</button>
+    {{ correction_fields(v, none) }}
+    <button type="submit" style="margin:0.5rem 0 0;">Add correction</button>
   </form>
 </details>

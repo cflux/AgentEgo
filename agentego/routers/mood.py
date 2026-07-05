@@ -947,22 +947,20 @@ async def mood_badge_partial(request: Request, profile: str = ""):
 from ..services import mood_corrections as _mc
 
 
-def _parse_emotions(raw: str) -> dict:
-    """Parse 'desire:1.0, excitement:0.67' into {emotion: weight}."""
+def _parse_emotions_form(form) -> dict:
+    """Read the emotion picker: checkboxes named 'emo' + a weight input 'w_<emotion>' each."""
     out = {}
-    for part in (raw or "").replace("\n", ",").split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if ":" in part:
-            e, w = part.split(":", 1)
-            try:
-                out[e.strip().lower()] = round(max(0.0, min(1.0, float(w))), 2)
-            except ValueError:
-                pass
-        else:
-            out[part.strip().lower()] = 1.0
+    emos = form.getlist("emo") if hasattr(form, "getlist") else []
+    for e in emos:
+        try:
+            out[e] = round(max(0.0, min(1.0, float(form.get(f"w_{e}", "1.0")))), 2)
+        except (TypeError, ValueError):
+            out[e] = 1.0
     return out
+
+
+def _form_list(form, key: str) -> list:
+    return [x for x in (form.getlist(key) if hasattr(form, "getlist") else []) if x]
 
 
 @router.get("/corrective")
@@ -987,12 +985,12 @@ async def create_correction_ep(request: Request):
     form = await request.form()
     profile = str(form.get("profile", "default"))
     target = str(form.get("target_mood", "")).strip()
-    emos = _parse_emotions(str(form.get("agent_emotions", "")))
+    emos = _parse_emotions_form(form)
     if target and emos:
         await _mc.create_correction(
             profile, target, emos,
             relation=str(form.get("relation", "none")),
-            mode=[m for m in str(form.get("mode", "")).split(",") if m.strip()],
+            mode=_form_list(form, "mode"),
             strength=float(form.get("strength", 0.6) or 0.6),
             note=str(form.get("note", "")).strip())
     return RedirectResponse(f"/corrective?profile={profile}", status_code=303)
@@ -1004,9 +1002,9 @@ async def edit_correction_ep(request: Request, cid: str):
     profile = str(form.get("profile", "default"))
     await _mc.update_correction(
         cid,
-        agent_emotions=_parse_emotions(str(form.get("agent_emotions", ""))),
+        agent_emotions=_parse_emotions_form(form),
         relation=str(form.get("relation", "none")),
-        mode=[m for m in str(form.get("mode", "")).split(",") if m.strip()],
+        mode=_form_list(form, "mode"),
         strength=float(form.get("strength", 0.6) or 0.6),
         note=str(form.get("note", "")).strip())
     return RedirectResponse(f"/corrective?profile={profile}", status_code=303)

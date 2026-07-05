@@ -1,0 +1,49 @@
+{# Reusable correction form fields (typo-proof selectors). Expects v (has all_moods, all_modes,
+   emotion_groups) and c = the correction being edited, or None for a new one.
+   Caller wraps these in <form> and provides the hidden 'profile' + submit button. #}
+{% macro correction_fields(v, c=None) %}
+<label style="font-size:0.78rem; display:block; margin-bottom:0.4rem;">Target mood
+  <select name="target_mood" required>
+    <option value="">— pick a mood —</option>
+    {% for m in v.all_moods %}<option value="{{ m.id }}" {% if c and c.target_mood==m.id %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
+  </select>
+</label>
+
+<fieldset style="margin:0 0 0.4rem;">
+  <legend style="font-size:0.74rem; color:var(--pico-muted-color);">Emotions — check any, set weight 0–1</legend>
+  {% for grp, emos in v.emotion_groups.items() %}
+  <div style="margin-bottom:0.35rem;">
+    <div style="font-size:0.66rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--pico-muted-color); margin-bottom:0.15rem;">{{ grp }}</div>
+    {% for e in emos %}
+      {% set w = c.agent_emotions.get(e) if c else None %}
+      <label style="display:inline-flex; align-items:center; gap:0.2rem; font-size:0.74rem; margin:0 0.6rem 0.25rem 0;">
+        <input type="checkbox" name="emo" value="{{ e }}" {% if w is not none %}checked{% endif %} style="margin:0; width:auto;">
+        {{ e }}
+        <input type="number" name="w_{{ e }}" value="{{ w if w is not none else '1.0' }}" min="0" max="1" step="0.1"
+               style="width:3.1rem; margin:0; padding:0.05rem 0.25rem; font-size:0.72rem;" title="weight">
+      </label>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</fieldset>
+
+<fieldset style="margin:0 0 0.4rem;">
+  <legend style="font-size:0.74rem; color:var(--pico-muted-color);">Mode undercurrent (optional)</legend>
+  {% for md in v.all_modes %}
+  <label style="display:inline-flex; align-items:center; gap:0.2rem; font-size:0.74rem; margin:0 0.6rem 0 0;">
+    <input type="checkbox" name="mode" value="{{ md }}" {% if c and md in c.mode %}checked{% endif %} style="margin:0; width:auto;"> {{ md }}
+  </label>
+  {% endfor %}
+</fieldset>
+
+<div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:end;">
+  <label style="font-size:0.78rem;">Relation
+    <select name="relation">
+      {% for r in ['none','mutual','mismatch'] %}<option value="{{ r }}" {% if (c and c.relation==r) or (not c and r=='none') %}selected{% endif %}>{{ r }}</option>{% endfor %}
+    </select>
+  </label>
+  <label style="font-size:0.78rem;">Strength (0–1)
+    <input type="number" name="strength" min="0" max="1" step="0.05" value="{{ c.strength if c else '0.6' }}" style="width:5.5rem;">
+  </label>
+</div>
+{% endmacro %}

@@ -307,8 +307,12 @@ _DEFAULT_SETTINGS = {
     "mood_cascade": '{"flirty":{"to":"horny","at":12},"curious":{"to":"focused","at":10},"lonely":{"to":"sad","at":8},"frustrated":{"to":"tired","at":9},"bored":{"to":"tired","at":8},"jealous":{"to":"frustrated","at":8}}',
     "mood_decay_enabled": "1",
     "mood_decay_grace": "5",
-    "mood_decay_rate": "3",
-    "mood_decay_cooldown": "4",
+    "mood_decay_rate": "1",
+    "mood_decay_cooldown": "4",   # buffer rounds added to grace for the vacated-mood cooldown
+    # Homeostasis v2 (see settings_store.DEFAULTS for docs): tenure-shaped incumbent bias + hysteresis.
+    "mood_switch_margin": "1",
+    "mood_fuzzy_select": "0",
+    "mood_fuzzy_band": "2",
     "mood_directive_enabled": "1",
     "mood_directive_template": (
         "## Current disposition\n"

@@ -461,26 +461,34 @@ def _llm_mood_votes(enriched: list, moods: dict, threshold: float, weight: int) 
     return votes, breakdown
 
 
-def _transition_effective(vote_map: dict, moods: dict, cached_mood_id, tcfg: dict) -> tuple[dict, set | None, dict]:
-    """Natural-transition shaping. Adds an inertia bonus to the incumbent mood (mutates
-    vote_map) and computes *effective* votes where moods not adjacent to the current mood are
-    penalized — so the mood steps to a neighbor (or stays) unless a far mood's signal clearly
-    overpowers it. Returns (effective_votes, allowed_set_or_None, info)."""
-    inertia = tcfg.get("inertia", 0)
+def _transition_effective(vote_map: dict, moods: dict, cached_mood_id, tcfg: dict,
+                          bias: float = 0.0, cascade: dict | None = None) -> tuple[dict, set | None, dict]:
+    """Transition shaping. Applies the tenure-shaped incumbent `bias` (mutates vote_map): positive
+    while the mood is fresh (anti-chatter), ~0 near grace (hold on genuine votes), negative-unbounded
+    when overstayed (anti-stuck escape valve). The negative portion also erodes the incumbent's
+    reverse-cascade chain so a feeder can't just re-escalate it. Then penalizes moods not adjacent to
+    the current one — so the mood steps to a neighbor (or stays) unless a far mood clearly overpowers
+    it. Returns (effective_votes, allowed_set_or_None, info)."""
     penalty = tcfg.get("penalty", 0)
     allowed = None
     applied = 0
+    decayed_chain: set = set()
     if tcfg.get("enabled") and cached_mood_id in moods:
-        if inertia:
-            vote_map[cached_mood_id] = vote_map.get(cached_mood_id, 0) + inertia
-            applied = inertia
+        if bias:
+            vote_map[cached_mood_id] = vote_map.get(cached_mood_id, 0) + bias
+            applied = bias
+        if bias < 0 and cascade:
+            decayed_chain = _reverse_cascade_chain(cached_mood_id, cascade)
+            for x in decayed_chain:
+                if x != cached_mood_id and x in vote_map:
+                    vote_map[x] = vote_map[x] + bias
         allowed = set(tcfg.get("adjacency", {}).get(cached_mood_id, set())) | {cached_mood_id}
     effective = {}
     for mid, v in vote_map.items():
         pen = penalty if (allowed is not None and mid not in allowed) else 0
         effective[mid] = v - pen
-    return effective, allowed, {"inertia": applied, "penalty": penalty, "cached": cached_mood_id,
-                                "enabled": bool(allowed is not None)}
+    return effective, allowed, {"bias": applied, "penalty": penalty, "cached": cached_mood_id,
+                                "enabled": bool(allowed is not None), "decayed_chain": decayed_chain}
 
 
 def _reverse_cascade_chain(target, cascade: dict) -> set:
@@ -609,31 +617,85 @@ async def reset_mood(profile_name: str, mood_id: str) -> dict | None:
     return {**moods[mood_id], "vote_count": 0, "breakdown": ["Reset (waking)"]}
 
 
-async def _decay_state(profile_name: str, effective: dict, cached_mood_id, decay_cfg: dict,
-                       cascade: dict) -> dict:
-    """Homeostatic anti-stuck decay. Mutates `effective`: as the current mood's tenure (rounds
-    since it was set) grows past the grace period, discount it AND its reverse-cascade chain so a
-    fresh mood can take over. Also computes the cooldown exclusion (a just-vacated mood + its chain
-    barred from returning for a few rounds). Returns diagnostics for the debug view."""
-    info = {"tenure": 0, "decay": 0, "decayed_chain": set(), "cooldown_excluded": set()}
-    if not decay_cfg.get("enabled") or not cached_mood_id:
-        return info
-    changed_at = await _mood_change_at(profile_name)
-    tenure = await _rounds_since(profile_name, changed_at)
-    info["tenure"] = tenure
-    decay = max(0, tenure - decay_cfg["grace"]) * decay_cfg["rate"]
-    if decay > 0:
-        chain = _reverse_cascade_chain(cached_mood_id, cascade)
-        for x in chain:
-            if x in effective:
-                effective[x] -= decay
-        info["decay"] = decay
-        info["decayed_chain"] = chain
+def _incumbent_bias(tenure: int, tcfg: dict, decay_cfg: dict) -> int:
+    """Tenure-shaped bias carried by the incumbent (homeostasis v2). B = inertia − max(0, tenure −
+    grace) * rate: +inertia while fresh (anti-chatter) → ~0 near grace (hold on genuine votes) →
+    negative-unbounded when overstayed (the anti-stuck escape valve that eventually overtakes any
+    self-reinforced lead, cascade or not). 0 when transitions are disabled; constant inertia when
+    decay is disabled."""
+    if not tcfg.get("enabled"):
+        return 0
+    inertia = tcfg.get("inertia", 0)
+    if not decay_cfg.get("enabled"):
+        return inertia
+    return inertia - max(0, tenure - decay_cfg.get("grace", 0)) * decay_cfg.get("rate", 0)
+
+
+async def _mood_tenure(profile_name: str) -> int:
+    """Rounds the current mood has been held (since the last mood_history change)."""
+    return await _rounds_since(profile_name, await _mood_change_at(profile_name))
+
+
+async def _cooldown_excluded(profile_name: str, decay_cfg: dict, cascade: dict) -> set:
+    """Moods barred from winning because they were just vacated (+ their reverse-cascade chain).
+    Barred for grace + cooldown_buffer rounds — anchored to outlast the NEW mood's grace so the
+    lookback signal turns over before the old mood is eligible again (no synced A→B→A bounce)."""
+    if not decay_cfg.get("enabled"):
+        return set()
     cd = await _get_mood_cooldown(profile_name)
-    if cd and cd.get("mood"):
-        if await _rounds_since(profile_name, cd.get("at", 0)) < decay_cfg["cooldown"]:
-            info["cooldown_excluded"] = _reverse_cascade_chain(cd["mood"], cascade)
-    return info
+    if not cd or not cd.get("mood"):
+        return set()
+    bar = decay_cfg.get("grace", 0) + decay_cfg.get("cooldown", 0)
+    if await _rounds_since(profile_name, cd.get("at", 0)) < bar:
+        return _reverse_cascade_chain(cd["mood"], cascade)
+    return set()
+
+
+async def _moods_last_used(profile_name: str, mids: list) -> dict:
+    """{mood_id: last changed_at} for the given moods, for least-recently-used tie-breaking."""
+    if not mids:
+        return {}
+    conn = await get_ego_db()
+    try:
+        ph = ",".join("?" * len(mids))
+        cursor = await conn.execute(
+            f"SELECT mood_id, MAX(changed_at) FROM mood_history WHERE profile_name = ? "
+            f"AND mood_id IN ({ph}) GROUP BY mood_id",
+            [profile_name, *mids],
+        )
+        return {r[0]: r[1] for r in await cursor.fetchall()}
+    finally:
+        await conn.close()
+
+
+async def _select_winner(profile_name: str, candidates: list, effective: dict, cached_mood_id,
+                         margin: int, thresh_of, moods: dict) -> str:
+    """Choose the winning mood from eligible `candidates` [(mood_id, effective)].
+    Promotion hysteresis: keep the incumbent unless a challenger beats its effective votes by
+    `margin` (so noise near bias≈0 doesn't flip). On a genuine change, pick the destination — by
+    default the strongest, or (if mood_fuzzy_select) the least-recently-used among challengers within
+    mood_fuzzy_band of the top."""
+    from .settings_store import get_setting
+    cand_map = dict(candidates)
+    if cached_mood_id in cand_map:
+        challengers = [(m, e) for m, e in candidates if m != cached_mood_id]
+        if not challengers:
+            return cached_mood_id
+        best_e = max(e for _, e in challengers)
+        if best_e < cand_map[cached_mood_id] + margin:
+            return cached_mood_id
+    pool = [(m, e) for m, e in candidates if m != cached_mood_id] or list(candidates)
+    if (await get_setting("mood_fuzzy_select", "0")) == "1":
+        try:
+            band = float(await get_setting("mood_fuzzy_band", "2"))
+        except (TypeError, ValueError):
+            band = 2.0
+        top_e = max(e for _, e in pool)
+        near = [m for m, e in pool if e >= top_e - band]
+        if len(near) > 1:
+            last = await _moods_last_used(profile_name, near)
+            return min(near, key=lambda m: (last.get(m) or 0.0, thresh_of(m)))
+    return max(pool, key=lambda x: (x[1], thresh_of(x[0])))[0]
 
 
 def _cascade_leads_to(src: str, cascade: dict, target) -> bool:
@@ -841,27 +903,29 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
             vote_map[mid] = vote_map.get(mid, 0) + v
         breakdown += llm_breakdown
 
-    from .settings_store import get_transition_config, get_mood_cascade, get_mood_decay_config
+    from .settings_store import get_transition_config, get_mood_cascade, get_mood_decay_config, get_setting
     tcfg = await get_transition_config()
     casc_enabled, cascade = await get_mood_cascade()
+    decay_cfg = await get_mood_decay_config()
+    tenure = await _mood_tenure(profile_name)
 
-    # Intensity cascades fold into vote formation (on earned votes, before inertia/decay) so an
-    # escalation target competes on real support and holds via inertia — no post-selection hijack
-    # that bounces back the next round.
+    # Intensity cascades fold into vote formation (on earned votes, before the incumbent bias) so an
+    # escalation target competes on real support and then holds — no post-selection hijack.
     vote_map, casc_notes, _casc_deltas = _cascade_transfer(vote_map, moods, cached_mood_id, cascade, casc_enabled)
     if casc_notes:
         breakdown.append("Cascade: " + " → ".join(casc_notes))
 
-    # Natural transitions: incumbent inertia + penalty for non-adjacent "jumps".
-    effective, _allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg)
-    if tinfo["inertia"] and cached_mood_id in moods:
-        breakdown.append(f"Inertia +{tinfo['inertia']} (staying {moods[cached_mood_id]['name']})")
+    # Homeostasis v2: one tenure-shaped incumbent bias (fresh-inertia → hold → anti-stuck) replaces
+    # the old flat-inertia + subtractive-decay, plus penalty for non-adjacent "jumps".
+    bias = _incumbent_bias(tenure, tcfg, decay_cfg)
+    effective, _allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg, bias, cascade)
+    if tinfo["bias"] and cached_mood_id in moods:
+        nm = moods[cached_mood_id]["name"]
+        b = tinfo["bias"]
+        breakdown.append(f"Hold +{b} ({nm}, {tenure} rounds)" if b > 0
+                         else f"Anti-stuck {b} (held {nm} {tenure} rounds)")
 
-    # Homeostatic decay: fade a long-held mood (+ its cascade feeders) so it can't lock in.
-    decay_cfg = await get_mood_decay_config()
-    dstate = await _decay_state(profile_name, effective, cached_mood_id, decay_cfg, cascade)
-    if dstate["decay"] and cached_mood_id in moods:
-        breakdown.append(f"Decay -{dstate['decay']} (held {moods[cached_mood_id]['name']} {dstate['tenure']} rounds)")
+    cooldown_excluded = await _cooldown_excluded(profile_name, decay_cfg, cascade)
 
     def _threshold(mid: str) -> int:
         return thresholds.get(mid, moods[mid]["min_votes"])
@@ -869,7 +933,7 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
     candidates = [
         (mid, effective[mid])
         for mid in vote_map
-        if effective[mid] >= _threshold(mid) and mid not in dstate["cooldown_excluded"]
+        if effective[mid] >= _threshold(mid) and mid not in cooldown_excluded
     ]
 
     if not candidates:
@@ -883,14 +947,19 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
         await _cache_result(profile_name, chosen, 0, ["Default mood"])
         return {**moods[chosen], "vote_count": 0, "breakdown": ["Default mood"], "is_default": True}
 
-    # Rank by effective votes; report the raw count (incl. inertia) for the winner. Cascade already
-    # folded into the votes above, so the winner is picked directly — no post-selection escalation.
-    winner_id, _eff = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
+    # Promotion hysteresis (+ optional LRU-band destination). Incumbent holds unless a challenger
+    # clears it by `margin`; report the raw count (incl. bias) for the winner.
+    try:
+        margin = int(float(await get_setting("mood_switch_margin", "1")))
+    except (TypeError, ValueError):
+        margin = 1
+    winner_id = await _select_winner(profile_name, candidates, effective, cached_mood_id, margin, _threshold, moods)
     winner_votes = vote_map[winner_id]
 
-    # If decay pushed us off the current mood, put the vacated chain on cooldown so it can't
-    # immediately bounce back (prevents Horny<->Affectionate ping-pong).
-    if dstate["decay"] and cached_mood_id and winner_id not in dstate["decayed_chain"]:
+    # Anti-stuck eviction only: if we left the current mood while it was over-tenure (bias negative),
+    # bar it (+ its cascade chain) until the new mood has had its run — no synced bounce-back.
+    if cached_mood_id and winner_id != cached_mood_id and tinfo["bias"] < 0 \
+            and winner_id not in tinfo["decayed_chain"]:
         await _set_mood_cooldown(profile_name, cached_mood_id)
 
     winner = {**moods[winner_id], "vote_count": winner_votes, "breakdown": breakdown}
@@ -939,44 +1008,50 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
     for mid, v in llm_votes.items():
         vote_map[mid] = vote_map.get(mid, 0) + v
 
-    from .settings_store import get_transition_config, get_mood_cascade, get_mood_decay_config
+    from .settings_store import get_transition_config, get_mood_cascade, get_mood_decay_config, get_setting
     tcfg = await get_transition_config()
     _casc_enabled, cascade = await get_mood_cascade()
+    decay_cfg = await get_mood_decay_config()
+    tenure = await _mood_tenure(profile_name)
 
-    # Intensity cascades fold into vote formation (earned votes, before inertia/decay).
+    # Intensity cascades fold into vote formation (earned votes, before the incumbent bias).
     vote_map, cascade_notes, casc_deltas = _cascade_transfer(vote_map, moods, cached_mood_id, cascade, _casc_enabled)
 
-    # Natural transitions: inertia on the incumbent + non-adjacent penalty (effective votes).
-    effective, allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg)
-
-    # Homeostatic decay (read-only mirror of evaluate_mood; does not set the cooldown).
-    decay_cfg = await get_mood_decay_config()
-    dstate = await _decay_state(profile_name, effective, cached_mood_id, decay_cfg, cascade)
+    # Homeostasis v2: tenure-shaped incumbent bias + non-adjacent penalty (read-only mirror of
+    # evaluate_mood; does not set the cooldown).
+    bias = _incumbent_bias(tenure, tcfg, decay_cfg)
+    effective, allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg, bias, cascade)
+    cooldown_excluded = await _cooldown_excluded(profile_name, decay_cfg, cascade)
 
     tally = []
     for mid, votes in sorted(vote_map.items(), key=lambda x: -effective[x[0]]):
         th = _threshold(mid)
         lv = llm_votes.get(mid, 0)
         casc_here = casc_deltas.get(mid, 0)
-        inertia_here = tinfo["inertia"] if (mid == cached_mood_id and tinfo["inertia"]) else 0
+        bias_here = tinfo["bias"] if (mid == cached_mood_id) else 0
         penalized = allowed is not None and mid not in allowed
-        decayed_here = mid in dstate["decayed_chain"]
-        on_cooldown = mid in dstate["cooldown_excluded"]
+        decayed_here = mid in tinfo["decayed_chain"]
+        on_cooldown = mid in cooldown_excluded
         tally.append({
             "mood_id": mid, "name": moods[mid]["name"] if mid in moods else mid,
             "votes": votes, "effective": effective[mid], "threshold": th,
             "meets": effective[mid] >= th and not on_cooldown,
-            "rule_votes": votes - lv - inertia_here - casc_here, "llm_votes": lv,
-            "cascade": casc_here, "inertia": inertia_here, "penalized": penalized,
+            "rule_votes": votes - lv - bias_here - casc_here, "llm_votes": lv,
+            "cascade": casc_here, "inertia": bias_here if bias_here > 0 else 0,
+            "anti_stuck": -bias_here if bias_here < 0 else 0, "penalized": penalized,
             "decayed": decayed_here, "on_cooldown": on_cooldown,
         })
 
     candidates = [(mid, effective[mid]) for mid in vote_map
-                  if effective[mid] >= _threshold(mid) and mid not in dstate["cooldown_excluded"]]
+                  if effective[mid] >= _threshold(mid) and mid not in cooldown_excluded]
     winner = None
     is_default = False
     if candidates:
-        wid, _eff = max(candidates, key=lambda x: (x[1], _threshold(x[0])))
+        try:
+            margin = int(float(await get_setting("mood_switch_margin", "1")))
+        except (TypeError, ValueError):
+            margin = 1
+        wid = await _select_winner(profile_name, candidates, effective, cached_mood_id, margin, _threshold, moods)
         winner = {"id": wid, "name": moods[wid]["name"], "votes": vote_map.get(wid, 0)}
     else:
         defaults = await _load_defaults(profile_name, moods)
@@ -999,15 +1074,16 @@ async def explain_mood(profile_name: str, db_path: str | None = None) -> dict:
         "llm_breakdown": llm_breakdown,
         "llm_threshold": llm_thr,
         "transitions_enabled": tinfo["enabled"],
-        "inertia_bonus": tinfo["inertia"],
+        "inertia_bonus": tinfo["bias"] if tinfo["bias"] > 0 else 0,
+        "bias": tinfo["bias"],
         "jump_penalty": tinfo["penalty"],
         "allowed_moves": sorted(moods[m]["name"] for m in allowed if m in moods) if allowed else [],
         "cascade": cascade_notes,
         "decay_enabled": decay_cfg["enabled"],
-        "tenure": dstate["tenure"],
-        "decay": dstate["decay"],
-        "decayed_chain": sorted(moods[m]["name"] for m in dstate["decayed_chain"] if m in moods),
-        "cooldown_moods": sorted(moods[m]["name"] for m in dstate["cooldown_excluded"] if m in moods),
+        "tenure": tenure,
+        "decay": -tinfo["bias"] if tinfo["bias"] < 0 else 0,
+        "decayed_chain": sorted(moods[m]["name"] for m in tinfo["decayed_chain"] if m in moods),
+        "cooldown_moods": sorted(moods[m]["name"] for m in cooldown_excluded if m in moods),
     }
 
 

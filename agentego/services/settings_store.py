@@ -99,9 +99,17 @@ DEFAULTS = {
     "mood_cascade": '{"flirty":{"to":"horny","at":12},"curious":{"to":"focused","at":10},"lonely":{"to":"sad","at":8},"frustrated":{"to":"tired","at":9},"bored":{"to":"tired","at":8},"jealous":{"to":"frustrated","at":8}}',
     # Homeostatic decay: a mood held for many rounds fades so it can't lock in (anti-stuck).
     "mood_decay_enabled": "1",
-    "mood_decay_grace": "5",      # rounds a mood holds before it starts to fade
-    "mood_decay_rate": "3",       # votes shed per round after the grace period
-    "mood_decay_cooldown": "4",   # rounds a just-vacated mood is barred from returning
+    "mood_decay_grace": "5",      # rounds a mood holds at full inertia before the bias erodes
+    "mood_decay_rate": "1",       # bias eroded per round past grace (drives the incumbent bias negative)
+    "mood_decay_cooldown": "4",   # BUFFER rounds ADDED TO grace: a vacated mood is barred for grace+this
+    # Homeostasis v2: the incumbent carries a tenure-shaped bias B = inertia − max(0,tenure−grace)*rate
+    # (positive while fresh → 0 near grace → negative-unbounded when overstayed). A challenger only
+    # unseats the incumbent if it beats the incumbent's effective votes by this margin (anti-chatter).
+    "mood_switch_margin": "1",
+    # Optional: at a genuine transition, pick the least-recently-used mood among challengers within
+    # `mood_fuzzy_band` votes of the top (instead of always the max). Off by default.
+    "mood_fuzzy_select": "0",
+    "mood_fuzzy_band": "2",
     # Agent-facing disposition block (injected into the system prompt each turn).
     "mood_directive_enabled": "1",
     "mood_directive_template": (
@@ -230,7 +238,7 @@ async def get_mood_decay_config() -> dict:
     return {
         "enabled": (await get_setting("mood_decay_enabled", "1")) == "1",
         "grace": await _i("mood_decay_grace", 5),
-        "rate": await _i("mood_decay_rate", 3),
+        "rate": await _i("mood_decay_rate", 1),
         "cooldown": await _i("mood_decay_cooldown", 4),
     }
 

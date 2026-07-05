@@ -85,8 +85,8 @@
   <h6 style="margin:0 0 0.6rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Gaps <span style="text-transform:none; font-weight:400;">— deterministic, no LLM</span></h6>
   {% if not v.gaps %}<p style="font-size:0.82rem; color:#4caf50;">✓ nothing flagged.</p>{% endif %}
   {% for g in v.gaps %}
-  <div style="font-size:0.82rem; margin-bottom:0.35rem; color:{% if g.kind=='cascade' %}#ff9f4a{% elif g.kind=='dead' %}#e57373{% else %}var(--pico-color){% endif %};">
-    {% if g.kind=='uncovered' %}➕{% elif g.kind=='dead' %}💤{% elif g.kind=='cascade' %}⚡{% endif %} {{ g.text }}
+  <div style="font-size:0.82rem; margin-bottom:0.35rem; color:{% if g.kind=='cascade' %}#ff9f4a{% elif g.kind=='dead' %}#e57373{% elif g.kind=='miss' %}#6a9fff{% else %}var(--pico-color){% endif %};">
+    {% if g.kind=='miss' %}🔍{% elif g.kind=='dead' %}💤{% elif g.kind=='cascade' %}⚡{% else %}➕{% endif %} {{ g.text }}
   </div>
   {% endfor %}
 </article>

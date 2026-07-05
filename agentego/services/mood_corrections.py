@@ -224,26 +224,59 @@ def _narrative(current: dict | None, bb_ranked: list, corrs: list, moods: dict) 
 
 async def _compute_gaps(profile_name: str, enr: list, moods: dict, corrs: list,
                         backbone: dict, vote_map: dict) -> list:
-    """Deterministic gap analysis (no LLM): dead corrections, uncovered frequent emotions, and
-    cascade-escape interactions. Turns tuning into reacting to surfaced issues."""
+    """Deterministic gap analysis (no LLM), each ACTIONABLE:
+      • dead     — a correction that isn't firing.
+      • miss     — the legacy rules read a mood in recent rounds but the LLM backbone isn't ranking it
+                   (the rules are the 'should-have' reference during the shadow trial). Names the mood +
+                   emotions to correct with. This is the one that answers "did the LLM miss a mood?".
+      • cascade  — a correction's target exceeds a cascade threshold and escalates away.
+    """
     from .settings_store import get_mood_cascade
+    from . import mood_engine as ME
     gaps = []
+    corrected = {c["target_mood"] for c in corrs}
+
+    # dead corrections
     for c in corrs:
         if c.get("enabled") and c.get("contribution", 0.0) <= 0.05:
             gaps.append({"kind": "dead", "text":
-                f"Correction for {moods[c['target_mood']]['name']} isn't firing — no matching emotion in recent rounds."})
-    covered: set = set()
-    for c in corrs:
-        covered |= set((c.get("agent_emotions") or {}).keys())
-    emo_freq: Counter = Counter()
-    for rnd in enr[:12]:
-        for e, s in (rnd.get("agent_scores") or {}).items():
-            if float(s) >= 0.5 and e not in ("neutral", "approval"):
-                emo_freq[e] += 1
-    for e, cnt in emo_freq.most_common(8):
-        if cnt >= 3 and e not in covered:
-            gaps.append({"kind": "uncovered", "text":
-                f"‘{e}’ scored in {cnt} recent rounds but no correction references it — add one?"})
+                f"Your {moods[c['target_mood']]['name']} correction isn't firing — the emotions it looks "
+                f"for aren't in recent rounds."})
+
+    # miss: the legacy rules flip the winner away from the LLM's pick — the live version of the flip
+    # analysis that seeded the corrections. If the rules override the LLM toward a mood no correction
+    # covers, that's a candidate correction (names the mood + the emotions the rules used).
+    try:
+        rules = [r for r in await ME._load_rules(profile_name) if r["rule_type"] != "prev_mood"]
+        rule_votes: dict = {}; rule_emos: dict = {}
+        for rule in rules:
+            v = ME._rule_votes(rule, enr, None)
+            if not v:
+                continue
+            rule_votes[rule["mood_id"]] = rule_votes.get(rule["mood_id"], 0) + v
+            if rule["rule_type"] in ("sentiment_agent", "sentiment_user", "sentiment_match"):
+                rule_emos.setdefault(rule["mood_id"], Counter())
+                for e in (rule["params"].get("emotions") or []):
+                    rule_emos[rule["mood_id"]][e] += 1
+        enabled, thr_llm, wt = await ME._llm_vote_config()
+        llm_only, _ = ME._llm_mood_votes(enr, moods, thr_llm, wt) if enabled else ({}, [])
+        combined = dict(llm_only)
+        for mid, v in rule_votes.items():
+            combined[mid] = combined.get(mid, 0) + v
+        if combined and llm_only:
+            legacy_top = max(combined, key=combined.get)
+            llm_top = max(llm_only, key=llm_only.get)
+            if legacy_top != llm_top and legacy_top in moods and legacy_top not in corrected:
+                emos = [e for e, _ in rule_emos.get(legacy_top, Counter()).most_common(3)]
+                frm = f" (from {', '.join(emos)})" if emos else ""
+                gaps.append({"kind": "miss", "text":
+                    f"The rules pull the read toward {moods[legacy_top]['name']}{frm}, over the LLM's "
+                    f"{moods[llm_top]['name']} — a {moods[legacy_top]['name']} correction would capture that.",
+                    "suggest_mood": legacy_top, "suggest_emotions": emos})
+    except Exception:
+        pass
+
+    # cascade escapes
     _, cascade = await get_mood_cascade()
     for c in corrs:
         m = c["target_mood"]

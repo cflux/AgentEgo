@@ -850,6 +850,131 @@ async def get_cached_mood(profile_name: str) -> dict | None:
             "name": row[3] or row[0], "description": row[4] or "", "color": row[5], "icon": row[6]}
 
 
+async def _generate_legacy_votes(profile_name: str, enriched: list, moods: dict,
+                                 cached_mood_id, rules: list) -> tuple[dict, list]:
+    """Legacy vote generation: the 57-rule engine + discrete LLM mood votes."""
+    vote_map: dict = {}
+    breakdown: list[str] = []
+    for rule in rules:
+        if rule["mood_id"] not in moods:
+            continue
+        if rule.get("mood_gate") and rule["mood_gate"] != cached_mood_id:
+            continue
+        v = _rule_votes(rule, enriched, cached_mood_id)
+        if v:
+            vote_map[rule["mood_id"]] = vote_map.get(rule["mood_id"], 0) + v
+            label = rule.get("label") or _rule_label(rule)
+            breakdown.append(f"{label} (+{v})" if v > 1 else label)
+    enabled, thr, wt = await _llm_vote_config()
+    if enabled:
+        llm_votes, llm_breakdown = _llm_mood_votes(enriched, moods, thr, wt)
+        for mid, v in llm_votes.items():
+            vote_map[mid] = vote_map.get(mid, 0) + v
+        breakdown += llm_breakdown
+    return vote_map, breakdown
+
+
+async def _generate_v2_votes(profile_name: str, enriched: list, moods: dict) -> tuple[dict, list, dict]:
+    """v2 vote generation: continuous LLM backbone + per-profile corrections (mood_corrections)."""
+    from . import mood_corrections as MC
+    vote_map, dbg = await MC.v2_vote_map(profile_name, enriched, moods)
+    breakdown: list[str] = []
+    bb = dbg.get("backbone", {})
+    top = sorted((m for m in bb if m in moods), key=lambda m: -bb[m])[:4]
+    if top:
+        breakdown.append("Backbone (LLM): " + ", ".join(f"{moods[m]['name']} {bb[m]:.1f}" for m in top))
+    for m, v in dbg.get("corrections", {}).items():
+        if m in moods and v:
+            breakdown.append(f"Correction: {moods[m]['name']} +{v:.1f}")
+    return vote_map, breakdown, dbg
+
+
+async def _resolve_mood(profile_name: str, vote_map: dict, breakdown: list, moods: dict,
+                        cached_mood_id, thresholds: dict, *, commit: bool = True) -> dict | None:
+    """The shared shaping + selection layer (cascade → tenure-bias → cooldown → hysteresis → winner),
+    identical for legacy and v2. `commit=False` = pure read (no cooldown set, no cache) for shadow."""
+    from .settings_store import get_transition_config, get_mood_cascade, get_mood_decay_config, get_setting
+    tcfg = await get_transition_config()
+    casc_enabled, cascade = await get_mood_cascade()
+    decay_cfg = await get_mood_decay_config()
+    tenure = await _mood_tenure(profile_name)
+
+    vote_map, casc_notes, _ = _cascade_transfer(vote_map, moods, cached_mood_id, cascade, casc_enabled)
+    if casc_notes:
+        breakdown.append("Cascade: " + " → ".join(casc_notes))
+
+    bias = _incumbent_bias(tenure, tcfg, decay_cfg)
+    effective, _allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg, bias, cascade)
+    if tinfo["bias"] and cached_mood_id in moods:
+        nm = moods[cached_mood_id]["name"]; b = tinfo["bias"]
+        breakdown.append(f"Hold +{b} ({nm}, {tenure} rounds)" if b > 0
+                         else f"Anti-stuck {b} (held {nm} {tenure} rounds)")
+
+    cooldown_excluded = await _cooldown_excluded(profile_name, decay_cfg, cascade)
+
+    def _threshold(mid: str) -> int:
+        return thresholds.get(mid, moods[mid]["min_votes"])
+
+    candidates = [(mid, effective[mid]) for mid in vote_map
+                  if effective[mid] >= _threshold(mid) and mid not in cooldown_excluded]
+
+    if not candidates:
+        defaults = await _load_defaults(profile_name, moods)
+        if not defaults:
+            if commit:
+                await _cache_result(profile_name, None, 0, [])
+            return None
+        chosen = cached_mood_id if cached_mood_id in defaults else random.choice(defaults)
+        if commit:
+            await _cache_result(profile_name, chosen, 0, ["Default mood"])
+        return {**moods[chosen], "vote_count": 0, "breakdown": ["Default mood"], "is_default": True}
+
+    try:
+        margin = int(float(await get_setting("mood_switch_margin", "1")))
+    except (TypeError, ValueError):
+        margin = 1
+    winner_id = await _select_winner(profile_name, candidates, effective, cached_mood_id, margin, _threshold, moods)
+    winner_votes = vote_map[winner_id]
+
+    if commit and cached_mood_id and winner_id != cached_mood_id and tinfo["bias"] < 0 \
+            and winner_id not in tinfo["feeder_chain"]:
+        await _set_mood_cooldown(profile_name, cached_mood_id)
+
+    winner = {**moods[winner_id], "vote_count": round(winner_votes, 2), "breakdown": breakdown}
+    if commit:
+        await _cache_result(profile_name, winner_id, int(round(winner_votes)), breakdown)
+    return winner
+
+
+async def _log_shadow(profile_name: str, legacy: dict | None, v2: dict | None, v2_debug: dict) -> None:
+    """Record a legacy-vs-v2 comparison for the shadow soak: running agreement + recent disagreements."""
+    lw = (legacy or {}).get("id"); vw = (v2 or {}).get("id")
+    conn = await get_ego_db()
+    try:
+        cur = await conn.execute(
+            "SELECT value FROM module_data WHERE module='mood_shadow' AND key=?", (profile_name,))
+        row = await cur.fetchone()
+        rec = json.loads(row[0]) if row else {"total": 0, "agree": 0, "disagreements": []}
+        rec["total"] += 1
+        if lw == vw:
+            rec["agree"] += 1
+        else:
+            rec["disagreements"] = ([{
+                "at": time.time(),
+                "legacy": (legacy or {}).get("name"), "legacy_votes": (legacy or {}).get("vote_count"),
+                "v2": (v2 or {}).get("name"), "v2_votes": (v2 or {}).get("vote_count"),
+                "backbone": v2_debug.get("backbone"), "corrections": v2_debug.get("corrections"),
+            }] + rec.get("disagreements", []))[:25]
+        rec["last_at"] = time.time()
+        await conn.execute(
+            "INSERT INTO module_data (module, key, value, updated_at) VALUES ('mood_shadow', ?, ?, ?) "
+            "ON CONFLICT(module, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            (profile_name, json.dumps(rec), time.time()))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
 async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict | None:
     """
     Evaluate mood rules for a profile using threshold voting.
@@ -872,8 +997,7 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
             return {**moods[seed["mood"]], "vote_count": 0, "breakdown": note, "is_seed": True}
         await _clear_mood_seed(profile_name)  # new activity supersedes the reset
 
-    rules = await _load_rules(profile_name)
-    if not rules or not moods:
+    if not moods:
         await _cache_result(profile_name, None, 0, [])
         return None
 
@@ -885,90 +1009,32 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
         await _cache_result(profile_name, None, 0, [])
         return None
 
-    vote_map: dict[str, int] = {}
-    breakdown: list[str] = []
-    for rule in rules:
-        if rule["mood_id"] not in moods:
-            continue
-        # Mood gate: skip rule if current cached mood doesn't match
-        if rule.get("mood_gate") and rule["mood_gate"] != cached_mood_id:
-            continue
-        v = _rule_votes(rule, enriched, cached_mood_id)
-        if v:
-            vote_map[rule["mood_id"]] = vote_map.get(rule["mood_id"], 0) + v
-            label = rule.get("label") or _rule_label(rule)
-            breakdown.append(f"{label} (+{v})" if v > 1 else label)
+    from .settings_store import get_setting
+    mode = await get_setting("mood_scoring_mode", "legacy")
 
-    # LLM mood predictions vote alongside rules (can carry a mood on their own).
-    enabled, thr, wt = await _llm_vote_config()
-    if enabled:
-        llm_votes, llm_breakdown = _llm_mood_votes(enriched, moods, thr, wt)
-        for mid, v in llm_votes.items():
-            vote_map[mid] = vote_map.get(mid, 0) + v
-        breakdown += llm_breakdown
+    # Mood scoring v2 drives directly (LLM backbone + corrections → same shaping layer).
+    if mode == "corrective":
+        vote_map, breakdown, _dbg = await _generate_v2_votes(profile_name, enriched, moods)
+        return await _resolve_mood(profile_name, vote_map, breakdown, moods, cached_mood_id,
+                                   thresholds, commit=True)
 
-    from .settings_store import get_transition_config, get_mood_cascade, get_mood_decay_config, get_setting
-    tcfg = await get_transition_config()
-    casc_enabled, cascade = await get_mood_cascade()
-    decay_cfg = await get_mood_decay_config()
-    tenure = await _mood_tenure(profile_name)
-
-    # Intensity cascades fold into vote formation (on earned votes, before the incumbent bias) so an
-    # escalation target competes on real support and then holds — no post-selection hijack.
-    vote_map, casc_notes, _casc_deltas = _cascade_transfer(vote_map, moods, cached_mood_id, cascade, casc_enabled)
-    if casc_notes:
-        breakdown.append("Cascade: " + " → ".join(casc_notes))
-
-    # Homeostasis v2: one tenure-shaped incumbent bias (fresh-inertia → hold → anti-stuck) replaces
-    # the old flat-inertia + subtractive-decay, plus penalty for non-adjacent "jumps".
-    bias = _incumbent_bias(tenure, tcfg, decay_cfg)
-    effective, _allowed, tinfo = _transition_effective(vote_map, moods, cached_mood_id, tcfg, bias, cascade)
-    if tinfo["bias"] and cached_mood_id in moods:
-        nm = moods[cached_mood_id]["name"]
-        b = tinfo["bias"]
-        breakdown.append(f"Hold +{b} ({nm}, {tenure} rounds)" if b > 0
-                         else f"Anti-stuck {b} (held {nm} {tenure} rounds)")
-
-    cooldown_excluded = await _cooldown_excluded(profile_name, decay_cfg, cascade)
-
-    def _threshold(mid: str) -> int:
-        return thresholds.get(mid, moods[mid]["min_votes"])
-
-    candidates = [
-        (mid, effective[mid])
-        for mid in vote_map
-        if effective[mid] >= _threshold(mid) and mid not in cooldown_excluded
-    ]
-
-    if not candidates:
-        # No rule won — fall back to the profile's default mood set, if any.
-        defaults = await _load_defaults(profile_name, moods)
-        if not defaults:
-            await _cache_result(profile_name, None, 0, [])
-            return None
-        # Stable random: keep the current default if it's still a default, else pick anew.
-        chosen = cached_mood_id if cached_mood_id in defaults else random.choice(defaults)
-        await _cache_result(profile_name, chosen, 0, ["Default mood"])
-        return {**moods[chosen], "vote_count": 0, "breakdown": ["Default mood"], "is_default": True}
-
-    # Promotion hysteresis (+ optional LRU-band destination). Incumbent holds unless a challenger
-    # clears it by `margin`; report the raw count (incl. bias) for the winner.
-    try:
-        margin = int(float(await get_setting("mood_switch_margin", "1")))
-    except (TypeError, ValueError):
-        margin = 1
-    winner_id = await _select_winner(profile_name, candidates, effective, cached_mood_id, margin, _threshold, moods)
-    winner_votes = vote_map[winner_id]
-
-    # Anti-stuck eviction only: if we left the current mood while it was over-tenure (bias negative),
-    # bar it until the new mood has had its run — no synced bounce-back. Skip when we handed off to one
-    # of its feeders (the cooldown would otherwise bar the mood we just moved to).
-    if cached_mood_id and winner_id != cached_mood_id and tinfo["bias"] < 0 \
-            and winner_id not in tinfo["feeder_chain"]:
-        await _set_mood_cooldown(profile_name, cached_mood_id)
-
-    winner = {**moods[winner_id], "vote_count": winner_votes, "breakdown": breakdown}
-    await _cache_result(profile_name, winner_id, winner_votes, breakdown)
+    # legacy drives (also under shadow — which additionally computes + logs v2 for comparison).
+    rules = await _load_rules(profile_name)
+    if not rules:
+        await _cache_result(profile_name, None, 0, [])
+        return None
+    vote_map, breakdown = await _generate_legacy_votes(profile_name, enriched, moods, cached_mood_id, rules)
+    winner = await _resolve_mood(profile_name, vote_map, breakdown, moods, cached_mood_id,
+                                 thresholds, commit=True)
+    if mode == "shadow":
+        try:
+            v2vm, v2bd, v2dbg = await _generate_v2_votes(profile_name, enriched, moods)
+            v2_winner = await _resolve_mood(profile_name, v2vm, v2bd, moods, cached_mood_id,
+                                            thresholds, commit=False)
+            await _log_shadow(profile_name, winner, v2_winner, v2dbg)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("mood shadow log failed: %s", exc)
     return winner
 
 

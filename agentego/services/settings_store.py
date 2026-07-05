@@ -110,6 +110,14 @@ DEFAULTS = {
     # `mood_fuzzy_band` votes of the top (instead of always the max). Off by default.
     "mood_fuzzy_select": "0",
     "mood_fuzzy_band": "2",
+    # Mood scoring v2 (LLM backbone + corrective layer). Mode: legacy (57-rule engine drives) |
+    # shadow (compute v2 alongside, log new-vs-legacy, legacy still drives) | corrective (v2 drives).
+    "mood_scoring_mode": "legacy",
+    "mood_backbone_scale": "2.5",          # brings the continuous backbone into the shaping layer's vote range
+    "mood_recency_halflife": "8",          # rounds; recency weight halves every N rounds
+    "mood_correction_scale": "0.5",        # global vote-equiv multiplier for a strength=1.0 correction
+    "mood_correction_mutual_bonus": "0.5", # weight of the accelerative "user also feels it" term
+    "mood_correction_mode_baseline": "0.1",# flat per-round undercurrent while a correction's mode is active
     # Agent-facing disposition block (injected into the system prompt each turn).
     "mood_directive_enabled": "1",
     "mood_directive_template": (

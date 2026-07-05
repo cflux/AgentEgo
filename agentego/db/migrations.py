@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -204,6 +204,22 @@ CREATE TABLE IF NOT EXISTS reflections (
     UNIQUE(profile_name, day)
 );
 CREATE INDEX IF NOT EXISTS idx_reflections_profile ON reflections(profile_name, day DESC);
+
+CREATE TABLE IF NOT EXISTS mood_corrections (
+    id             TEXT PRIMARY KEY,
+    profile_name   TEXT NOT NULL,
+    target_mood    TEXT NOT NULL,
+    agent_emotions TEXT NOT NULL,          -- JSON {emotion: weight}
+    relation       TEXT NOT NULL DEFAULT 'none',  -- none | mutual | mismatch
+    user_emotions  TEXT,                   -- JSON {emotion: weight}; used when relation != none
+    mode           TEXT,                   -- JSON list of conversation modes (undercurrent)
+    topic_contains TEXT,                   -- JSON list of topic substrings
+    strength       REAL NOT NULL DEFAULT 0.6,
+    note           TEXT,
+    enabled        INTEGER NOT NULL DEFAULT 1,
+    created_at     REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mood_corrections_profile ON mood_corrections(profile_name);
 """
 
 _DEFAULT_MOODS = [
@@ -313,6 +329,13 @@ _DEFAULT_SETTINGS = {
     "mood_switch_margin": "1",
     "mood_fuzzy_select": "0",
     "mood_fuzzy_band": "2",
+    # Mood scoring v2 (see settings_store.DEFAULTS for docs).
+    "mood_scoring_mode": "legacy",
+    "mood_backbone_scale": "2.5",
+    "mood_recency_halflife": "8",
+    "mood_correction_scale": "0.5",
+    "mood_correction_mutual_bonus": "0.5",
+    "mood_correction_mode_baseline": "0.1",
     "mood_directive_enabled": "1",
     "mood_directive_template": (
         "## Current disposition\n"
@@ -420,6 +443,10 @@ async def run_migrations(db_path: str) -> None:
                 await conn.execute("ALTER TABLE reflections ADD COLUMN den TEXT")
             except Exception:
                 pass  # column already exists
+
+        if current_version < 14:
+            # mood_corrections created by DDL above; no ALTER needed
+            pass
 
         if current_version < SCHEMA_VERSION:
             if current_version == 0:

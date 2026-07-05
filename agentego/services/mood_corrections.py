@@ -204,7 +204,7 @@ def correction_votes(corrections: list[dict], enriched: list[dict], cfg: dict) -
 
 # --- The corrective-layer view (UI data: Now/Why, backbone-vs-corrections, Gaps, shadow) ---
 
-def _narrative(current: dict | None, bb_ranked: list, corrs: list, moods: dict) -> str:
+def _narrative(current: dict | None, bb_ranked: list, net_ranked: list, corrs: list, moods: dict) -> str:
     """Deterministic one-liner from the structured state — no LLM, truthful by construction."""
     parts = [f"Currently **{current['name']}**." if current else "No mood set."]
     if bb_ranked:
@@ -213,6 +213,8 @@ def _narrative(current: dict | None, bb_ranked: list, corrs: list, moods: dict) 
             parts[-1] += f", then {bb_ranked[1]['name']} ({bb_ranked[1]['votes']:.0f})."
         else:
             parts[-1] += "."
+    if net_ranked and bb_ranked and net_ranked[0]["mood"] != bb_ranked[0]["mood"]:
+        parts.append(f"With your corrections, {net_ranked[0]['name']} is top ({net_ranked[0]['net']:.0f}).")
     firing = [c for c in corrs if c.get("firing")]
     if firing:
         parts.append("Corrections firing: " + ", ".join(
@@ -320,6 +322,14 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
     bb_ranked = sorted(
         ({"mood": m, "name": moods[m]["name"], "votes": backbone[m]} for m in backbone if m in moods),
         key=lambda x: -x["votes"])[:8]
+    # Net ranking = backbone + corrections (what actually feeds the shaping layer; "top" refers to this).
+    corr_scaled = dbg.get("corrections", {})
+    net_ranked = sorted(
+        ({"mood": m, "name": moods[m]["name"],
+          "backbone": round(backbone.get(m, 0.0), 1), "correction": round(corr_scaled.get(m, 0.0), 1),
+          "net": round(backbone.get(m, 0.0) + corr_scaled.get(m, 0.0), 1)}
+         for m in (set(backbone) | set(corr_scaled)) if m in moods),
+        key=lambda x: -x["net"])[:8]
 
     cached = await ME._load_cached_mood(profile_name)
     thresholds = await ME._load_thresholds(profile_name)
@@ -340,24 +350,22 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
     cooldown = await ME._cooldown_excluded(profile_name, decay_cfg, cascade)
     tenure = await ME._mood_tenure(profile_name)
     bias = ME._incumbent_bias(tenure, tcfg, decay_cfg)
-    ranked = sorted(vote_map, key=vote_map.get, reverse=True)
     winner_id = v2_winner["id"] if v2_winner else None
-    barred_higher = [moods[m]["name"] for m in ranked
-                     if m in cooldown and m in moods
-                     and (winner_id is None or vote_map[m] > vote_map.get(winner_id, 0))]
-    top_raw = ranked[0] if ranked else None
+    net_top = net_ranked[0]["mood"] if net_ranked else None
     note = ""
-    if winner_id and top_raw and top_raw != winner_id:
-        if barred_higher:
-            note = f"{', '.join(barred_higher)} outscore {moods[winner_id]['name']} but are on cooldown — so it wins by elimination."
-        elif top_raw in cascade and cascade[top_raw].get("to") in cooldown:
-            tgt = cascade[top_raw]["to"]
-            note = (f"{moods[top_raw]['name']} (top) cascades into {moods.get(tgt, {}).get('name', tgt)}, "
-                    f"which is on cooldown — so its votes are lost and {moods[winner_id]['name']} wins.")
+    if winner_id and net_top and net_top != winner_id:
+        casc_to = cascade.get(net_top, {}).get("to")
+        if net_top in cooldown:
+            note = f"{moods[net_top]['name']} is the net top but on cooldown — {moods[winner_id]['name']} wins instead."
+        elif casc_to == winner_id:
+            note = f"{moods[net_top]['name']} (net top) cascades into {moods[winner_id]['name']} — that's why it wins."
+        elif casc_to in cooldown:
+            note = (f"{moods[net_top]['name']} (net top) cascades into {moods.get(casc_to, {}).get('name', casc_to)}, "
+                    f"which is on cooldown — its votes are lost, so {moods[winner_id]['name']} wins.")
         elif winner_id == cached and bias > 0:
             note = f"{moods[winner_id]['name']} is held on inertia (+{bias})."
         else:
-            note = f"{moods[winner_id]['name']} wins after shaping (cascade/bias)."
+            note = f"{moods[winner_id]['name']} wins after cascade/bias reshaping."
     shaping = {"cooldown": [moods[m]["name"] for m in cooldown if m in moods],
                "tenure": tenure, "bias": bias, "note": note}
 
@@ -387,9 +395,9 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
     return {
         "profile": profile_name, "mode": mode, "rounds": len(enr),
         "current": current, "v2_winner": v2_winner,
-        "backbone": bb_ranked, "corrections": corrs, "gaps": gaps, "shadow": shadow,
+        "backbone": bb_ranked, "net_ranked": net_ranked, "corrections": corrs, "gaps": gaps, "shadow": shadow,
         "shaping": shaping, "rounds_detail": rounds_detail,
-        "narrative": _narrative(current, bb_ranked, corrs, moods),
+        "narrative": _narrative(current, bb_ranked, net_ranked, corrs, moods),
         "config": cfg,
     }
 

@@ -30,19 +30,23 @@
 
 <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
 
-  {# --- Backbone --- #}
+  {# --- Net score = backbone + corrections (what "top" means; feeds shaping) --- #}
+  {% set maxnet = (v.net_ranked[0].net if v.net_ranked else 1) or 1 %}
   <article style="padding:1rem 1.25rem; margin:0;">
-    <h6 style="margin:0 0 0.6rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">LLM read (backbone)</h6>
-    {% for b in v.backbone %}
-    <div style="margin-bottom:0.4rem;">
+    <h6 style="margin:0 0 0.6rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Net = LLM read + corrections <span style="text-transform:none; font-weight:400;">— feeds shaping</span></h6>
+    {% for b in v.net_ranked %}
+    <div style="margin-bottom:0.45rem;">
       <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
-        <span>{{ b.name }}</span><span style="color:var(--pico-muted-color);">{{ '%.1f'|format(b.votes) }}</span>
+        <span>{{ b.name }}</span>
+        <span style="color:var(--pico-muted-color);">{{ b.net }}{% if b.correction %} <span style="color:#b47aff;">({{ b.backbone }}+{{ b.correction }})</span>{% endif %}</span>
       </div>
-      <div style="height:6px; background:var(--pico-muted-border-color); border-radius:3px; overflow:hidden;">
-        <div style="height:100%; width:{{ (b.votes / maxbb * 100)|round(0) }}%; background:#6a8fff;"></div>
+      <div style="height:7px; background:var(--pico-muted-border-color); border-radius:3px; overflow:hidden; display:flex;">
+        <div style="height:100%; width:{{ (b.backbone / maxnet * 100)|round(1) }}%; background:#6a8fff;"></div>
+        {% if b.correction %}<div style="height:100%; width:{{ (b.correction / maxnet * 100)|round(1) }}%; background:#b47aff;"></div>{% endif %}
       </div>
     </div>
     {% endfor %}
+    <div style="font-size:0.68rem; color:var(--pico-muted-color); margin-top:0.35rem;"><span style="color:#6a8fff;">▬</span> LLM&nbsp;&nbsp;<span style="color:#b47aff;">▬</span> your correction</div>
   </article>
 
   {# --- Corrections --- #}

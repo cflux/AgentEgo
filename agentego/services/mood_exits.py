@@ -194,18 +194,30 @@ _YESNO_CACHE: dict = {}  # (exit_id, round_key) -> bool
 
 
 async def _llm_yesno(condition_text: str, transcript: str) -> bool:
-    from .llm_client import chat, LLMError
+    """Yes/no via the local (uncensored) scorer — reachable from the container at mood_local_llm_url.
+    Deepseek soft-refuses the explicit content these conditions are often about; the local Dolphin model
+    judges it reliably. Fails safe to 'no' (never forces a jump)."""
+    import httpx
+    from .settings_store import get_setting
     if not condition_text or not transcript:
         return False
-    # Neutral framing on purpose: an "AI companion / their emotional state" framing makes the remote
-    # model hedge/refuse on the explicit content these conditions are often about (afterglow, etc.).
+    url = ((await get_setting("mood_local_llm_url", "http://host.docker.internal:11434")) or "").rstrip("/")
+    model = ((await get_setting("mood_local_llm_model", "")) or "").strip() \
+        or ((await get_setting("sentiment_llm_model", "")) or "")
+    if not url or not model:
+        return False
     system = ("You judge whether a described feeling or state is present in a short conversation excerpt. "
               "Answer with ONLY 'yes' or 'no'.")
     user = f"Recent exchange:\n{transcript}\n\nIs this true right now: \"{condition_text}\"?"
     try:
-        out = (await chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
-                          temperature=0.0, max_tokens=64)).strip().lower()
-    except LLMError:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(f"{url}/v1/chat/completions", json={
+                "model": model,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                "temperature": 0.0, "max_tokens": 64, "stream": False})
+        resp.raise_for_status()
+        out = (resp.json()["choices"][0]["message"]["content"] or "").strip().lower()
+    except Exception:
         return False
     return out.startswith("y")
 

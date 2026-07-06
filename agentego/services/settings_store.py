@@ -71,6 +71,11 @@ DEFAULTS = {
     ),
     "sentiment_llm_url": "http://localhost:11434",
     "sentiment_llm_model": "ikiru/Dolphin-Mistral-24B-Venice-Edition:latest",
+    # Container-reachable local (uncensored) LLM for in-app mood processing (exit-trigger semantic
+    # checks). The sentiment worker runs on the host and uses localhost; the AgentEgo container reaches
+    # the same Ollama via host.docker.internal. Model blank = reuse sentiment_llm_model.
+    "mood_local_llm_url": "http://host.docker.internal:11434",
+    "mood_local_llm_model": "",
     # LLM mood predictions cast votes in the tally (per-round threshold voting).
     "llm_mood_votes_enabled": "1",
     "llm_mood_threshold": "6",

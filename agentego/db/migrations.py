@@ -315,6 +315,8 @@ _DEFAULT_SETTINGS = {
     ),
     "sentiment_llm_url": "http://localhost:11434",
     "sentiment_llm_model": "ikiru/Dolphin-Mistral-24B-Venice-Edition:latest",
+    "mood_local_llm_url": "http://host.docker.internal:11434",
+    "mood_local_llm_model": "",
     "llm_mood_votes_enabled": "1",
     "llm_mood_threshold": "6",
     "llm_mood_weight": "1",

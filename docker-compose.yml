@@ -25,6 +25,9 @@ services:
       - EGO_DISPLAY_TIMEZONE=America/Los_Angeles
       - TZ=America/Los_Angeles
     user: "1000:1000"
+    # Reach the host's local Ollama (uncensored Dolphin scorer) for mood LLM processing.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   agentego_data:

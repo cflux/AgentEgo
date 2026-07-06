@@ -1016,11 +1016,27 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
     from .settings_store import get_setting
     mode = await get_setting("mood_scoring_mode", "legacy")
 
-    # Mood scoring v2 drives directly (LLM backbone + corrections → same shaping layer).
+    # Mood scoring v2 drives directly (LLM backbone + corrections → same shaping layer). We still run
+    # the legacy engine READ-ONLY (reverse-shadow) so the /corrective comparison lens keeps working —
+    # it just no longer affects the agent.
     if mode == "corrective":
-        vote_map, breakdown, _dbg = await _generate_v2_votes(profile_name, enriched, moods)
-        return await _resolve_mood(profile_name, vote_map, breakdown, moods, cached_mood_id,
-                                   thresholds, commit=True)
+        v2vm, v2bd, v2dbg = await _generate_v2_votes(profile_name, enriched, moods)
+        legacy_w = None
+        try:
+            rules = await _load_rules(profile_name)
+            if rules:
+                lvm, lbd = await _generate_legacy_votes(profile_name, enriched, moods, cached_mood_id, rules)
+                legacy_w = await _resolve_mood(profile_name, lvm, lbd, moods, cached_mood_id,
+                                               thresholds, commit=False)
+        except Exception:
+            pass
+        winner = await _resolve_mood(profile_name, v2vm, v2bd, moods, cached_mood_id, thresholds, commit=True)
+        if legacy_w is not None:
+            try:
+                await _log_shadow(profile_name, legacy_w, winner, v2dbg)
+            except Exception:
+                pass
+        return winner
 
     # legacy drives (also under shadow — which additionally computes + logs v2 for comparison).
     rules = await _load_rules(profile_name)

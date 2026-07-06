@@ -434,6 +434,21 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
 
     gaps = await _compute_gaps(profile_name, enr, moods, corrs, backbone, vote_map)
     shadow = await _shadow_stats(profile_name)
+
+    # Exit triggers (directed abrupt transitions)
+    from . import mood_exits as _MX
+    cur_id = current["id"] if current else None
+    exits = await _MX.list_exits(profile_name)
+    for e in exits:
+        e["source_name"] = moods.get(e["source_mood"], {}).get("name") if e["source_mood"] else "any mood"
+        e["target_name"] = moods.get(e["target_mood"], {}).get("name", e["target_mood"])
+        e["armed"] = (e["source_mood"] is None) or (e["source_mood"] == cur_id)
+        if e["condition_type"] == "signal":
+            c = e["condition"]
+            e["cond_summary"] = f"{c.get('metric')} {c.get('op')} {c.get('value')}"
+        else:
+            e["cond_summary"] = e["condition"].get("text", "")
+    signals = [{"name": k, "label": v["label"], "unit": v["unit"]} for k, v in _MX.SIGNALS.items()]
     if shadow.get("disagreements"):
         import datetime as _dt
         for d in shadow["disagreements"]:
@@ -449,6 +464,7 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
         "all_moods": sorted(({"id": m, "name": moods[m]["name"]} for m in moods), key=lambda x: x["name"]),
         "all_modes": CONVERSATION_MODES,
         "emotion_groups": await emotion_groups(),
+        "exits": exits, "signals": signals, "signal_ops": ["<", "<=", ">", ">=", "=="],
     }
 
 

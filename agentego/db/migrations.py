@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -220,6 +220,20 @@ CREATE TABLE IF NOT EXISTS mood_corrections (
     created_at     REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_mood_corrections_profile ON mood_corrections(profile_name);
+
+CREATE TABLE IF NOT EXISTS mood_exits (
+    id             TEXT PRIMARY KEY,
+    profile_name   TEXT NOT NULL,
+    source_mood    TEXT,                   -- NULL = fires from any mood
+    target_mood    TEXT NOT NULL,
+    condition_type TEXT NOT NULL DEFAULT 'llm',   -- 'llm' | 'signal'
+    condition      TEXT NOT NULL,          -- JSON: {"text": ...} for llm, {"metric","op","value"} for signal
+    hard           INTEGER NOT NULL DEFAULT 0,     -- 1 = snap regardless; 0 = only unstick a stale source
+    note           TEXT,
+    enabled        INTEGER NOT NULL DEFAULT 1,
+    created_at     REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mood_exits_profile ON mood_exits(profile_name);
 """
 
 _DEFAULT_MOODS = [
@@ -446,6 +460,10 @@ async def run_migrations(db_path: str) -> None:
 
         if current_version < 14:
             # mood_corrections created by DDL above; no ALTER needed
+            pass
+
+        if current_version < 15:
+            # mood_exits created by DDL above; no ALTER needed
             pass
 
         if current_version < SCHEMA_VERSION:

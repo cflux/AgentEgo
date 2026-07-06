@@ -1020,3 +1020,61 @@ async def toggle_correction_ep(cid: str):
 async def delete_correction_ep(cid: str):
     await _mc.delete_correction(cid)
     return Response(status_code=200)
+
+
+# --- Mood exit triggers (directed abrupt transitions) CRUD ---
+from ..services import mood_exits as _mx
+
+
+def _parse_exit(form) -> dict:
+    ctype = "signal" if str(form.get("condition_type", "llm")) == "signal" else "llm"
+    if ctype == "signal":
+        try:
+            val = float(form.get("sig_value", 0) or 0)
+        except (TypeError, ValueError):
+            val = 0.0
+        condition = {"metric": str(form.get("sig_metric", "")).strip(),
+                     "op": str(form.get("sig_op", ">")).strip(), "value": val}
+    else:
+        condition = {"text": str(form.get("condition_text", "")).strip()}
+    return {
+        "source_mood": str(form.get("source_mood", "")).strip() or None,
+        "target_mood": str(form.get("target_mood", "")).strip(),
+        "condition_type": ctype, "condition": condition,
+        "hard": bool(form.get("hard")), "note": str(form.get("note", "")).strip(),
+    }
+
+
+@router.post("/api/exits")
+async def create_exit_ep(request: Request):
+    form = await request.form()
+    profile = str(form.get("profile", "default"))
+    d = _parse_exit(form)
+    ok = d["target_mood"] and (d["condition"].get("text") or d["condition"].get("metric"))
+    if ok:
+        await _mx.create_exit(profile, d["target_mood"], d["condition_type"], d["condition"],
+                              source_mood=d["source_mood"], hard=d["hard"], note=d["note"])
+    return RedirectResponse(f"/corrective?profile={profile}", status_code=303)
+
+
+@router.post("/api/exits/{eid}/edit")
+async def edit_exit_ep(request: Request, eid: str):
+    form = await request.form()
+    profile = str(form.get("profile", "default"))
+    d = _parse_exit(form)
+    await _mx.update_exit(eid, source_mood=d["source_mood"], target_mood=d["target_mood"],
+                          condition_type=d["condition_type"], condition=d["condition"],
+                          hard=d["hard"], note=d["note"])
+    return RedirectResponse(f"/corrective?profile={profile}", status_code=303)
+
+
+@router.patch("/api/exits/{eid}/toggle")
+async def toggle_exit_ep(eid: str):
+    await _mx.toggle_exit(eid)
+    return Response(status_code=200)
+
+
+@router.delete("/api/exits/{eid}")
+async def delete_exit_ep(eid: str):
+    await _mx.delete_exit(eid)
+    return Response(status_code=200)

@@ -88,6 +88,51 @@
   </article>
 </div>
 
+{# --- Exit triggers (directed abrupt transitions — twin of cascade) --- #}
+<article style="padding:1rem 1.25rem; margin:1rem 0 0;">
+  <h6 style="margin:0 0 0.6rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Exit triggers <span style="text-transform:none; font-weight:400;">— "while in X, if [condition] → snap to Y"</span></h6>
+  {% if not v.exits %}<p style="font-size:0.82rem; color:var(--pico-muted-color);">None yet — e.g. <em>while Horny, if the afterglow feeling appeared → Content</em>, or <em>any → Tired when message_count &gt; 80</em>.</p>{% endif %}
+  {% for e in v.exits %}
+  <div style="border:1px solid var(--pico-muted-border-color); border-radius:6px; padding:0.5rem 0.7rem; margin-bottom:0.45rem; {% if not e.enabled %}opacity:0.5;{% endif %}">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <span style="font-size:0.86rem;"><strong>{{ e.source_name }}</strong> → <strong style="color:#b47aff;">{{ e.target_name }}</strong>
+        {% if e.hard %}<span style="color:#e57373; font-size:0.68rem;"> HARD</span>{% else %}<span style="color:var(--pico-muted-color); font-size:0.68rem;"> soft</span>{% endif %}</span>
+      <span style="font-size:0.75rem; color:{% if e.armed %}#4caf50{% else %}var(--pico-muted-color){% endif %};">{{ 'armed' if e.armed else 'dormant' }}</span>
+    </div>
+    <div style="font-size:0.76rem; color:var(--pico-muted-color); margin:0.15rem 0 0.3rem;">[{{ e.condition_type }}] <em>{{ e.cond_summary }}</em></div>
+    <div style="display:flex; gap:0.4rem; font-size:0.72rem;">
+      <button class="secondary outline" style="margin:0; padding:0.1rem 0.5rem; font-size:0.72rem;" hx-patch="/api/exits/{{ e.id }}/toggle" hx-on::after-request="htmx.trigger('#corrective-panel','refresh')">{{ 'disable' if e.enabled else 'enable' }}</button>
+      <button class="secondary outline" style="margin:0; padding:0.1rem 0.5rem; font-size:0.72rem;" hx-delete="/api/exits/{{ e.id }}" hx-confirm="Delete this exit trigger?" hx-on::after-request="htmx.trigger('#corrective-panel','refresh')">delete</button>
+    </div>
+  </div>
+  {% endfor %}
+
+  <details style="margin-top:0.6rem;"><summary style="cursor:pointer; font-size:0.82rem;">➕ Add exit trigger</summary>
+    <form method="post" action="/api/exits" style="margin-top:0.5rem;">
+      <input type="hidden" name="profile" value="{{ active_profile }}">
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:end;">
+        <label style="font-size:0.78rem;">While in
+          <select name="source_mood"><option value="">any mood</option>{% for m in v.all_moods %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}</select></label>
+        <label style="font-size:0.78rem;">→ jump to
+          <select name="target_mood" required><option value="">—</option>{% for m in v.all_moods %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}</select></label>
+        <label style="font-size:0.78rem;">Type
+          <select name="condition_type" onchange="var f=this.closest('form'); f.querySelector('.ex-llm').style.display=this.value=='llm'?'':'none'; f.querySelector('.ex-sig').style.display=this.value=='signal'?'flex':'none';">
+            <option value="llm">semantic (LLM)</option><option value="signal">signal</option></select></label>
+        <label style="font-size:0.78rem; display:inline-flex; align-items:center; gap:0.25rem;"><input type="checkbox" name="hard" style="width:1.05em; height:1.05em; margin:0;"> hard (snap regardless)</label>
+      </div>
+      <div class="ex-llm" style="margin-top:0.45rem;">
+        <label style="font-size:0.78rem;">Condition (plain language)<input name="condition_text" placeholder="the afterglow / satisfied wind-down feeling has appeared"></label>
+      </div>
+      <div class="ex-sig" style="margin-top:0.45rem; display:none; gap:0.6rem; align-items:end; flex-wrap:wrap;">
+        <label style="font-size:0.78rem;">Metric<select name="sig_metric">{% for s in v.signals %}<option value="{{ s.name }}">{{ s.label }}{% if s.unit %} ({{ s.unit }}){% endif %}</option>{% endfor %}</select></label>
+        <label style="font-size:0.78rem;">Op<select name="sig_op">{% for o in v.signal_ops %}<option>{{ o }}</option>{% endfor %}</select></label>
+        <label style="font-size:0.78rem;">Value<input name="sig_value" type="number" step="any" value="80" style="width:6rem;"></label>
+      </div>
+      <button type="submit" style="margin:0.5rem 0 0;">Add exit</button>
+    </form>
+  </details>
+</article>
+
 {# --- Per-round detail (what the corrections react to) --- #}
 <details style="margin-top:1rem;">
   <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">🔬 Recent rounds — agent emotions (what corrections react to)</summary>

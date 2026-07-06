@@ -979,6 +979,27 @@ async def _log_shadow(profile_name: str, legacy: dict | None, v2: dict | None, v
         await conn.close()
 
 
+async def _apply_exits(profile_name: str, winner: dict | None, cached_mood_id, moods: dict,
+                       enriched: list) -> dict | None:
+    """Post-resolution exit-trigger override (mood_exits). If an exit fires, snap to its target, cooldown
+    the mood being left, and re-cache. Runs on the *driving* winner only; skips default/seed moods."""
+    if not winner or winner.get("is_default") or winner.get("is_seed") or winner.get("id") not in moods:
+        return winner
+    try:
+        from . import mood_exits
+        ex = await mood_exits.evaluate_exits(profile_name, winner["id"], cached_mood_id, moods, enriched)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("mood exit eval failed: %s", exc)
+        return winner
+    if not ex:
+        return winner
+    await _set_mood_cooldown(profile_name, ex["from_mood"])
+    breakdown = [ex["note"]]
+    await _cache_result(profile_name, ex["target"], 0, breakdown)
+    return {**moods[ex["target"]], "vote_count": 0, "breakdown": breakdown, "exited": True}
+
+
 async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict | None:
     """
     Evaluate mood rules for a profile using threshold voting.
@@ -1031,6 +1052,7 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
         except Exception:
             pass
         winner = await _resolve_mood(profile_name, v2vm, v2bd, moods, cached_mood_id, thresholds, commit=True)
+        winner = await _apply_exits(profile_name, winner, cached_mood_id, moods, enriched)
         if legacy_w is not None:
             try:
                 await _log_shadow(profile_name, legacy_w, winner, v2dbg)
@@ -1046,6 +1068,7 @@ async def evaluate_mood(profile_name: str, db_path: str | None = None) -> dict |
     vote_map, breakdown = await _generate_legacy_votes(profile_name, enriched, moods, cached_mood_id, rules)
     winner = await _resolve_mood(profile_name, vote_map, breakdown, moods, cached_mood_id,
                                  thresholds, commit=True)
+    winner = await _apply_exits(profile_name, winner, cached_mood_id, moods, enriched)
     if mode == "shadow":
         try:
             v2vm, v2bd, v2dbg = await _generate_v2_votes(profile_name, enriched, moods)

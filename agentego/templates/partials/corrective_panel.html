@@ -21,11 +21,10 @@
     </div>
   </div>
   <p style="font-size:0.86rem; margin:0.75rem 0 0; color:var(--pico-color);">{{ v.narrative | safe }}</p>
-  {% if v.shaping.note or v.shaping.cooldown %}
+  {% if v.current %}
   <div style="font-size:0.78rem; margin-top:0.45rem;">
-    {% if v.shaping.note %}<span style="color:#e0a04a;">⚙ {{ v.shaping.note }}</span>{% endif %}
-    {% if v.shaping.cooldown %}<span style="color:var(--pico-muted-color);"> · cooldown: {{ v.shaping.cooldown | join(', ') }}</span>{% endif %}
-    <span style="color:var(--pico-muted-color);"> · held {{ v.shaping.tenure }}r{% if v.shaping.bias %}, bias {{ v.shaping.bias }}{% endif %}</span>
+    {% if v.shaping.note %}<span style="color:#e0a04a;">⚙ {{ v.shaping.note }}</span> · {% endif %}
+    <span style="color:var(--pico-muted-color);">held {{ v.shaping.tenure }} round(s){% if v.shaping.bias > 0 %}, <span style="color:#4caf50;">+{{ v.shaping.bias }} inertia</span> (holding it){% elif v.shaping.bias < 0 %}, <span style="color:#e57373;">{{ v.shaping.bias }} decay</span> (anti-stuck pressure){% else %}, no bias{% endif %}{% if v.shaping.cooldown %} · cooldown: {{ v.shaping.cooldown | join(', ') }}{% endif %}</span>
   </div>
   {% endif %}
   <span style="font-size:0.72rem; color:var(--pico-muted-color);">mode: <strong>{{ v.mode }}</strong> · {{ v.rounds }} rounds · backbone×{{ v.config.backbone_scale }} · halflife {{ v.config.halflife }}</span>

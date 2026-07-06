@@ -369,6 +369,15 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
     thresholds = await ME._load_thresholds(profile_name)
     v2_winner = await ME._resolve_mood(profile_name, dict(vote_map), [], moods, cached, thresholds, commit=False)
     current = await ME.get_cached_mood(profile_name)
+    driver = "v2" if mode == "corrective" else "legacy"
+    legacy_winner = None
+    try:
+        rules = await ME._load_rules(profile_name)
+        if rules:
+            lvm, lbd = await ME._generate_legacy_votes(profile_name, enr, moods, cached, rules)
+            legacy_winner = await ME._resolve_mood(profile_name, lvm, lbd, moods, cached, thresholds, commit=False)
+    except Exception:
+        pass
 
     corrs = await list_corrections(profile_name)
     for c in corrs:
@@ -428,7 +437,7 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
 
     return {
         "profile": profile_name, "mode": mode, "rounds": len(enr),
-        "current": current, "v2_winner": v2_winner,
+        "current": current, "v2_winner": v2_winner, "legacy_winner": legacy_winner, "driver": driver,
         "backbone": bb_ranked, "net_ranked": net_ranked, "corrections": corrs, "gaps": gaps, "shadow": shadow,
         "shaping": shaping, "rounds_detail": rounds_detail,
         "narrative": _narrative(current, bb_ranked, net_ranked, corrs, moods),

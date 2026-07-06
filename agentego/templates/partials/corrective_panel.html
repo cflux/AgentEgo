@@ -4,18 +4,20 @@
 
 <article style="padding:1rem 1.25rem; margin:0 0 1rem;">
   <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center; justify-content:space-between;">
+    {% set comp = v.legacy_winner if v.driver == 'v2' else v.v2_winner %}
+    {% set complabel = 'legacy' if v.driver == 'v2' else 'v2' %}
     <div>
-      <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Now (legacy drives)</span><br>
+      <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Now ({{ v.driver }} drives)</span><br>
       <strong style="font-size:1.15rem; color:{{ v.current.color if v.current else '#888' }};">
         {{ (v.current.icon ~ ' ' ~ v.current.name) if v.current else '—' }}</strong>
     </div>
     <div style="font-size:1.3rem; color:var(--pico-muted-color);">
-      {% if v.v2_winner and v.current and v.v2_winner.id == v.current.id %}✓ v2 agrees{% else %}⚠ v2 differs{% endif %}
+      {% if comp and v.current and comp.id == v.current.id %}✓ {{ complabel }} agrees{% else %}⚠ {{ complabel }} differs{% endif %}
     </div>
     <div style="text-align:right;">
-      <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">v2 would pick</span><br>
-      <strong style="font-size:1.15rem; color:#b47aff;">{{ v.v2_winner.name if v.v2_winner else '—' }}</strong>
-      {% if v.v2_winner %}<span style="font-size:0.78rem; color:var(--pico-muted-color);">({{ v.v2_winner.vote_count }})</span>{% endif %}
+      <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">{{ complabel }} would pick</span><br>
+      <strong style="font-size:1.15rem; color:#b47aff;">{{ comp.name if comp else '—' }}</strong>
+      {% if comp %}<span style="font-size:0.78rem; color:var(--pico-muted-color);">({{ comp.vote_count }})</span>{% endif %}
     </div>
   </div>
   <p style="font-size:0.86rem; margin:0.75rem 0 0; color:var(--pico-color);">{{ v.narrative | safe }}</p>

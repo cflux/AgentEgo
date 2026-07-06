@@ -313,7 +313,9 @@ async def _compute_gaps(profile_name: str, enr: list, moods: dict, corrs: list,
         pass
 
     # cascade escapes
-    _, cascade = await get_mood_cascade()
+    casc_enabled, cascade = await get_mood_cascade()
+    if not casc_enabled:
+        cascade = {}
     for c in corrs:
         m = c["target_mood"]
         if m in cascade and vote_map.get(m, 0) >= cascade[m].get("at", 99):
@@ -389,7 +391,9 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
     # can differ from the top LLM read).
     from .settings_store import get_mood_decay_config, get_transition_config, get_mood_cascade
     decay_cfg = await get_mood_decay_config(); tcfg = await get_transition_config()
-    _, cascade = await get_mood_cascade()
+    casc_enabled, cascade = await get_mood_cascade()
+    if not casc_enabled:
+        cascade = {}
     cooldown = await ME._cooldown_excluded(profile_name, decay_cfg, cascade)
     tenure = await ME._mood_tenure(profile_name)
     bias = ME._incumbent_bias(tenure, tcfg, decay_cfg)

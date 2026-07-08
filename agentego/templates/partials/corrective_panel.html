@@ -3,20 +3,24 @@
 {% set maxbb = (v.backbone[0].votes if v.backbone else 1) or 1 %}
 
 <article style="padding:1rem 1.25rem; margin:0 0 1rem;">
-  <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center; justify-content:space-between;">
+  {% set pending = v.v2_winner and (not v.current or v.v2_winner.id != v.current.id) %}
+  <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center; justify-content:space-between;"
+       title="The active mood is committed by the scheduled refresh. 'Next refresh' is what a live recompute picks right now — it becomes active at the next scheduled evaluation.">
     <div>
-      <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Now</span><br>
+      <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">Now <span style="text-transform:none;">(active)</span></span><br>
       <strong style="font-size:1.15rem; color:{{ v.current.color if v.current else '#888' }};">
         {{ (v.current.icon ~ ' ' ~ v.current.name) if v.current else '—' }}</strong>
     </div>
-    <div style="font-size:1.3rem; color:var(--pico-muted-color);">
-      {% if v.v2_winner and v.current and v.v2_winner.id == v.current.id %}✓ scoring agrees{% else %}⟳ scoring recomputes{% endif %}
-    </div>
+    {% if pending %}
+    <div style="font-size:1.3rem; color:var(--pico-muted-color);">→</div>
     <div style="text-align:right;">
-      <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">scoring computes</span><br>
-      <strong style="font-size:1.15rem; color:#b47aff;">{{ v.v2_winner.name if v.v2_winner else '—' }}</strong>
-      {% if v.v2_winner %}<span style="font-size:0.78rem; color:var(--pico-muted-color);">({{ v.v2_winner.vote_count }})</span>{% endif %}
+      <span style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:#e0a04a;">Next refresh →</span><br>
+      <strong style="font-size:1.15rem; color:#b47aff;">{{ v.v2_winner.name }}</strong>
+      <span style="font-size:0.78rem; color:var(--pico-muted-color);">(net {{ v.v2_winner.vote_count }})</span>
     </div>
+    {% else %}
+    <div style="font-size:0.8rem; color:#4caf50;">✓ up to date</div>
+    {% endif %}
   </div>
   <p style="font-size:0.86rem; margin:0.75rem 0 0; color:var(--pico-color);">{{ v.narrative | safe }}</p>
   {% if v.current %}

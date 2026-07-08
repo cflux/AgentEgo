@@ -5,8 +5,9 @@
 <h2>Moods <small style="font-size:0.6em; color:var(--pico-muted-color);">Canonical mood definitions</small></h2>
 
 <p style="font-size:0.88rem; color:var(--pico-muted-color);">
-  These moods are shared across all agents. Each mood has a minimum vote threshold — it only activates when enough rules match.
-  Go to <a href="/moods/rules">Rules</a> to configure per-agent mood rules.
+  These moods are the shared catalog across all agents. The <code>min votes</code> here is each mood's default
+  activation threshold. Per-agent scoring, corrections, resting set, thresholds and exit triggers live on the
+  <a href="/corrective">Mood</a> page.
 </p>
 
 {% if moods %}

@@ -115,9 +115,7 @@ DEFAULTS = {
     # `mood_fuzzy_band` votes of the top (instead of always the max). Off by default.
     "mood_fuzzy_select": "0",
     "mood_fuzzy_band": "2",
-    # Mood scoring v2 (LLM backbone + corrective layer). Mode: legacy (57-rule engine drives) |
-    # shadow (compute v2 alongside, log new-vs-legacy, legacy still drives) | corrective (v2 drives).
-    "mood_scoring_mode": "legacy",
+    # Mood scoring (LLM backbone + per-profile corrective layer → shared shaping layer → exit triggers).
     "mood_backbone_scale": "2.5",          # brings the continuous backbone into the shaping layer's vote range
     "mood_recency_halflife": "8",          # rounds; recency weight halves every N rounds
     "mood_correction_scale": "0.5",        # global vote-equiv multiplier for a strength=1.0 correction

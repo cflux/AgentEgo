@@ -11,7 +11,6 @@ by the scoring path. Kept LLM-free and deterministic.
 import json
 import time
 from uuid import uuid4
-from collections import Counter
 from ..db.ego import get_ego_db
 
 _COLS = ("id, profile_name, target_mood, agent_emotions, relation, user_emotions, mode, "
@@ -301,39 +300,6 @@ async def _compute_gaps(profile_name: str, enr: list, moods: dict, corrs: list,
                 gaps.append({"kind": "dead", "text":
                     f"Your {name} correction isn't firing — the emotions it looks for aren't in recent rounds."})
 
-    # miss: the legacy rules flip the winner away from the LLM's pick — the live version of the flip
-    # analysis that seeded the corrections. If the rules override the LLM toward a mood no correction
-    # covers, that's a candidate correction (names the mood + the emotions the rules used).
-    try:
-        rules = [r for r in await ME._load_rules(profile_name) if r["rule_type"] != "prev_mood"]
-        rule_votes: dict = {}; rule_emos: dict = {}
-        for rule in rules:
-            v = ME._rule_votes(rule, enr, None)
-            if not v:
-                continue
-            rule_votes[rule["mood_id"]] = rule_votes.get(rule["mood_id"], 0) + v
-            if rule["rule_type"] in ("sentiment_agent", "sentiment_user", "sentiment_match"):
-                rule_emos.setdefault(rule["mood_id"], Counter())
-                for e in (rule["params"].get("emotions") or []):
-                    rule_emos[rule["mood_id"]][e] += 1
-        enabled, thr_llm, wt = await ME._llm_vote_config()
-        llm_only, _ = ME._llm_mood_votes(enr, moods, thr_llm, wt) if enabled else ({}, [])
-        combined = dict(llm_only)
-        for mid, v in rule_votes.items():
-            combined[mid] = combined.get(mid, 0) + v
-        if combined and llm_only:
-            legacy_top = max(combined, key=combined.get)
-            llm_top = max(llm_only, key=llm_only.get)
-            if legacy_top != llm_top and legacy_top in moods and legacy_top not in corrected:
-                emos = [e for e, _ in rule_emos.get(legacy_top, Counter()).most_common(3)]
-                frm = f" (from {', '.join(emos)})" if emos else ""
-                gaps.append({"kind": "miss", "text":
-                    f"The rules pull the read toward {moods[legacy_top]['name']}{frm}, over the LLM's "
-                    f"{moods[llm_top]['name']} — a {moods[legacy_top]['name']} correction would capture that.",
-                    "suggest_mood": legacy_top, "suggest_emotions": emos})
-    except Exception:
-        pass
-
     # cascade escapes
     casc_enabled, cascade = await get_mood_cascade()
     if not casc_enabled:
@@ -346,22 +312,6 @@ async def _compute_gaps(profile_name: str, enr: list, moods: dict, corrs: list,
                 f"{moods[m]['name']} ({vote_map[m]:.0f}) exceeds its cascade threshold → escalates into "
                 f"{moods.get(tgt, {}).get('name', tgt)}; this correction's boost may be funneled away."})
     return gaps
-
-
-async def _shadow_stats(profile_name: str) -> dict:
-    conn = await get_ego_db()
-    try:
-        cur = await conn.execute(
-            "SELECT value FROM module_data WHERE module='mood_shadow' AND key=?", (profile_name,))
-        row = await cur.fetchone()
-    finally:
-        await conn.close()
-    if not row:
-        return {"total": 0, "agree": 0, "disagreements": []}
-    try:
-        return json.loads(row[0])
-    except (TypeError, ValueError):
-        return {"total": 0, "agree": 0, "disagreements": []}
 
 
 async def _mood_history_rows(profile_name: str, moods: dict, limit: int = 30) -> list:
@@ -459,16 +409,14 @@ async def mood_config_rows(profile_name: str, db_path: str | None = None) -> lis
 
 
 async def corrective_view(profile_name: str, db_path: str | None = None) -> dict:
-    """Assemble everything the corrective-layer UI needs, for the shadow trial."""
+    """Assemble everything the corrective-layer UI (the mood page) needs."""
     from . import mood_engine as ME
-    from .settings_store import get_setting
     from .profiles import resolve_profile
     from ..config import settings as _cfg_settings
     db_path = db_path or resolve_profile(profile_name)
     moods = await ME._load_moods()
     enr = await ME._build_round_enriched(profile_name, db_path)
     cfg = await get_correction_config()
-    mode = await get_setting("mood_scoring_mode", "legacy")
 
     vote_map, dbg = await v2_vote_map(profile_name, enr, moods, cfg)
     backbone = dbg.get("backbone", {}); per_corr = dbg.get("per_correction", {})
@@ -488,15 +436,6 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
     thresholds = await ME._load_thresholds(profile_name)
     v2_winner = await ME._resolve_mood(profile_name, dict(vote_map), [], moods, cached, thresholds, commit=False)
     current = await ME.get_cached_mood(profile_name)
-    driver = "v2" if mode == "corrective" else "legacy"
-    legacy_winner = None
-    try:
-        rules = await ME._load_rules(profile_name)
-        if rules:
-            lvm, lbd = await ME._generate_legacy_votes(profile_name, enr, moods, cached, rules)
-            legacy_winner = await ME._resolve_mood(profile_name, lvm, lbd, moods, cached, thresholds, commit=False)
-    except Exception:
-        pass
 
     corrs = await list_corrections(profile_name)
     for c in corrs:
@@ -547,7 +486,6 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
     mood_config = await mood_config_rows(profile_name, db_path=db_path)
 
     gaps = await _compute_gaps(profile_name, enr, moods, corrs, backbone, vote_map, cfg.get("headroom", 20.0))
-    shadow = await _shadow_stats(profile_name)
 
     # Exit triggers (directed abrupt transitions)
     from . import mood_exits as _MX
@@ -563,15 +501,11 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
         else:
             e["cond_summary"] = e["condition"].get("text", "")
     signals = [{"name": k, "label": v["label"], "unit": v["unit"]} for k, v in _MX.SIGNALS.items()]
-    if shadow.get("disagreements"):
-        import datetime as _dt
-        for d in shadow["disagreements"]:
-            d["when"] = _dt.datetime.fromtimestamp(d.get("at", 0)).strftime("%m-%d %H:%M") if d.get("at") else ""
 
     return {
-        "profile": profile_name, "mode": mode, "rounds": len(enr),
-        "current": current, "v2_winner": v2_winner, "legacy_winner": legacy_winner, "driver": driver,
-        "backbone": bb_ranked, "net_ranked": net_ranked, "corrections": corrs, "gaps": gaps, "shadow": shadow,
+        "profile": profile_name, "rounds": len(enr),
+        "current": current, "v2_winner": v2_winner,
+        "backbone": bb_ranked, "net_ranked": net_ranked, "corrections": corrs, "gaps": gaps,
         "shaping": shaping, "rounds_hist": rounds_hist, "mood_hist": mood_hist,
         "mood_config": mood_config, "retention_days": _cfg_settings.retention_days,
         "narrative": _narrative(current, bb_ranked, net_ranked, corrs, moods),
@@ -581,101 +515,3 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
         "emotion_groups": await emotion_groups(),
         "exits": exits, "signals": signals, "signal_ops": ["<", "<=", ">", ">=", "=="],
     }
-
-
-# --- Derivation from the flip analysis (seeding) ---
-
-async def derive_corrections(profile_name: str, db_path: str | None = None,
-                             lookback: int = 180, min_flips: int = 2) -> list[dict]:
-    """Replay the current rules + LLM votes over historical raw enrichment; for each mood the rules
-    genuinely FLIP the LLM toward (>= min_flips), consolidate that mood's rules' emotion sets into a
-    proposed correction. Returns proposed corrections (unsaved)."""
-    from . import mood_engine as ME
-    from .profiles import resolve_profile
-    from .conversations import get_recent_rounds, sync_recent_conversations
-    from .settings_store import get_low_signal_emotions
-    db_path = db_path or resolve_profile(profile_name)
-    moods = await ME._load_moods()
-    rules = [r for r in await ME._load_rules(profile_name) if r["rule_type"] != "prev_mood"]
-    _, thr, wt = await ME._llm_vote_config()
-    try:
-        await sync_recent_conversations(profile_name, db_path=db_path)
-    except Exception:
-        pass
-    rounds = await get_recent_rounds(profile_name, limit=lookback)
-    rids = [r["id"] for r in rounds]; cids = list({r["conversation_id"] for r in rounds})
-    sm, msm, tm, mm = await ME._fetch_round_enrichment(rids, cids)
-    low = await get_low_signal_emotions()
-    enr = []
-    for r in rounds:
-        cid = r["conversation_id"]; sd = sm.get(r["id"]) or {}; u = sd.get("user") or {}; a = sd.get("agent") or {}
-        enr.append({"id": r["id"], "conversation_id": cid, "mode": mm.get(cid), "topic": tm.get(cid),
-                    "mood_scores": msm.get(r["id"]) or {},
-                    "sentiment_user_top3": ME._top_emotions(u, low), "sentiment_agent_top3": ME._top_emotions(a, low),
-                    "user_scores": u.get("scores") or {}, "agent_scores": a.get("scores") or {}})
-    W = 20
-    flip_targets: Counter = Counter()
-    for s in range(0, max(1, len(enr) - W)):
-        win = enr[s:s + W]
-        rvm: dict = {}
-        for rule in rules:
-            v = ME._rule_votes(rule, win, None)
-            if v:
-                rvm[rule["mood_id"]] = rvm.get(rule["mood_id"], 0) + v
-        lvm, _ = ME._llm_mood_votes(win, moods, thr, wt)
-        comb = dict(lvm)
-        for k, v in rvm.items():
-            comb[k] = comb.get(k, 0) + v
-        if not comb:
-            continue
-        lw = max(lvm, key=lvm.get) if lvm else None
-        cw = max(comb, key=comb.get)
-        if cw != lw:
-            flip_targets[cw] += 1
-
-    out = []
-    for mood, cnt in flip_targets.items():
-        if cnt < min_flips or mood not in moods:
-            continue
-        emo_freq: Counter = Counter(); mutual = False; modes: set = set(); topics: set = set()
-        for rule in rules:
-            if rule["mood_id"] != mood:
-                continue
-            rt = rule["rule_type"]
-            if rt in ("sentiment_agent", "sentiment_user", "sentiment_match", "sentiment_mismatch"):
-                for e in (rule["params"].get("emotions") or []):
-                    emo_freq[e] += 1
-            if rt == "sentiment_match":
-                mutual = True
-            if rt in ("mode_count", "mode_streak") and rule["params"].get("mode"):
-                modes.add(rule["params"]["mode"])
-            if rt == "topic_keyword":
-                for k in (rule["params"].get("keywords") or []):
-                    topics.add(k)
-        if not emo_freq:
-            continue
-        mx = max(emo_freq.values())
-        emos = {e: round(c / mx, 2) for e, c in emo_freq.most_common(6)}
-        out.append({
-            "target_mood": mood, "agent_emotions": emos,
-            "relation": "mutual" if mutual else "none", "user_emotions": {},
-            "mode": sorted(modes), "topic_contains": sorted(topics), "strength": 0.6,
-            "note": f"LLM under-scores {moods[mood]['name']} when "
-                    f"{'/'.join(list(emos)[:3])} present ({cnt} flips)",
-            "enabled": True, "_flips": cnt,
-        })
-    return out
-
-
-async def seed_profile(profile_name: str, db_path: str | None = None, force: bool = False) -> list[dict]:
-    """Derive + insert corrections for a profile if it has none (or force). Returns the seeded set."""
-    existing = await list_corrections(profile_name)
-    if existing and not force:
-        return existing
-    proposed = await derive_corrections(profile_name, db_path=db_path)
-    for c in proposed:
-        await create_correction(
-            profile_name, c["target_mood"], c["agent_emotions"], relation=c["relation"],
-            user_emotions=c["user_emotions"], mode=c["mode"], topic_contains=c["topic_contains"],
-            strength=c["strength"], note=c["note"], enabled=c["enabled"])
-    return await list_corrections(profile_name)

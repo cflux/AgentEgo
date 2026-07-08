@@ -345,8 +345,7 @@ _DEFAULT_SETTINGS = {
     "mood_switch_margin": "1",
     "mood_fuzzy_select": "0",
     "mood_fuzzy_band": "2",
-    # Mood scoring v2 (see settings_store.DEFAULTS for docs).
-    "mood_scoring_mode": "legacy",
+    # Mood scoring (see settings_store.DEFAULTS for docs).
     "mood_backbone_scale": "2.5",
     "mood_recency_halflife": "8",
     "mood_correction_scale": "0.5",

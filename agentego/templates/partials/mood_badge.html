@@ -1,7 +1,7 @@
 <article style="padding:0.85rem 1rem;">
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.6rem;">
     <strong>Agent Mood</strong>
-    <a href="/moods/rules" style="font-size:0.78rem;">Configure rules →</a>
+    <a href="/corrective" style="font-size:0.78rem;">Tune →</a>
   </div>
   {% if profiles_moods %}
     {% for pm in profiles_moods %}
@@ -17,9 +17,9 @@
       {% if mood.is_seed %}
       <span style="font-size:0.72rem; color:var(--pico-muted-color);">woke · reset (see why)</span>
       {% elif mood.is_default %}
-      <span style="font-size:0.72rem; color:var(--pico-muted-color);">resting · no rule fired</span>
+      <span style="font-size:0.72rem; color:var(--pico-muted-color);">resting · calm signal</span>
       {% else %}
-      <span style="font-size:0.75rem; color:var(--pico-muted-color);">{{ mood.vote_count }} rule{{ 's' if mood.vote_count != 1 else '' }} matched</span>
+      <span style="font-size:0.75rem; color:var(--pico-muted-color);">net {{ mood.vote_count }}</span>
       {% endif %}
       {% if mood.breakdown %}
       <details style="font-size:0.75rem;">
@@ -28,7 +28,7 @@
       </details>
       {% endif %}
       {% else %}
-      <span style="font-size:0.85rem; color:var(--pico-muted-color);">No mood — <a href="/moods/rules?profile={{ pm.profile_name }}">add rules</a> to compute</span>
+      <span style="font-size:0.85rem; color:var(--pico-muted-color);">No mood yet — <a href="/corrective?profile={{ pm.profile_name }}">set up scoring</a></span>
       {% endif %}
     </div>
     {% endfor %}

@@ -1,0 +1,5 @@
+name: prefill_injector
+version: 1.0.0
+description: "Injects pre-fill context from last closed session via Dolphin 24B scoring."
+provides_hooks:
+  - pre_llm_call

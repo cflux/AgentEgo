@@ -1,0 +1,5 @@
+name: time_injector
+version: 1.0.0
+description: "Injects current date/time into every LLM call via pre_llm_call hook. No more temporal drift."
+provides_hooks:
+  - pre_llm_call

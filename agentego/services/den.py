@@ -132,7 +132,21 @@ def get_entry(profile: str, relpath: str) -> dict | None:
     return parse_entry(profile, target)
 
 
-def search_entries(profile: str, q: str = "", tag: str = "", type: str = "") -> list[dict]:
+_SORTS = ("new", "old", "important", "edited")
+_DATE_SORTS = ("new", "old")  # the sorts for which month grouping is meaningful
+
+
+def _sort_entries(entries: list[dict], sort: str) -> list[dict]:
+    if sort == "old":
+        return sorted(entries, key=lambda e: (e["date"], e["mtime"]))
+    if sort == "important":
+        return sorted(entries, key=lambda e: (e["importance"] or 0.0, e["date"]), reverse=True)
+    if sort == "edited":
+        return sorted(entries, key=lambda e: e["mtime"], reverse=True)
+    return sorted(entries, key=lambda e: (e["date"], e["mtime"]), reverse=True)  # "new" (default)
+
+
+def search_entries(profile: str, q: str = "", tag: str = "", type: str = "", sort: str = "new") -> list[dict]:
     entries = list_entries(profile)
     if tag:
         tl = tag.strip().lower()
@@ -144,7 +158,30 @@ def search_entries(profile: str, q: str = "", tag: str = "", type: str = "") -> 
         entries = [e for e in entries
                    if ql in e["summary"].lower() or ql in e["body"].lower()
                    or any(ql in t.lower() for t in e["tags"]) or ql in e["slug"].lower()]
-    return entries
+    return _sort_entries(entries, sort if sort in _SORTS else "new")
+
+
+def group_by_month(entries: list[dict]) -> list[dict]:
+    """Group already-ordered entries into month buckets (preserving order). Each entry's `date` is
+    'YYYY-MM-DD'; entries without a parseable date fall into an 'Undated' bucket at the end."""
+    groups: list[dict] = []
+    index: dict[str, dict] = {}
+    for e in entries:
+        d = (e.get("date") or "")[:7]  # YYYY-MM
+        if len(d) == 7 and d[4] == "-":
+            try:
+                label = datetime.strptime(d, "%Y-%m").strftime("%B %Y")
+            except ValueError:
+                d, label = "undated", "Undated"
+        else:
+            d, label = "undated", "Undated"
+        g = index.get(d)
+        if g is None:
+            g = {"ym": d, "label": label, "entries": []}
+            index[d] = g
+            groups.append(g)
+        g["entries"].append(e)
+    return groups
 
 
 def all_tags(profile: str) -> list[str]:

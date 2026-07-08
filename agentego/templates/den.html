@@ -6,11 +6,24 @@
   /* Pico floats summary::after (the disclosure chevron) after the last line of content; on these
      multi-line cards that drops it to the bottom-right where it clips the rounded corner. Pin it to
      the card's top-right instead. */
-  #den-list details { position: relative; }
-  #den-list details > summary { padding-right: 2.3rem; }
-  #den-list details > summary::after {
+  #den-list details.den-entry { position: relative; }
+  #den-list details.den-entry > summary { padding-right: 2.3rem; }
+  #den-list details.den-entry > summary::after {
     position: absolute; top: 0.7rem; right: 0.9rem; float: none; margin: 0;
   }
+  #den-list .den-month > summary { font-weight: 600; font-size: 0.9rem; cursor: pointer;
+    padding: 0.35rem 0; color: var(--pico-muted-color); list-style: none; }
+  #den-list .den-month[open] > summary { margin-bottom: 0.4rem; }
+  .den-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.75rem; margin: 0 0 1rem; }
+  .den-card { border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius);
+    overflow: hidden; cursor: pointer; display: flex; flex-direction: column; background: var(--pico-card-background-color);
+    transition: transform 0.08s ease, box-shadow 0.08s ease; }
+  .den-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
+  .den-card img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; }
+  .den-card .den-cap { padding: 0.4rem 0.55rem; font-size: 0.72rem; }
+  .den-card .den-textbody { padding: 0.55rem; font-size: 0.82rem; flex: 1; }
+  #den-modal::backdrop { background: rgba(0,0,0,0.55); }
 </style>
 
 <h2>The Den <small style="font-size:0.6em; color:var(--pico-muted-color);">Curated journal of meaning (read-only)</small></h2>
@@ -51,11 +64,45 @@
       {% for t in all_tags %}<option value="{{ t }}" {% if tag == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
     </select>
   </label>
+  {% set sort_labels = {"new": "Newest", "old": "Oldest", "important": "Most important", "edited": "Recently edited"} %}
+  <label style="margin:0; font-size:0.82rem;">Sort
+    <select name="sort">
+      {% for s in sorts %}<option value="{{ s }}" {% if sort == s %}selected{% endif %}>{{ sort_labels.get(s, s) }}</option>{% endfor %}
+    </select>
+  </label>
+  <label style="margin:0; font-size:0.82rem;">View
+    <select name="view">
+      <option value="list" {% if view == 'list' %}selected{% endif %}>List</option>
+      <option value="gallery" {% if view == 'gallery' %}selected{% endif %}>Gallery</option>
+    </select>
+  </label>
 </form>
 
 <div id="den-list">
   {% include "partials/den_list.html" %}
 </div>
+
+<dialog id="den-modal">
+  <article style="margin:0; max-width:min(48rem, 92vw);">
+    <header style="display:flex; justify-content:flex-end; padding:0.4rem 0.6rem;">
+      <a href="#close" aria-label="Close" onclick="event.preventDefault(); document.getElementById('den-modal').close();"
+         style="font-size:1.1rem; text-decoration:none;">✕</a>
+    </header>
+    <div id="den-modal-body" style="padding:0 1rem 1rem;"></div>
+  </article>
+</dialog>
+<script>
+  function denOpenModal(el) {
+    var dlg = document.getElementById('den-modal');
+    // htmx has already been told to load the entry into #den-modal-body; just open the dialog.
+    dlg.showModal();
+  }
+  // Close when clicking the backdrop (outside the article).
+  document.addEventListener('click', function (e) {
+    var dlg = document.getElementById('den-modal');
+    if (dlg && dlg.open && e.target === dlg) dlg.close();
+  });
+</script>
 {% endif %}
 
 {% endblock %}

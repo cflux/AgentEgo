@@ -12,26 +12,36 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 
-def _list_ctx(profile: str, q: str, tag: str, type: str) -> dict:
-    entries = den.search_entries(profile, q=q, tag=tag, type=type)
-    return {"entries": entries, "active_profile": profile, "q": q, "tag": tag, "type": type,
-            "types": den.ENTRY_TYPES}
+_VIEWS = ("list", "gallery")
+
+
+def _list_ctx(profile: str, q: str, tag: str, type: str, sort: str, view: str) -> dict:
+    sort = sort if sort in den._SORTS else "new"
+    view = view if view in _VIEWS else "list"
+    entries = den.search_entries(profile, q=q, tag=tag, type=type, sort=sort)
+    grouped = sort in den._DATE_SORTS
+    return {"entries": entries, "groups": den.group_by_month(entries) if grouped else None,
+            "grouped": grouped, "active_profile": profile, "q": q, "tag": tag, "type": type,
+            "sort": sort, "view": view, "types": den.ENTRY_TYPES, "sorts": den._SORTS}
 
 
 @router.get("/den")
-async def den_page(request: Request, profile: str = "", q: str = "", tag: str = "", type: str = ""):
+async def den_page(request: Request, profile: str = "", q: str = "", tag: str = "", type: str = "",
+                   sort: str = "new", view: str = "list"):
     profiles = den.list_den_profiles()
     if not profile:
         profile = profiles[0] if profiles else ""
-    ctx = _list_ctx(profile, q, tag, type) if profile else {
-        "entries": [], "active_profile": "", "q": q, "tag": tag, "type": type, "types": den.ENTRY_TYPES}
+    ctx = _list_ctx(profile, q, tag, type, sort, view) if profile else {
+        "entries": [], "groups": None, "grouped": False, "active_profile": "", "q": q, "tag": tag,
+        "type": type, "sort": "new", "view": "list", "types": den.ENTRY_TYPES, "sorts": den._SORTS}
     ctx.update({"request": request, "profiles": profiles, "all_tags": den.all_tags(profile) if profile else []})
     return templates.TemplateResponse("den.html", ctx)
 
 
 @router.get("/partials/den-list")
-async def den_list_partial(request: Request, profile: str, q: str = "", tag: str = "", type: str = ""):
-    ctx = _list_ctx(profile, q, tag, type)
+async def den_list_partial(request: Request, profile: str, q: str = "", tag: str = "", type: str = "",
+                           sort: str = "new", view: str = "list"):
+    ctx = _list_ctx(profile, q, tag, type, sort, view)
     ctx["request"] = request
     return templates.TemplateResponse("partials/den_list.html", ctx)
 

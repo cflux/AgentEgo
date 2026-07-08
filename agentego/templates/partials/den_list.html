@@ -1,14 +1,11 @@
-{# Den entry cards — each expands to lazy-load the full entry #}
+{# Den entries — list (inline-expand cards, optionally grouped by month) or gallery (thumbnail grid). #}
 {% set type_colors = {
   "feeling": "#e57391", "art": "#ff9f4a", "discovery": "#b47aff",
   "transcript": "#4adbae", "gift": "#4a9eff", "fantasy": "#d94f9f"} %}
-{% if not entries %}
-<p style="color:var(--pico-muted-color); font-size:0.88rem;">No entries match.</p>
-{% else %}
-<p style="font-size:0.75rem; color:var(--pico-muted-color); margin:0 0 0.5rem;">{{ entries|length }} entr{{ 'y' if entries|length == 1 else 'ies' }}</p>
-{% for e in entries %}
+
+{% macro list_card(e) %}
 {% set c = type_colors.get(e.type, "#888") %}
-<details style="margin:0 0 0.6rem;">
+<details class="den-entry" style="margin:0 0 0.6rem;">
   <summary style="cursor:pointer; list-style:none; padding:0.7rem 0.9rem; border:1px solid var(--pico-muted-border-color); border-radius:var(--pico-border-radius); border-left:3px solid {{ c }};">
     <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.25rem;">
       <span style="font-size:0.72rem; padding:0.1rem 0.5rem; border-radius:1rem; background:{{ c }}22; color:{{ c }}; text-transform:uppercase; letter-spacing:0.03em;">{{ e.type or '—' }}</span>
@@ -28,5 +25,51 @@
     <p style="font-size:0.8rem; color:var(--pico-muted-color);">Loading…</p>
   </div>
 </details>
-{% endfor %}
+{% endmacro %}
+
+{% macro gallery_card(e) %}
+{% set c = type_colors.get(e.type, "#888") %}
+<div class="den-card" style="border-top:3px solid {{ c }};"
+     hx-get="/den/entry?profile={{ active_profile }}&path={{ e.relpath|urlencode }}"
+     hx-target="#den-modal-body" hx-swap="innerHTML"
+     onclick="document.getElementById('den-modal-body').innerHTML='<p style=&quot;color:var(--pico-muted-color)&quot;>Loading…</p>'; document.getElementById('den-modal').showModal();">
+  {% if e.has_media %}
+  <img src="/den/media?profile={{ e.profile }}&path={{ e.file|urlencode }}" alt="{{ e.summary }}" loading="lazy">
+  {% else %}
+  <div class="den-textbody">{{ (e.summary or e.slug)[:160] }}</div>
+  {% endif %}
+  <div class="den-cap">
+    <span style="color:{{ c }}; text-transform:uppercase; letter-spacing:0.03em;">{{ e.type or '—' }}</span>
+    <span style="color:var(--pico-muted-color);"> · {{ e.date }}</span>
+    {% if e.importance is not none %}<span style="color:var(--pico-muted-color);"> · ★ {{ '%.2f'|format(e.importance) }}</span>{% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+{% if not entries %}
+<p style="color:var(--pico-muted-color); font-size:0.88rem;">No entries match.</p>
+{% else %}
+<p style="font-size:0.75rem; color:var(--pico-muted-color); margin:0 0 0.5rem;">{{ entries|length }} entr{{ 'y' if entries|length == 1 else 'ies' }}</p>
+
+{% if view == 'gallery' %}
+  {% if grouped %}
+    {% for g in groups %}
+    <h4 style="font-size:0.85rem; color:var(--pico-muted-color); margin:0.6rem 0 0.4rem;">{{ g.label }} <span style="font-weight:normal;">· {{ g.entries|length }}</span></h4>
+    <div class="den-grid">{% for e in g.entries %}{{ gallery_card(e) }}{% endfor %}</div>
+    {% endfor %}
+  {% else %}
+    <div class="den-grid">{% for e in entries %}{{ gallery_card(e) }}{% endfor %}</div>
+  {% endif %}
+{% else %}
+  {% if grouped %}
+    {% for g in groups %}
+    <details class="den-month" open>
+      <summary>{{ g.label }} · {{ g.entries|length }}</summary>
+      {% for e in g.entries %}{{ list_card(e) }}{% endfor %}
+    </details>
+    {% endfor %}
+  {% else %}
+    {% for e in entries %}{{ list_card(e) }}{% endfor %}
+  {% endif %}
+{% endif %}
 {% endif %}

@@ -170,16 +170,14 @@ async def mood_directive(profile: str = "default"):
 
 @router.get("/partials/mood-badge")
 async def mood_badge_partial(request: Request, profile: str = ""):
+    """Dashboard mood panel — a light, read-only snapshot per profile (does not commit; the scheduled
+    refresh_all_moods owns writes)."""
     profiles = discover_profiles()
-    if profile:
-        db_path = resolve_profile(profile)
-        mood = await evaluate_mood(profile, db_path=db_path)
-        profiles_moods = [{"profile_name": profile, "mood": mood}]
-    else:
-        profiles_moods = []
-        for p in profiles:
-            mood = await evaluate_mood(p["name"], db_path=p["db_path"])
-            profiles_moods.append({"profile_name": p["name"], "mood": mood})
+    targets = [{"name": profile, "db_path": resolve_profile(profile)}] if profile else profiles
+    profiles_moods = []
+    for p in targets:
+        summary = await _mc.mood_summary(p["name"], db_path=p["db_path"])
+        profiles_moods.append({"profile_name": p["name"], **summary})
     multi = len(profiles) > 1
     return templates.TemplateResponse(
         "partials/mood_badge.html",

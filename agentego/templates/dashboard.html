@@ -40,6 +40,12 @@
   </div>
 </div>
 
+<div id="mood-widget"
+     hx-get="/partials/mood-badge{% if active_profile %}?profile={{ active_profile }}{% endif %}"
+     hx-trigger="load, every 60s"
+     hx-swap="innerHTML">
+</div>
+
 <div
   hx-get="/partials/activity"
   hx-trigger="every 30s, sentimentComplete from:body"
@@ -62,12 +68,6 @@
   {% with status=topic_status %}{% include "partials/topic_status.html" %}{% endwith %}
 </div>
 
-<div id="mood-widget"
-     hx-get="/partials/mood-badge{% if active_profile %}?profile={{ active_profile }}{% endif %}"
-     hx-trigger="load"
-     hx-swap="innerHTML">
-</div>
-
 {% if platform_stats %}
 <article>
   <header><strong>Platform Breakdown (7d)</strong></header>
@@ -85,12 +85,5 @@
   </table>
 </article>
 {% endif %}
-
-<div id="recent-sessions-section"
-     hx-get="/partials/recent-sessions{% if active_profile %}?profile={{ active_profile }}{% endif %}"
-     hx-trigger="sentimentComplete from:body, topicComplete from:body"
-     hx-swap="innerHTML">
-  {% include "partials/recent_sessions.html" %}
-</div>
 
 {% endblock %}

@@ -408,6 +408,42 @@ async def mood_config_rows(profile_name: str, db_path: str | None = None) -> lis
     return rows
 
 
+async def mood_summary(profile_name: str, db_path: str | None = None) -> dict:
+    """Light, read-only mood snapshot for the dashboard panel: current mood, a pending recompute (only
+    when it differs), the top net signals, recent transitions, and a short 'why'. Reuses the same pieces
+    as the mood page but skips the heavy editor/gaps/rounds data. Does NOT commit — the scheduled
+    refresh_all_moods owns writes; opening the dashboard shouldn't move the mood."""
+    from . import mood_engine as ME
+    from .profiles import resolve_profile
+    from .settings_store import get_mood_decay_config, get_transition_config
+    db_path = db_path or resolve_profile(profile_name)
+    moods = await ME._load_moods()
+    current = await ME.get_cached_mood(profile_name)
+    enr = await ME._build_round_enriched(profile_name, db_path)
+
+    net_top, pending, shaping = [], None, {}
+    if enr and moods:
+        vote_map, dbg = await v2_vote_map(profile_name, enr, moods)
+        backbone = dbg.get("backbone", {}); corr_scaled = dbg.get("corrections", {})
+        net_top = sorted(
+            ({"name": moods[m]["name"], "color": moods[m].get("color", "#888"),
+              "net": round(backbone.get(m, 0.0) + corr_scaled.get(m, 0.0), 1)}
+             for m in (set(backbone) | set(corr_scaled)) if m in moods),
+            key=lambda x: -x["net"])[:4]
+        cached = await ME._load_cached_mood(profile_name)
+        thresholds = await ME._load_thresholds(profile_name)
+        winner = await ME._resolve_mood(profile_name, dict(vote_map), [], moods, cached, thresholds, commit=False)
+        if winner and (not current or winner["id"] != current["id"]):
+            pending = {"name": winner["name"], "color": winner.get("color", "#888"),
+                       "vote_count": winner.get("vote_count", 0)}
+        tcfg = await get_transition_config(); decay_cfg = await get_mood_decay_config()
+        tenure = await ME._mood_tenure(profile_name)
+        shaping = {"tenure": tenure, "bias": ME._incumbent_bias(tenure, tcfg, decay_cfg)}
+    recent_changes = await _mood_history_rows(profile_name, moods, limit=5)
+    return {"current": current, "pending": pending, "net_top": net_top,
+            "recent_changes": recent_changes, "shaping": shaping}
+
+
 async def corrective_view(profile_name: str, db_path: str | None = None) -> dict:
     """Assemble everything the corrective-layer UI (the mood page) needs."""
     from . import mood_engine as ME

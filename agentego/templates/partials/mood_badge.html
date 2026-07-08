@@ -5,30 +5,59 @@
   </div>
   {% if profiles_moods %}
     {% for pm in profiles_moods %}
-    <div style="display:flex; align-items:center; gap:0.75rem; {% if not loop.last %}margin-bottom:0.5rem;{% endif %}">
-      {% if multi %}
-      <span style="font-size:0.78rem; color:var(--pico-muted-color); min-width:5rem;">{{ pm.profile_name }}</span>
+    <div style="{% if not loop.last %}border-bottom:1px solid var(--pico-muted-border-color); padding-bottom:0.7rem; margin-bottom:0.7rem;{% endif %}">
+      {% set c = pm.current %}
+      {# top row: current mood + pending recompute #}
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+          {% if multi %}<span style="font-size:0.78rem; color:var(--pico-muted-color); min-width:4rem;">{{ pm.profile_name }}</span>{% endif %}
+          {% if c %}
+          <span class="mood-badge" style="background:{{ c.color }}22; border:1px solid {{ c.color }}; color:{{ c.color }};">{{ c.icon }} {{ c.name }}</span>
+          {% else %}
+          <span style="font-size:0.85rem; color:var(--pico-muted-color);">No mood yet</span>
+          {% endif %}
+        </div>
+        {% if pm.pending %}
+        <div style="text-align:right; font-size:0.78rem;">
+          <span style="text-transform:uppercase; letter-spacing:0.05em; color:#e0a04a;">Next refresh →</span>
+          <strong style="color:#b47aff;">{{ pm.pending.name }}</strong>
+          <span style="color:var(--pico-muted-color);">(net {{ pm.pending.vote_count }})</span>
+        </div>
+        {% endif %}
+      </div>
+
+      {# why: cached breakdown + tenure/bias #}
+      {% if c and (c.breakdown or pm.shaping.tenure) %}
+      <div style="font-size:0.75rem; color:var(--pico-muted-color); margin-top:0.4rem;">
+        {% if c.breakdown %}{{ c.breakdown | join('; ') }}{% endif %}
+        {% if pm.shaping.tenure %} · held {{ pm.shaping.tenure }} round(s){% if pm.shaping.bias > 0 %}, <span style="color:#4caf50;">+{{ pm.shaping.bias }} inertia</span>{% elif pm.shaping.bias < 0 %}, <span style="color:#e57373;">{{ pm.shaping.bias }} decay</span>{% endif %}{% endif %}
+      </div>
       {% endif %}
-      {% set mood = pm.mood %}
-      {% if mood %}
-      <span class="mood-badge" style="background:{{ mood.color }}22; border:1px solid {{ mood.color }}; color:{{ mood.color }};">
-        {{ mood.icon }} {{ mood.name }}
-      </span>
-      {% if mood.is_seed %}
-      <span style="font-size:0.72rem; color:var(--pico-muted-color);">woke · reset (see why)</span>
-      {% elif mood.is_default %}
-      <span style="font-size:0.72rem; color:var(--pico-muted-color);">resting · calm signal</span>
-      {% else %}
-      <span style="font-size:0.75rem; color:var(--pico-muted-color);">net {{ mood.vote_count }}</span>
+
+      {# top mood signals (net = backbone + corrections) #}
+      {% if pm.net_top %}
+      <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; margin-top:0.5rem;">
+        <span style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--pico-muted-color);">Feeling</span>
+        {% for s in pm.net_top %}{% if s.net > 0 %}
+        <span style="font-size:0.76rem; padding:0.05rem 0.45rem; border-radius:0.7rem; background:{{ s.color }}1e; color:{{ s.color }};">{{ s.name }} {{ s.net }}</span>
+        {% endif %}{% endfor %}
+      </div>
       {% endif %}
-      {% if mood.breakdown %}
-      <details style="font-size:0.75rem;">
-        <summary style="color:var(--pico-muted-color); cursor:pointer; list-style:none;">▸ why</summary>
-        <span style="color:var(--pico-muted-color);">{{ mood.breakdown | join('; ') }}</span>
+
+      {# recent transitions #}
+      {% if pm.recent_changes %}
+      <details style="margin-top:0.45rem;">
+        <summary style="font-size:0.74rem; color:var(--pico-muted-color); cursor:pointer;">recent changes</summary>
+        <div style="font-size:0.74rem; margin-top:0.3rem;">
+          {% for h in pm.recent_changes %}
+          <div style="color:var(--pico-muted-color); margin-bottom:0.15rem;">
+            <span style="white-space:nowrap;">{{ h.at | ts }}</span> —
+            {% if h.prev %}<span style="color:{{ h.prev.color }};">{{ h.prev.name }}</span> → {% endif %}
+            <span style="color:{{ h.mood.color }}; font-weight:600;">{{ h.mood.name }}</span>
+          </div>
+          {% endfor %}
+        </div>
       </details>
-      {% endif %}
-      {% else %}
-      <span style="font-size:0.85rem; color:var(--pico-muted-color);">No mood yet — <a href="/corrective?profile={{ pm.profile_name }}">set up scoring</a></span>
       {% endif %}
     </div>
     {% endfor %}

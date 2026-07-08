@@ -1,5 +1,4 @@
 name: mood_injector
 version: 1.0.0
-description: "Injects Tala's live mood directive from AgentEgo into every LLM call via pre_llm_call hook."
-provides_hooks:
-  - pre_llm_call
+description: Injects current mood directive before every LLM call
+author: carbon-flux

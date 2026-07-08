@@ -123,6 +123,8 @@ DEFAULTS = {
     "mood_correction_scale": "0.5",        # global vote-equiv multiplier for a strength=1.0 correction
     "mood_correction_mutual_bonus": "0.5", # weight of the accelerative "user also feels it" term
     "mood_correction_mode_baseline": "0.1",# flat per-round undercurrent while a correction's mode is active
+    "mood_correction_headroom": "20",      # ceiling a correction fills TOWARD; it fades to ~0 once the
+                                           # backbone alone reaches this (gap-fill: correct misses, don't amplify hits)
     # Agent-facing disposition block (injected into the system prompt each turn).
     "mood_directive_enabled": "1",
     "mood_directive_template": (

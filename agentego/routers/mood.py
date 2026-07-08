@@ -980,6 +980,44 @@ async def corrective_panel(request: Request, profile: str = "default"):
     )
 
 
+async def _render_moodcfg(request: Request, profile: str):
+    rows = await _mc.mood_config_rows(profile, db_path=resolve_profile(profile))
+    return templates.TemplateResponse(
+        "partials/corrective_moodcfg.html", {"request": request, "cfg_rows": rows, "profile": profile})
+
+
+@router.post("/api/corrective/resting/toggle")
+async def corrective_toggle_resting(request: Request, profile: str = Form(...), mood_id: str = Form(...)):
+    conn = await get_ego_db()
+    try:
+        exists = await (await conn.execute(
+            "SELECT 1 FROM mood_defaults WHERE profile_name=? AND mood_id=?", (profile, mood_id))).fetchone()
+        if exists:
+            await conn.execute("DELETE FROM mood_defaults WHERE profile_name=? AND mood_id=?", (profile, mood_id))
+        else:
+            await conn.execute("INSERT OR IGNORE INTO mood_defaults (profile_name, mood_id) VALUES (?, ?)",
+                               (profile, mood_id))
+        await conn.commit()
+    finally:
+        await conn.close()
+    return await _render_moodcfg(request, profile)
+
+
+@router.post("/api/corrective/threshold")
+async def corrective_set_threshold(request: Request, profile: str = Form(...), mood_id: str = Form(...),
+                                   min_votes: int = Form(...)):
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            "INSERT INTO mood_thresholds (profile_name, mood_id, min_votes) VALUES (?, ?, ?) "
+            "ON CONFLICT(profile_name, mood_id) DO UPDATE SET min_votes = excluded.min_votes",
+            (profile, mood_id, max(1, min_votes)))
+        await conn.commit()
+    finally:
+        await conn.close()
+    return await _render_moodcfg(request, profile)
+
+
 @router.post("/api/corrections")
 async def create_correction_ep(request: Request):
     form = await request.form()

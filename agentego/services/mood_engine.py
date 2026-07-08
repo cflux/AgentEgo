@@ -1,6 +1,5 @@
 import json
 import time
-import random
 from ..db.ego import get_ego_db
 
 _LOOKBACK_MAX = 20  # fallback if the configurable setting is unavailable
@@ -903,6 +902,7 @@ async def _resolve_mood(profile_name: str, vote_map: dict, breakdown: list, mood
     decay_cfg = await get_mood_decay_config()
     tenure = await _mood_tenure(profile_name)
 
+    resting_scores = dict(vote_map)  # pre-cascade backbone read — resting settles on the calm signal
     vote_map, casc_notes, _ = _cascade_transfer(vote_map, moods, cached_mood_id, cascade, casc_enabled)
     if casc_notes:
         breakdown.append("Cascade: " + " → ".join(casc_notes))
@@ -928,10 +928,21 @@ async def _resolve_mood(profile_name: str, vote_map: dict, breakdown: list, mood
             if commit:
                 await _cache_result(profile_name, None, 0, [])
             return None
-        chosen = cached_mood_id if cached_mood_id in defaults else random.choice(defaults)
+        # Backbone-weighted resting: settle into the resting mood the backbone faintly favours rather than
+        # a blind random pick (continuous with the v2 backbone). Stay put on a tie so we don't drift on noise.
+        ranked = sorted(defaults, key=lambda m: resting_scores.get(m, 0.0), reverse=True)
+        top = ranked[0]
+        top_score = resting_scores.get(top, 0.0)
+        # Keep the current resting mood on a (near-)tie to avoid drifting on noise.
+        if cached_mood_id in defaults and resting_scores.get(cached_mood_id, 0.0) >= top_score - 1e-9:
+            chosen = cached_mood_id
+        else:
+            chosen = top
+        chosen_score = resting_scores.get(chosen, 0.0)
+        note = f"Resting ({moods[chosen]['name']})" + (f" · backbone {chosen_score:.1f}" if chosen_score else "")
         if commit:
-            await _cache_result(profile_name, chosen, 0, ["Default mood"])
-        return {**moods[chosen], "vote_count": 0, "breakdown": ["Default mood"], "is_default": True}
+            await _cache_result(profile_name, chosen, 0, [note])
+        return {**moods[chosen], "vote_count": 0, "breakdown": [note], "is_default": True}
 
     try:
         margin = int(float(await get_setting("mood_switch_margin", "1")))

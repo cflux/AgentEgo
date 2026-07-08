@@ -1,0 +1,35 @@
+<table style="font-size:0.8rem; margin-top:0.5rem;">
+  <thead><tr>
+    <th>mood</th>
+    <th style="width:7rem; text-align:center;">backbone now</th>
+    <th style="width:6rem; text-align:center;">resting</th>
+    <th style="width:9rem;">threshold <span style="font-weight:400; color:var(--pico-muted-color);">(min votes)</span></th>
+  </tr></thead>
+  <tbody>
+    {% for m in cfg_rows %}
+    <tr>
+      <td><span style="color:{{ m.color }}; font-weight:600;">{{ m.name }}</span></td>
+      <td style="text-align:center; color:var(--pico-muted-color);">{{ m.backbone if m.backbone else '—' }}</td>
+      <td style="text-align:center;">
+        <input type="checkbox" {% if m.resting %}checked{% endif %}
+          style="margin:0; width:1.05em; height:1.05em; flex:none;"
+          hx-post="/api/corrective/resting/toggle"
+          hx-vals='{"profile": "{{ profile }}", "mood_id": "{{ m.id }}"}'
+          hx-target="#moodcfg" hx-swap="innerHTML">
+      </td>
+      <td>
+        <input type="number" min="1" max="60" value="{{ m.threshold }}"
+          style="margin:0; padding:0.1rem 0.35rem; width:4.5rem; font-size:0.8rem;"
+          hx-post="/api/corrective/threshold"
+          hx-vals='{"profile": "{{ profile }}", "mood_id": "{{ m.id }}"}'
+          hx-trigger="change" name="min_votes"
+          hx-target="#moodcfg" hx-swap="innerHTML">
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p style="font-size:0.76rem; color:var(--pico-muted-color); margin:0.4rem 0 0;">
+  A mood activates when its net score clears its <strong>threshold</strong>. When nothing clears, she
+  settles into the <strong>resting</strong> mood the backbone most favours (no longer a random pick).
+</p>

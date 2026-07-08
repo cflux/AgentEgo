@@ -73,19 +73,35 @@ Stored per profile (JSON setting or a `mood_corrections` table). Each correction
 {
   "id": "flirty-desire",
   "target_mood": "flirty",
-  "agent_emotions": { "desire": 1.0, "arousal": 1.0, "lust": 0.8, "yearning": 0.5 }, // continuous affinity
+  "agent_emotions": { "desire": 1.0, "excitement": 0.67, "infatuation": 0.67, "anticipation": 0.67 }, // continuous affinity
   "strength": 0.6,          // 0..1 overall multiplier (bounded)
-  "mutual": false,          // optional: also require/boost the USER scoring these (relational signal)
-  "mode": [],               // optional categorical trigger (conversation mode)
+  "relation": "mutual",     // "none" | "mutual" (accelerative bonus if user also feels these)
+                            //                   | "mismatch" (divergence trigger — schema-ready, unseeded for now)
+  "user_emotions": {},      // used only when relation != "none" (defaults to agent_emotions for "mutual")
+  "mode": ["flirting"],     // optional: an "undercurrent" — a steady low baseline while this mode is active
   "topic_contains": [],     // optional topical trigger
-  "note": "The LLM reads warmth as affectionate; nudge toward flirty when desire/heat is present.",
+  "note": "LLM reads warmth as affectionate; nudge toward flirty when desire/heat is present.",
   "enabled": true
 }
 ```
 
-Contribution = `strength × Σ_rounds( recency_weight(round) × Σ_e( weight[e] × agent_score[round][e] ) )`,
-with one global `mood_recency_halflife` (rounds). `mutual` adds a bounded bonus when the user party also
-scores the emotions (covers the surviving `sentiment_match` value, e.g. tala's "both feel affection", 37×).
+Contribution (per correction, over the window):
+```
+strength × correction_scale × Σ_rounds recency(round) × [
+    Σ_e agent_emotions[e] · agent_score[round][e]                    # emotion term (spiky, per-round)
+  + mutual_bonus · Σ_e agent_emotions[e] · user_score[round][e]      # if relation="mutual" (accelerative)
+  + mode_baseline · (1 if round.mode ∈ mode else 0)                  # UNDERCURRENT — flat, not spiky; mode
+]                                                                     #   persists so it stabilizes brief tangents
+```
+- One global `mood_recency_halflife` (rounds). `mutual` is **accelerative** — a bounded bonus when the user
+  party *also* feels the emotions (never a firing *requirement*), covering the surviving `sentiment_match`
+  value (tala's "both feel affection", 37×).
+- **Mode is an undercurrent, not a spike:** a small flat per-round baseline while the mode is active. Because
+  conversation mode is long-lived relative to rounds, this accumulates into a steady pull that keeps a brief
+  off-mode tangent (a momentary curious sidebar mid-flirting) from derailing the read.
+- **`relation: "mismatch"` is schema-ready but unseeded.** For extreme user/agent divergence (e.g. user
+  distressed, agent not → nudge caring/concern). We have little data for it now; the **Gaps panel** surfaces
+  the need if divergence recurs and the LLM misses the resulting mood. Add then, from data — not speculatively.
 
 ### Deriving the initial corrections (migration — don't hand-convert 57 rules)
 

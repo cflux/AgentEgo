@@ -164,6 +164,7 @@ async def get_correction_config() -> dict:
         "scale": await _f("mood_correction_scale", 0.5),
         "mutual_bonus": await _f("mood_correction_mutual_bonus", 0.5),
         "mode_baseline": await _f("mood_correction_mode_baseline", 0.1),
+        "headroom": await _f("mood_correction_headroom", 20.0),
     }
 
 
@@ -191,13 +192,28 @@ async def v2_vote_map(profile_name: str, enriched: list[dict], moods: dict,
     corrs = await list_corrections(profile_name, enabled_only=True)
     cv, per_corr = correction_votes(corrs, enriched, cfg)
     bs = cfg["backbone_scale"]
+    headroom = cfg.get("headroom", 20.0)
+    # Gap-filling: a correction only fills the headroom between the backbone and a ceiling — so it fires
+    # fully where the LLM under-reads a mood and fades to ~0 where the LLM already reads it high. Stops the
+    # correction double-counting the same emotions the backbone already used (the self-reinforcement amp).
+    # Applied in scaled (panel) units; per-correction contributions scale by the same per-mood factor so the
+    # UI cards still sum to the (capped) per-mood total.
+    tgt_of = {c["id"]: c["target_mood"] for c in corrs}
+    cap_factor: dict = {}   # mood -> capped/raw ratio (1.0 = uncapped)
+    cv_scaled: dict = {}
+    for mid, raw in cv.items():
+        raw_s = bs * raw
+        capped_s = min(raw_s, max(0.0, headroom - bs * bb.get(mid, 0.0))) if headroom > 0 else raw_s
+        cv_scaled[mid] = capped_s
+        cap_factor[mid] = (capped_s / raw_s) if raw_s > 0 else 1.0
     vote_map: dict = {}
     for mid in set(bb) | set(cv):
-        vote_map[mid] = round(bs * (bb.get(mid, 0.0) + cv.get(mid, 0.0)), 3)
+        vote_map[mid] = round(bs * bb.get(mid, 0.0) + cv_scaled.get(mid, 0.0), 3)
     debug = {
         "backbone": {k: round(bs * v, 2) for k, v in bb.items()},
-        "corrections": {k: round(bs * v, 2) for k, v in cv.items()},
-        "per_correction": {k: round(bs * v, 2) for k, v in per_corr.items()},
+        "corrections": {k: round(v, 2) for k, v in cv_scaled.items()},
+        "per_correction": {k: round(bs * v * cap_factor.get(tgt_of.get(k), 1.0), 2)
+                           for k, v in per_corr.items()},
     }
     return vote_map, debug
 
@@ -259,7 +275,7 @@ def _narrative(current: dict | None, bb_ranked: list, net_ranked: list, corrs: l
 
 
 async def _compute_gaps(profile_name: str, enr: list, moods: dict, corrs: list,
-                        backbone: dict, vote_map: dict) -> list:
+                        backbone: dict, vote_map: dict, headroom: float = 20.0) -> list:
     """Deterministic gap analysis (no LLM), each ACTIONABLE:
       • dead     — a correction that isn't firing.
       • miss     — the legacy rules read a mood in recent rounds but the LLM backbone isn't ranking it
@@ -272,12 +288,18 @@ async def _compute_gaps(profile_name: str, enr: list, moods: dict, corrs: list,
     gaps = []
     corrected = {c["target_mood"] for c in corrs}
 
-    # dead corrections
+    # dead corrections — distinguish "the LLM already has it" (gap-fill standing down, working as intended)
+    # from "genuinely idle" (the emotions it looks for aren't present).
     for c in corrs:
         if c.get("enabled") and c.get("contribution", 0.0) <= 0.05:
-            gaps.append({"kind": "dead", "text":
-                f"Your {moods[c['target_mood']]['name']} correction isn't firing — the emotions it looks "
-                f"for aren't in recent rounds."})
+            name = moods[c["target_mood"]]["name"]
+            if backbone.get(c["target_mood"], 0.0) >= 0.9 * headroom:
+                gaps.append({"kind": "dead", "text":
+                    f"Your {name} correction is standing down — the LLM already reads {name} strongly "
+                    f"(near the ceiling), so the correction doesn't pile on. Working as intended."})
+            else:
+                gaps.append({"kind": "dead", "text":
+                    f"Your {name} correction isn't firing — the emotions it looks for aren't in recent rounds."})
 
     # miss: the legacy rules flip the winner away from the LLM's pick — the live version of the flip
     # analysis that seeded the corrections. If the rules override the LLM toward a mood no correction
@@ -342,11 +364,106 @@ async def _shadow_stats(profile_name: str) -> dict:
         return {"total": 0, "agree": 0, "disagreements": []}
 
 
+async def _mood_history_rows(profile_name: str, moods: dict, limit: int = 30) -> list:
+    """Recent mood *changes* (newest-first), names/colors resolved — the long-term change log."""
+    conn = await get_ego_db()
+    try:
+        cur = await conn.execute(
+            "SELECT prev_mood_id, mood_id, vote_count, changed_at FROM mood_history "
+            "WHERE profile_name = ? ORDER BY changed_at DESC LIMIT ?", (profile_name, limit))
+        rows = await cur.fetchall()
+    finally:
+        await conn.close()
+    def _m(mid):
+        return {"name": moods.get(mid, {}).get("name", "—"), "color": moods.get(mid, {}).get("color", "#888")}
+    return [{"prev": _m(r[0]) if r[0] else None, "mood": _m(r[1]), "votes": r[2], "at": r[3]} for r in rows]
+
+
+async def round_history(profile_name: str, db_path: str | None = None, limit: int = 60) -> list:
+    """Per-round scoring history over the retained window (newest-first): what the LLM read that round
+    (persisted `mood_scores`), the agent's top emotions, the mode, and the mood in effect at that time
+    (reconstructed from mood_history). Bounded by retention_days — rounds are pruned with old conversations.
+    """
+    import datetime as _dt
+    from . import mood_engine as ME
+    from .conversations import get_recent_rounds
+    moods = await ME._load_moods()
+    rounds = await get_recent_rounds(profile_name, limit=limit)
+    if not rounds:
+        return []
+    round_ids = [r["id"] for r in rounds]
+    conv_ids = list({r["conversation_id"] for r in rounds})
+    sentiment_map, mood_scores_map, _topic, mode_map = await ME._fetch_round_enrichment(round_ids, conv_ids)
+
+    # Mood in effect at a round = mood_id of the latest change with changed_at <= end_ts (ascending walk).
+    conn = await get_ego_db()
+    try:
+        cur = await conn.execute(
+            "SELECT mood_id, prev_mood_id, changed_at FROM mood_history WHERE profile_name = ? "
+            "ORDER BY changed_at ASC", (profile_name,))
+        changes = await cur.fetchall()
+    finally:
+        await conn.close()
+
+    def _mood_at(ts):
+        m = changes[0][1] if changes else None  # mood before the earliest recorded change
+        for mid, _prev, at in changes:
+            if at <= ts:
+                m = mid
+            else:
+                break
+        return m
+
+    out = []
+    for r in rounds:
+        ts = r.get("end_ts") or 0
+        ms = mood_scores_map.get(r["id"]) or {}
+        reads = sorted(((mid, float(v)) for mid, v in ms.items() if mid in moods and float(v) > 0),
+                       key=lambda x: -x[1])[:3]
+        ascores = ((sentiment_map.get(r["id"]) or {}).get("agent") or {}).get("scores") or {}
+        emos = sorted(((e, round(float(v), 2)) for e, v in ascores.items()
+                       if e not in ("neutral", "approval") and float(v) >= 0.2), key=lambda x: -x[1])[:5]
+        amid = _mood_at(ts)
+        out.append({
+            "when": _dt.datetime.fromtimestamp(ts).strftime("%m-%d %H:%M") if ts else "",
+            "active_mood": {"name": moods.get(amid, {}).get("name", "—"),
+                            "color": moods.get(amid, {}).get("color", "#888")} if amid else None,
+            "reads": [{"name": moods[mid]["name"], "color": moods[mid].get("color", "#888"),
+                       "score": round(sc, 1)} for mid, sc in reads],
+            "emotions": [{"e": e, "v": v} for e, v in emos],
+            "mode": mode_map.get(r["conversation_id"]),
+        })
+    return out
+
+
+async def mood_config_rows(profile_name: str, db_path: str | None = None) -> list:
+    """Per-mood resolution config (resting membership + activation threshold) with the current backbone
+    read, for the v2-page editor. Sorted by backbone desc so the moods in play are on top."""
+    from . import mood_engine as ME
+    from .profiles import resolve_profile
+    db_path = db_path or resolve_profile(profile_name)
+    moods = await ME._load_moods()
+    enr = await ME._build_round_enriched(profile_name, db_path)
+    _vm, dbg = await v2_vote_map(profile_name, enr, moods)
+    backbone = dbg.get("backbone", {})
+    defaults = set(await ME._load_defaults(profile_name, moods))
+    thresholds = await ME._load_thresholds(profile_name)
+    rows = [{
+        "id": mid, "name": m["name"], "color": m.get("color", "#888"),
+        "resting": mid in defaults,
+        "threshold": thresholds.get(mid, m.get("min_votes", 1)),
+        "backbone": round(backbone.get(mid, 0.0), 1),
+    } for mid, m in moods.items()]
+    rows.sort(key=lambda r: (-r["backbone"], r["name"]))
+    return rows
+
+
 async def corrective_view(profile_name: str, db_path: str | None = None) -> dict:
     """Assemble everything the corrective-layer UI needs, for the shadow trial."""
     from . import mood_engine as ME
     from .settings_store import get_setting
     from .profiles import resolve_profile
+    from ..config import settings as _cfg_settings
     db_path = db_path or resolve_profile(profile_name)
     moods = await ME._load_moods()
     enr = await ME._build_round_enriched(profile_name, db_path)
@@ -416,23 +533,20 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
     shaping = {"cooldown": [moods[m]["name"] for m in cooldown if m in moods],
                "tenure": tenure, "bias": bias, "note": note}
 
-    # Per-round emotion detail — what the corrections are reacting to (helps tune weights/strength).
+    # Round history — per-round LLM read + emotions + mode + the mood in effect then (over the retained
+    # window), and the long-term mood-change log. Both formerly only on the legacy rules page.
     import datetime as _dt
     corr_emos: set = set()
     for c in corrs:
         corr_emos |= set((c.get("agent_emotions") or {}).keys())
-    rounds_detail = []
-    for rnd in enr[:10]:
-        sc = rnd.get("agent_scores") or {}
-        tops = sorted(((e, round(float(v), 2)) for e, v in sc.items()
-                       if e not in ("neutral", "approval") and float(v) >= 0.2), key=lambda x: -x[1])[:6]
-        rounds_detail.append({
-            "when": _dt.datetime.fromtimestamp(rnd.get("end_ts", 0)).strftime("%m-%d %H:%M") if rnd.get("end_ts") else "",
-            "mode": rnd.get("mode"),
-            "emotions": [{"e": e, "v": v, "corr": e in corr_emos} for e, v in tops],
-        })
+    rounds_hist = await round_history(profile_name, db_path=db_path)
+    for row in rounds_hist:
+        for em in row["emotions"]:
+            em["corr"] = em["e"] in corr_emos
+    mood_hist = await _mood_history_rows(profile_name, moods)
+    mood_config = await mood_config_rows(profile_name, db_path=db_path)
 
-    gaps = await _compute_gaps(profile_name, enr, moods, corrs, backbone, vote_map)
+    gaps = await _compute_gaps(profile_name, enr, moods, corrs, backbone, vote_map, cfg.get("headroom", 20.0))
     shadow = await _shadow_stats(profile_name)
 
     # Exit triggers (directed abrupt transitions)
@@ -458,7 +572,8 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
         "profile": profile_name, "mode": mode, "rounds": len(enr),
         "current": current, "v2_winner": v2_winner, "legacy_winner": legacy_winner, "driver": driver,
         "backbone": bb_ranked, "net_ranked": net_ranked, "corrections": corrs, "gaps": gaps, "shadow": shadow,
-        "shaping": shaping, "rounds_detail": rounds_detail,
+        "shaping": shaping, "rounds_hist": rounds_hist, "mood_hist": mood_hist,
+        "mood_config": mood_config, "retention_days": _cfg_settings.retention_days,
         "narrative": _narrative(current, bb_ranked, net_ranked, corrs, moods),
         "config": cfg,
         "all_moods": sorted(({"id": m, "name": moods[m]["name"]} for m in moods), key=lambda x: x["name"]),

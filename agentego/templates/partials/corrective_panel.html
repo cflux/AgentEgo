@@ -133,24 +133,69 @@
   </details>
 </article>
 
-{# --- Per-round detail (what the corrections react to) --- #}
+{# --- Round history: per-round LLM read + emotions + mode + mood in effect then --- #}
 <details style="margin-top:1rem;">
-  <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">🔬 Recent rounds — agent emotions (what corrections react to)</summary>
+  <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">🔬 Round history <span style="font-weight:normal; color:var(--pico-muted-color);">— per-round LLM read vs. the mood in effect (last ~{{ v.retention_days }}d; older rounds are pruned)</span></summary>
   <table style="font-size:0.78rem; margin-top:0.5rem;">
-    <thead><tr><th style="width:5rem;">when</th><th style="width:5rem;">mode</th><th>agent emotions <span style="font-weight:400; color:var(--pico-muted-color);">(purple = referenced by a correction)</span></th></tr></thead>
+    <thead><tr>
+      <th style="width:5.5rem;">when</th>
+      <th style="width:6.5rem;">mood then</th>
+      <th style="width:5rem;">mode</th>
+      <th style="width:12rem;">LLM read (that round)</th>
+      <th>agent emotions <span style="font-weight:400; color:var(--pico-muted-color);">(purple = in a correction)</span></th>
+    </tr></thead>
     <tbody>
-      {% for r in v.rounds_detail %}
+      {% for r in v.rounds_hist %}
       <tr>
-        <td style="color:var(--pico-muted-color);">{{ r.when }}</td>
+        <td style="color:var(--pico-muted-color); white-space:nowrap;">{{ r.when }}</td>
+        <td>{% if r.active_mood %}<span style="color:{{ r.active_mood.color }}; font-weight:600;">{{ r.active_mood.name }}</span>{% else %}<span style="color:var(--pico-muted-color);">—</span>{% endif %}</td>
         <td>{{ r.mode or '—' }}</td>
+        <td>
+          {% for rd in r.reads %}<span style="color:{{ rd.color }};">{{ rd.name }}&nbsp;{{ rd.score }}</span>{{ ', ' if not loop.last }}{% endfor %}
+          {% if not r.reads %}<span style="color:var(--pico-muted-color);">—</span>{% endif %}
+        </td>
         <td>
           {% for em in r.emotions %}<span style="{% if em.corr %}font-weight:700; color:#b47aff;{% endif %}">{{ em.e }}&nbsp;{{ em.v }}</span>{{ ', ' if not loop.last }}{% endfor %}
           {% if not r.emotions %}<span style="color:var(--pico-muted-color);">—</span>{% endif %}
         </td>
       </tr>
       {% endfor %}
+      {% if not v.rounds_hist %}<tr><td colspan="5" style="color:var(--pico-muted-color);">No rounds in the retained window yet.</td></tr>{% endif %}
     </tbody>
   </table>
+</details>
+
+{# --- Mood history: the long-term change log (was on the legacy rules page) --- #}
+<details style="margin-top:0.6rem;">
+  <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">🕒 Mood history <span style="font-weight:normal; color:var(--pico-muted-color);">— recent mood changes (kept long-term)</span></summary>
+  {% if v.mood_hist %}
+  <table style="font-size:0.78rem; margin-top:0.5rem;">
+    <tbody>
+      {% for h in v.mood_hist %}
+      <tr>
+        <td style="white-space:nowrap; color:var(--pico-muted-color); width:11rem;">{{ h.at | ts }}</td>
+        <td>
+          {% if h.prev %}<span style="color:{{ h.prev.color }};">{{ h.prev.name }}</span><span style="color:var(--pico-muted-color); margin:0 0.35rem;">→</span>{% endif %}
+          <span style="color:{{ h.mood.color }}; font-weight:600;">{{ h.mood.name }}</span>
+        </td>
+        <td style="color:var(--pico-muted-color); font-size:0.76rem;">{% if h.votes %}{{ h.votes }} vote{{ 's' if h.votes != 1 else '' }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="font-size:0.82rem; color:var(--pico-muted-color); margin-top:0.5rem;">No mood changes recorded yet.</p>
+  {% endif %}
+</details>
+
+{# --- Resting set + activation thresholds (config v2 uses during resolution) --- #}
+<details style="margin-top:0.6rem;">
+  <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">🛋️ Resting &amp; thresholds <span style="font-weight:normal; color:var(--pico-muted-color);">— what she settles into, and how much signal it takes to switch</span></summary>
+  <div id="moodcfg">
+    {% with cfg_rows = v.mood_config, profile = v.profile %}
+      {% include "partials/corrective_moodcfg.html" %}
+    {% endwith %}
+  </div>
 </details>
 
 {# --- Gaps --- #}

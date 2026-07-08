@@ -5,8 +5,8 @@
 # (and injected into the agent prompt); the turn runs silently and persists via the Den. On "nothing"
 # the output is empty, so Hermes skips the agent entirely (no LLM call, no delivery).
 #
-# Install: copy to the PROFILE script dir (~/.hermes/profiles/<profile>/scripts/), then:
-#   hermes -p tala cron create "every 30m" \
+# Install: copy to the script dir the profile's cron resolves, then:
+#   hermes -p tala cron create "30m" \
 #     "The note above is something you decided to do on your own while idle. Carry it out fully with \
 #      your tools, then record it in your Den. If there is no note above, do nothing." \
 #     --name impulse-inward --script impulse_inward.sh --deliver local \

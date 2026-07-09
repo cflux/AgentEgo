@@ -243,6 +243,8 @@ _DEFAULT_SETTINGS = {
     "trait_drift_delta": "0.1",
     "impulse_enabled": "1",
     "impulse_restraint_weight": "0.5",
+    "impulse_inward_hour_start": "6",
+    "impulse_inward_hour_end": "24",
     "impulse_outward_hour_start": "6",
     "impulse_outward_hour_end": "20",
     "impulse_outward_min_idle_minutes": "30",
@@ -253,19 +255,22 @@ _DEFAULT_SETTINGS = {
         'about.","operational_hint":"Use the web_search tool to search the web and read what you find."},'
         '{"id":"image-create","class":"inward","intent":"create","enabled":true,"backing_kind":"skill",'
         '"skill":"local-image-gen","description":"Make an image on a whim using the local ComfyUI setup.",'
-        '"operational_hint":"Invoke the local-image-gen skill and run its script directly with the '
-        'terminal tool to render on the local ComfyUI server. Do NOT write inline python (python -c) or '
-        'use execute_code, since the cron guard blocks those and wastes the turn. Then save the image into '
-        'your Den with a short entry."},'
+        '"operational_hint":"First read your local-image-gen skill (its SKILL.md) and follow its '
+        'documented ComfyUI workflow exactly - curl the local server at 127.0.0.1:8188 with its workflow '
+        'JSONs. Put any helper code in a script FILE and run it with the terminal tool (e.g. python3 '
+        '/tmp/gen.py); NEVER use python -c inline or execute_code, the cron guard blocks those. Save the '
+        'finished PNG into your Den with a short entry."},'
         '{"id":"den-write","class":"inward","intent":"write-den","enabled":true,"backing_kind":"tool",'
         '"skill":"","description":"Write a private entry into your Den - a thought, a note, something you '
         'want to keep.","operational_hint":"Write a new markdown entry into your Den using your file '
         'tools."},'
         '{"id":"reddit-image","class":"inward","intent":"explore","enabled":false,"backing_kind":"skill",'
         '"skill":"reddit-browsing","description":"Browse Reddit for an image that genuinely appeals to '
-        'you.","operational_hint":"Use the reddit-browsing skill (run random_subreddit.py via the terminal '
-        'tool to pick a subreddit) to find an image you actually like, then save it into your Den with a '
-        'short note on why it drew you. Run scripts with the terminal tool, not inline python."},'
+        'you.","operational_hint":"First read your reddit-browsing skill (its SKILL.md) and follow its '
+        'curl recipe closely. Write the fetch/parse code to a script FILE and run it via the terminal tool '
+        '(python3 /tmp/r.py); NEVER use python -c inline. Copy the skill example code rather than '
+        'improvising a parser. Pick one image you like, download it, and save it to your Den with a short '
+        'note."},'
         '{"id":"read-ebook","class":"inward","intent":"read","enabled":false,"backing_kind":"tool",'
         '"skill":"","description":"Read a section of a book from your library.","operational_hint":"(Not '
         'yet available - no ebook library is set up.) When enabled: open a book, read a passage, and note a '

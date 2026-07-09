@@ -169,20 +169,22 @@ async def arbitrate(profile: str, cls: str, *, db_path: str | None = None, commi
         result["reason"] = f"no enabled {cls} capabilities"
         return result
 
-    if cls == "outward":
-        # Time-of-day gate — no unprompted DMs in the middle of the night (container TZ = Pacific).
-        from datetime import datetime
-        try:
-            h0 = int(await get_setting("impulse_outward_hour_start", "6"))
-            h1 = int(await get_setting("impulse_outward_hour_end", "20"))
-        except (TypeError, ValueError):
-            h0, h1 = 6, 20
-        hour = datetime.now().hour
-        in_window = (h0 <= hour < h1) if h0 <= h1 else (hour >= h0 or hour < h1)
-        if not in_window:
-            result["reason"] = f"outside outward hours ({h0:02d}:00-{h1:02d}:00 local; now {hour:02d}:00)"
-            return result
+    # Quiet-hours gate (both classes; container TZ = Pacific). Inward defaults to 06:00-24:00 (a
+    # 00:00-06:00 "sleep" blackout); outward to daytime 06:00-20:00. Wrap-around supported (h0 > h1).
+    from datetime import datetime
+    _dflt_end = "24" if cls == "inward" else "20"
+    try:
+        h0 = int(await get_setting(f"impulse_{cls}_hour_start", "6"))
+        h1 = int(await get_setting(f"impulse_{cls}_hour_end", _dflt_end))
+    except (TypeError, ValueError):
+        h0, h1 = 6, (24 if cls == "inward" else 20)
+    hour = datetime.now().hour
+    in_window = (h0 <= hour < h1) if h0 <= h1 else (hour >= h0 or hour < h1)
+    if not in_window:
+        result["reason"] = f"outside {cls} hours ({h0:02d}:00-{h1:02d}:00 local; now {hour:02d}:00)"
+        return result
 
+    if cls == "outward":
         # Mid-conversation guard — a hard idle gate so an outward DM can't fire while the user is
         # actively chatting. idle_min excludes cron/impulse turns; None = no recent user activity (fine).
         try:
@@ -190,7 +192,7 @@ async def arbitrate(profile: str, cls: str, *, db_path: str | None = None, commi
         except (TypeError, ValueError):
             min_idle = 30.0
         if idle_min is not None and idle_min < min_idle:
-            result["reason"] = f"user active {idle_min:.0f} min ago (< {min_idle:.0f} min idle gate) — not interrupting"
+            result["reason"] = f"user active {idle_min:.0f} min ago (< {min_idle:.0f} min idle gate) - not interrupting"
             return result
 
     state_text, facts = await _assemble_state(profile, cls, db_path, idle_min)

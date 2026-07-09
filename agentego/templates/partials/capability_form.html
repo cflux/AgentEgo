@@ -1,0 +1,36 @@
+{% macro capability_fields(cap, classes, backing_kinds, profile) %}
+<input type="hidden" name="profile" value="{{ profile }}">
+<input type="hidden" name="intent" value="{{ cap.intent if cap else '' }}">
+<div style="display:grid; gap:0.5rem;">
+  <div style="display:flex; gap:0.6rem; flex-wrap:wrap; align-items:end;">
+    <label style="flex:1; min-width:9rem; margin:0; font-size:0.8rem;">id
+      <input name="id" value="{{ cap.id if cap else '' }}" placeholder="e.g. write-poem"
+             {% if cap %}readonly style="background:var(--pico-muted-border-color);"{% endif %} required>
+    </label>
+    <label style="margin:0; font-size:0.8rem;">class
+      <select name="class">
+        {% for c in classes %}<option value="{{ c }}" {% if cap and cap.class == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    <label style="margin:0; font-size:0.8rem;">backing
+      <select name="backing_kind">
+        {% for b in backing_kinds %}<option value="{{ b }}" {% if cap and cap.backing_kind == b %}selected{% endif %}>{{ b }}</option>{% endfor %}
+      </select>
+    </label>
+    <label style="flex:1; min-width:8rem; margin:0; font-size:0.8rem;">skill <span style="color:var(--pico-muted-color); font-weight:400;">(if skill/plugin-tool)</span>
+      <input name="skill" value="{{ cap.skill if cap else '' }}" placeholder="e.g. reddit-browsing">
+    </label>
+  </div>
+  <label style="margin:0; font-size:0.8rem;">description <span style="color:var(--pico-muted-color); font-weight:400;">(what she chooses from — shown in the menu)</span>
+    <input name="description" value="{{ cap.description if cap else '' }}" required>
+  </label>
+  <label style="margin:0; font-size:0.8rem;">operational hint <span style="color:var(--pico-muted-color); font-weight:400;">(how to carry it out — appended to the composed prompt)</span>
+    <textarea name="operational_hint" rows="2">{{ cap.operational_hint if cap else '' }}</textarea>
+  </label>
+  <label style="margin:0; font-size:0.8rem; display:flex; align-items:center; gap:0.45rem;">
+    <input type="checkbox" name="enabled" {% if cap and cap.enabled %}checked{% endif %}
+           style="margin:0; width:1.05em; height:1.05em; flex:none;">
+    enabled <span style="color:var(--pico-muted-color); font-weight:400;">(leave off until verified in a cron turn)</span>
+  </label>
+</div>
+{% endmacro %}

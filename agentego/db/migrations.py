@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -149,22 +149,6 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at REAL
 );
 
-CREATE TABLE IF NOT EXISTS impulse_actions (
-    id                     TEXT PRIMARY KEY,
-    profile_name           TEXT NOT NULL,
-    label                  TEXT NOT NULL,
-    prompt                 TEXT NOT NULL,
-    required_moods         TEXT,
-    min_idle_minutes       INTEGER NOT NULL DEFAULT 0,
-    base_weight            REAL NOT NULL DEFAULT 1.0,
-    recency_window_minutes INTEGER NOT NULL DEFAULT 240,
-    enabled                INTEGER NOT NULL DEFAULT 1,
-    last_fired_at          REAL,
-    created_at             REAL NOT NULL,
-    mood_negate            INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_impulse_profile ON impulse_actions(profile_name);
-
 CREATE TABLE IF NOT EXISTS impulse_log (
     id           TEXT PRIMARY KEY,
     profile_name TEXT NOT NULL,
@@ -264,21 +248,31 @@ _DEFAULT_SETTINGS = {
     "impulse_outward_min_idle_minutes": "30",
     # Impulse v2 arbiter (see settings_store.DEFAULTS for the authoritative copy + docs).
     "impulse_capabilities": (
-        '[{"id":"web-explore","intent":"explore","enabled":true,"backing_kind":"tool","skill":"",'
-        '"description":"Search the web and read pages to dig into a topic you are curious about.",'
-        '"operational_hint":"Use the web_search tool to search the web and read what you find."},'
-        '{"id":"image-create","intent":"create","enabled":true,"backing_kind":"skill",'
-        '"skill":"local-image-gen","description":"Make an image on a whim using the local ComfyUI '
-        'setup.","operational_hint":"Invoke the local-image-gen skill and run its script directly with '
-        'the terminal tool to render on the local ComfyUI server. Do NOT write inline python (python -c) '
-        'or use execute_code, since the cron guard blocks those and wastes the turn. Then save the image '
-        'into your Den with a short entry."},'
-        '{"id":"den-write","intent":"write-den","enabled":true,"backing_kind":"tool","skill":"",'
-        '"description":"Write a private entry into your Den — a thought, a note, something you want to '
-        'keep.","operational_hint":"Write a new markdown entry into your Den using your file tools."},'
-        '{"id":"reach-out","intent":"reach-out","enabled":true,"backing_kind":"plugin-tool","skill":"",'
-        '"description":"Send the user a message — a thought, a check-in, something you want to '
-        'share.","operational_hint":"Compose a natural, in-character message to the user; it is '
+        '[{"id":"web-explore","class":"inward","intent":"explore","enabled":true,"backing_kind":"tool",'
+        '"skill":"","description":"Search the web and read pages to dig into a topic you are curious '
+        'about.","operational_hint":"Use the web_search tool to search the web and read what you find."},'
+        '{"id":"image-create","class":"inward","intent":"create","enabled":true,"backing_kind":"skill",'
+        '"skill":"local-image-gen","description":"Make an image on a whim using the local ComfyUI setup.",'
+        '"operational_hint":"Invoke the local-image-gen skill and run its script directly with the '
+        'terminal tool to render on the local ComfyUI server. Do NOT write inline python (python -c) or '
+        'use execute_code, since the cron guard blocks those and wastes the turn. Then save the image into '
+        'your Den with a short entry."},'
+        '{"id":"den-write","class":"inward","intent":"write-den","enabled":true,"backing_kind":"tool",'
+        '"skill":"","description":"Write a private entry into your Den - a thought, a note, something you '
+        'want to keep.","operational_hint":"Write a new markdown entry into your Den using your file '
+        'tools."},'
+        '{"id":"reddit-image","class":"inward","intent":"explore","enabled":false,"backing_kind":"skill",'
+        '"skill":"reddit-browsing","description":"Browse Reddit for an image that genuinely appeals to '
+        'you.","operational_hint":"Use the reddit-browsing skill (run random_subreddit.py via the terminal '
+        'tool to pick a subreddit) to find an image you actually like, then save it into your Den with a '
+        'short note on why it drew you. Run scripts with the terminal tool, not inline python."},'
+        '{"id":"read-ebook","class":"inward","intent":"read","enabled":false,"backing_kind":"tool",'
+        '"skill":"","description":"Read a section of a book from your library.","operational_hint":"(Not '
+        'yet available - no ebook library is set up.) When enabled: open a book, read a passage, and note a '
+        'short reflection in your Den."},'
+        '{"id":"reach-out","class":"outward","intent":"reach-out","enabled":true,"backing_kind":'
+        '"plugin-tool","skill":"","description":"Send the user a message - a thought, a check-in, something '
+        'you want to share.","operational_hint":"Compose a natural, in-character message to the user; it is '
         'delivered to their DM and remembered."}]'
     ),
     "impulse_arbiter_prompt": (
@@ -459,6 +453,10 @@ async def run_migrations(db_path: str) -> None:
         if current_version < 16:
             # Legacy 57-rule engine removed; drop its now-inert table.
             await conn.execute("DROP TABLE IF EXISTS mood_rules")
+
+        if current_version < 17:
+            # Impulse v1 weighted-lottery removed (v2 arbiter drives); drop its now-inert table.
+            await conn.execute("DROP TABLE IF EXISTS impulse_actions")
 
         if current_version < SCHEMA_VERSION:
             if current_version == 0:

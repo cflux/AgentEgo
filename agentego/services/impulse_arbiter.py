@@ -32,8 +32,13 @@ _DEN_INSTRUCTION = (
 )
 
 
-def _allowed_intents(cls: str) -> set:
-    return OUTWARD_INTENTS if cls == "outward" else INWARD_INTENTS
+def _class_of(cap: dict) -> str:
+    """A capability's class ('inward'|'outward'). Explicit `class` wins; otherwise derive from the legacy
+    `intent` (backward-compat for manifests predating the class field)."""
+    c = str(cap.get("class") or "").strip().lower()
+    if c in ("inward", "outward"):
+        return c
+    return "outward" if cap.get("intent") in OUTWARD_INTENTS else "inward"
 
 
 async def _idle_minutes(profile: str, db_path: str | None) -> float | None:
@@ -147,9 +152,7 @@ async def arbitrate(profile: str, cls: str, *, db_path: str | None = None, commi
     `prompt` is the composed impulse (with the operational hint prepended, the outward marker or Den
     instruction added). commit=True logs a fire to impulse_log; commit=False is a dry-run."""
     cls = "outward" if cls == "outward" else "inward"
-    allowed = _allowed_intents(cls)
-
-    caps = [c for c in await get_impulse_capabilities(enabled_only=True) if c.get("intent") in allowed]
+    caps = [c for c in await get_impulse_capabilities(enabled_only=True) if _class_of(c) == cls]
     idle_min = await _idle_minutes(profile, db_path)
 
     result = {

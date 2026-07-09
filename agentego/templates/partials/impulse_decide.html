@@ -1,0 +1,16 @@
+{% set class_colors = {"inward": "#4adbae", "outward": "#e0a04a"} %}
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(18rem, 1fr)); gap:0.75rem;">
+{% for cls, d in decisions.items() %}
+{% set cc = class_colors.get(cls, "#888") %}
+<article style="padding:0.7rem 0.9rem; margin:0; border-left:3px solid {{ cc }};">
+  <div style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; color:{{ cc }};">{{ cls }}</div>
+  {% if d.fired %}
+  <div style="font-size:0.86rem; margin-top:0.2rem;">→ <strong>{{ d.capability_id }}</strong></div>
+  <div style="font-size:0.78rem; color:var(--pico-muted-color); margin-top:0.25rem; white-space:pre-wrap;">{{ d.prompt }}</div>
+  {% else %}
+  <div style="font-size:0.86rem; margin-top:0.2rem; color:var(--pico-muted-color);">— stays quiet</div>
+  <div style="font-size:0.74rem; color:var(--pico-muted-color); margin-top:0.2rem;">{{ d.reason or 'nothing pulls at her' }}</div>
+  {% endif %}
+</article>
+{% endfor %}
+</div>

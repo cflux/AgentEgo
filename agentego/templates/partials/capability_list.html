@@ -1,0 +1,43 @@
+{% from "partials/capability_form.html" import capability_fields %}
+{% set class_colors = {"inward": "#4adbae", "outward": "#e0a04a"} %}
+<p style="font-size:0.75rem; color:var(--pico-muted-color); margin:0 0 0.5rem;">
+  {{ capabilities|length }} capabilities · {{ capabilities|selectattr('enabled')|list|length }} enabled</p>
+
+{% for c in capabilities %}
+{% set cc = class_colors.get(c.class, "#888") %}
+<div style="border:1px solid var(--pico-muted-border-color); border-left:3px solid {{ cc }}; border-radius:var(--pico-border-radius); padding:0.6rem 0.8rem; margin-bottom:0.5rem; {% if not c.enabled %}opacity:0.72;{% endif %}">
+  <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap;">
+    <input type="checkbox" {% if c.enabled %}checked{% endif %} title="enabled"
+           hx-patch="/api/capabilities/{{ c.id }}/toggle?profile={{ active_profile }}"
+           hx-target="#capability-list" hx-swap="innerHTML"
+           style="margin:0; width:1.1em; height:1.1em; flex:none;">
+    <strong style="font-size:0.9rem;">{{ c.id }}</strong>
+    <span style="font-size:0.66rem; text-transform:uppercase; letter-spacing:0.04em; padding:0.05rem 0.45rem; border-radius:1rem; background:{{ cc }}22; color:{{ cc }};">{{ c.class }}</span>
+    {% if c.skill %}<span style="font-size:0.7rem; color:var(--pico-muted-color);">🔧 {{ c.skill }}</span>
+    {% else %}<span style="font-size:0.7rem; color:var(--pico-muted-color);">{{ c.backing_kind }}</span>{% endif %}
+    {% if not c.enabled %}<span style="font-size:0.66rem; color:#e57373;">disabled</span>{% endif %}
+    <span style="flex:1;"></span>
+    <button class="secondary outline" style="margin:0; padding:0.1rem 0.6rem; font-size:0.72rem;"
+            hx-delete="/api/capabilities/{{ c.id }}?profile={{ active_profile }}"
+            hx-target="#capability-list" hx-swap="innerHTML"
+            hx-confirm="Delete capability '{{ c.id }}'?">delete</button>
+  </div>
+  <div style="font-size:0.82rem; color:var(--pico-color); margin-top:0.3rem;">{{ c.description }}</div>
+  {% if c.operational_hint %}<div style="font-size:0.72rem; color:var(--pico-muted-color); margin-top:0.2rem;">↳ {{ c.operational_hint }}</div>{% endif %}
+  <details style="margin-top:0.35rem;">
+    <summary style="cursor:pointer; font-size:0.72rem; color:var(--pico-muted-color);">edit</summary>
+    <form hx-post="/api/capabilities" hx-target="#capability-list" hx-swap="innerHTML" style="margin-top:0.4rem;">
+      {{ capability_fields(c, classes, backing_kinds, active_profile) }}
+      <button type="submit" style="margin:0.4rem 0 0; padding:0.2rem 0.9rem; font-size:0.8rem;">Save</button>
+    </form>
+  </details>
+</div>
+{% endfor %}
+
+<details style="margin-top:0.8rem;">
+  <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">➕ Add a capability</summary>
+  <form hx-post="/api/capabilities" hx-target="#capability-list" hx-swap="innerHTML" style="margin-top:0.5rem;">
+    {{ capability_fields(none, classes, backing_kinds, active_profile) }}
+    <button type="submit" style="margin:0.5rem 0 0;">Add capability</button>
+  </form>
+</details>

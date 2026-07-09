@@ -261,6 +261,7 @@ _DEFAULT_SETTINGS = {
     "impulse_restraint_weight": "0.5",
     "impulse_outward_hour_start": "6",
     "impulse_outward_hour_end": "20",
+    "impulse_outward_min_idle_minutes": "30",
     # Impulse v2 arbiter (see settings_store.DEFAULTS for the authoritative copy + docs).
     "impulse_capabilities": (
         '[{"id":"web-explore","intent":"explore","enabled":true,"backing_kind":"tool","skill":"",'

@@ -180,6 +180,16 @@ async def arbitrate(profile: str, cls: str, *, db_path: str | None = None, commi
             result["reason"] = f"outside outward hours ({h0:02d}:00-{h1:02d}:00 local; now {hour:02d}:00)"
             return result
 
+        # Mid-conversation guard — a hard idle gate so an outward DM can't fire while the user is
+        # actively chatting. idle_min excludes cron/impulse turns; None = no recent user activity (fine).
+        try:
+            min_idle = float(await get_setting("impulse_outward_min_idle_minutes", "30"))
+        except (TypeError, ValueError):
+            min_idle = 30.0
+        if idle_min is not None and idle_min < min_idle:
+            result["reason"] = f"user active {idle_min:.0f} min ago (< {min_idle:.0f} min idle gate) — not interrupting"
+            return result
+
     state_text, facts = await _assemble_state(profile, cls, db_path, idle_min)
     result["mood"] = facts.get("mood")
 

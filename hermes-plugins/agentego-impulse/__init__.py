@@ -1,19 +1,19 @@
-"""AgentEgo impulse bridge plugin (Phase 1).
+"""AgentEgo impulse bridge plugin (Phase 3).
 
-Hooks (both cron-gated — inert for live gateway turns):
-  - pre_llm_call:  on an impulse cron turn, fetch AgentEgo's context brief and inject it (the cron
-                   session is cold: no mnemosyne, no live history).
-  - post_llm_call: forward the outcome to AgentEgo (for sidequest scoring) and, for OUTWARD impulses,
-                   mirror the message into the user's DM session transcript so the agent remembers it.
-                   Hermes' native deliver=telegram:<dm> performs the actual send; this adds the mirror
-                   that auto-delivery omits.
+Hooks:
+  - pre_llm_call:  on cron turns, fetches AgentEgo's context brief; on live DM
+                   turns, injects pending impulse catch-up from cache (both
+                   outward and inward).
+  - post_llm_call: on cron turns, forwards outcome to AgentEgo; caches both
+                   outward and inward impulse responses for the next live turn.
 
-Outward vs inward is signalled by a marker AgentEgo embeds in the impulse prompt (OUTWARD_MARKER).
+Outward vs inward signalled by OUTWARD_MARKER in the impulse prompt.
 Sync handlers, stdlib-only HTTP.
 """
 import json
 import logging
 import os
+import time
 import urllib.request
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 EGO_URL = os.environ.get("EGO_URL", "http://127.0.0.1:8765").rstrip("/")
 OUTWARD_MARKER = "[IMPULSE-OUTWARD]"
 _PROFILE = "default"
+_CACHE = "/tmp/{}_pending_impulses.json"
 
 
 def _get(url: str, timeout: float = 4.0):
@@ -35,40 +36,85 @@ def _post(url: str, payload: dict, timeout: float = 4.0):
         return r.read()
 
 
-def _dm_chat_id() -> str:
-    """Resolve the user's Telegram DM chat_id. Prefer an explicit override, else derive it from the
-    profile's sessions index (the agent:main:telegram:dm:<id> entry), else TELEGRAM_ALLOWED_USERS."""
-    cid = os.environ.get("IMPULSE_DM_CHAT_ID", "").strip()
-    if cid:
-        return cid
-    try:
-        from hermes_cli.config import get_hermes_home
-        idx = json.load(open(get_hermes_home() / "sessions" / "sessions.json"))
-        for key, entry in idx.items():
-            origin = entry.get("origin") or {}
-            platform = (origin.get("platform") or entry.get("platform", "")).lower()
-            if platform == "telegram" and ":dm:" in key:
-                return str(origin.get("chat_id") or "")
-    except Exception:
-        pass
-    allowed = os.environ.get("TELEGRAM_ALLOWED_USERS", "").strip()
-    return allowed.split(",")[0].strip() if allowed else ""
+def _cache_path():
+    return _CACHE.format(_PROFILE)
 
+
+def _load_cache():
+    """Read the pending-impulse cache, tolerating a missing/empty/corrupt file (-> [])."""
+    path = _cache_path()
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            data = f.read().strip()
+        parsed = json.loads(data) if data else []
+        return parsed if isinstance(parsed, list) else []
+    except (ValueError, OSError):
+        return []
+
+
+def _save_cache(impulses):
+    """Write the cache atomically-ish; always leaves valid JSON (never a 0-byte file)."""
+    try:
+        with open(_cache_path(), "w") as f:
+            json.dump(impulses, f)
+    except OSError as exc:
+        logger.warning("impulse cache write failed: %s", exc)
+
+
+# ── pre_llm_call ────────────────────────────────────────────────────────────
 
 def _pre_llm_call(**kwargs):
-    if kwargs.get("platform") != "cron":
+    platform = kwargs.get("platform", "")
+
+    # Cron turn: fetch AgentEgo's context brief (cold session — no mnemosyne)
+    if platform == "cron":
+        prompt = kwargs.get("user_message") or ""
+        kind = "outward" if OUTWARD_MARKER in prompt else "inward"
+        try:
+            brief = _get(f"{EGO_URL}/api/impulse/brief?profile={_PROFILE}&kind={kind}")
+            ctx = (brief or {}).get("context") or ""
+            if ctx.strip():
+                return {"context": ctx}
+        except Exception as exc:
+            logger.warning("impulse brief fetch failed: %s", exc)
         return None
-    prompt = kwargs.get("user_message") or ""
-    kind = "outward" if OUTWARD_MARKER in prompt else "inward"
+
+    # Live DM turn: inject pending impulse catch-up (outward + inward), then clear the cache.
     try:
-        brief = _get(f"{EGO_URL}/api/impulse/brief?profile={_PROFILE}&kind={kind}")
-        ctx_text = (brief or {}).get("context") or ""
-        if ctx_text.strip():
-            return {"context": ctx_text}
+        impulses = _load_cache()
+        if not impulses:
+            return None
+
+        outward = [i for i in impulses if i.get("kind", "outward") == "outward"]
+        inward  = [i for i in impulses if i.get("kind") == "inward"]
+
+        lines = []
+        if outward:
+            lines.append("## While Carbon was away, you reached out to him:")
+            for imp in outward[-10:]:
+                lines.append(f"- {imp.get('content', '')[:300]}")
+            lines.append("")
+        if inward:
+            lines.append("## While you were alone, you did these on your own:")
+            for imp in inward[-10:]:
+                lines.append(f"- {imp.get('content', '')[:300]}")
+            lines.append("")
+
+        if not lines:
+            return None
+
+        _save_cache([])  # consumed — clear so the next turn isn't caught up twice
+        logger.info("impulse catch-up: %d outward, %d inward", len(outward), len(inward))
+        return {"context": "\n".join(lines)}
     except Exception as exc:
-        logger.warning("impulse brief fetch failed: %s", exc)
+        logger.warning("impulse catch-up failed: %s", exc)
+
     return None
 
+
+# ── post_llm_call ───────────────────────────────────────────────────────────
 
 def _post_llm_call(**kwargs):
     if kwargs.get("platform") != "cron":
@@ -79,27 +125,24 @@ def _post_llm_call(**kwargs):
     outward = OUTWARD_MARKER in prompt
     kind = "outward" if outward else "inward"
 
-    # Forward the outcome for scoring (best-effort).
+    # Forward outcome to AgentEgo (best-effort).
     try:
         _post(f"{EGO_URL}/api/impulse/outcome",
               {"profile": _PROFILE, "session_id": session_id, "kind": kind, "response": resp})
     except Exception as exc:
         logger.warning("impulse outcome forward failed: %s", exc)
 
-    # Mirror OUTWARD messages into the DM session transcript (native delivery skips this).
-    if outward and resp and resp != "[SILENT]":
-        try:
-            from gateway.mirror import mirror_to_session
-            chat_id = _dm_chat_id()
-            if chat_id:
-                mirror_to_session(platform="telegram", chat_id=chat_id, message_text=resp,
-                                  source_label="impulse")
-            else:
-                logger.warning("impulse mirror skipped: no DM chat_id resolved")
-        except Exception as exc:
-            logger.warning("impulse mirror failed: %s", exc)
+    # Cache both outward AND inward impulses — next live DM turn catches her up.
+    if resp and resp != "[SILENT]":
+        impulses = _load_cache()
+        impulses.append({"content": resp, "timestamp": time.time(), "kind": kind})
+        _save_cache(impulses)
+        logger.info("impulse cached (%s): %d pending", kind, len(impulses))
+
     return None
 
+
+# ── register ────────────────────────────────────────────────────────────────
 
 def register(ctx):
     global _PROFILE

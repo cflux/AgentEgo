@@ -83,7 +83,6 @@ def check_processes():
 for log, name in [
     ("/home/cflux/.hermes/logs/tala_session_end.log", "Session detector"),
     ("/home/cflux/.hermes/logs/tala_reflection.log", "Reflection pipeline"),
-    ("/home/cflux/.hermes/logs/prefill_injection.log", "Pre-fill"),
 ]:
     check_log(log, name)
 

@@ -31,8 +31,14 @@ cp "$SOUL_SRC/SOUL.md" "$REPO/hermes/becca-soul.md" 2>/dev/null
 cp "$SOUL_SRC/profiles/tala/SOUL.md" "$REPO/hermes/tala-soul.md" 2>/dev/null
 echo "Synced: SOUL.md files"
 
-# Commit
-cd "$REPO"
+# Run test runner first — don't commit if tests fail
+echo "Running tests..."
+python3 /home/cflux/.hermes/scripts/test_runner.py 2>&1
+if [ $? -ne 0 ]; then
+    echo "Tests failed — skipping commit"
+    exit 1
+fi
+echo "Tests passed — proceeding with commit"
 git add plugins/
 git diff --cached --quiet || git commit -m "chore: sync hermex plugins $(date +%Y-%m-%d)" 2>/dev/null
 echo "Committed"

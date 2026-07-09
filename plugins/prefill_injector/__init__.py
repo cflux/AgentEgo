@@ -141,16 +141,27 @@ def get_den_summaries(db_path, session_id):
 
 
 def inject_prefill(**kwargs):
+    import logging
+    log = logging.getLogger(__name__)
+    log.info(f"PREFILL DEBUG: kwargs keys={list(kwargs.keys())}")
     try:
         sid = kwargs.get('session_id', '')
+        log.info(f"PREFILL DEBUG: session_id={sid}, profile={kwargs.get('profile', '?')}")
         sentinel = f"/tmp/prefill_sentinel_{sid[:30]}"
         if os.path.exists(sentinel):
+            log.info("PREFILL DEBUG: Sentinel exists — skipping")
+
             return None
+        log.info("PREFILL DEBUG: No sentinel — proceeding to inject")
         profile = kwargs.get('profile', 'tala')
         db = os.path.expanduser(f'~/.hermes/profiles/{profile}/state.db') if profile != 'default' else os.path.expanduser('~/.hermes/state.db')
-        sessions = get_closed_session(db)
-        if not sessions:
+        log.info(f"PREFILL DEBUG: db_path={db}, checking for closed sessions...")
+        session_id = get_closed_session(db)
+        log.info(f"PREFILL DEBUG: get_closed_session returned: {session_id}")
+        if not session_id:
+            log.info("PREFILL DEBUG: No closed sessions found")
             return None
+        sessions = [session_id]
         
         # Merge exchanges from all qualifying sessions
         excs = []
@@ -158,7 +169,7 @@ def inject_prefill(**kwargs):
             excs += get_exchanges(db, sid)
         if len(excs) < 3:
             return None
-        logger.info(f"Merged {len(excs)} exchanges from {len(sessions)} sessions")
+        log.info(f"Merged {len(excs)} exchanges from {len(sessions)} sessions")
         if len(excs) < 3:
             return None
         scored = [(score_exchange(e), e) for e in excs]
@@ -174,7 +185,7 @@ def inject_prefill(**kwargs):
         sel.sort(key=lambda e: e['pos'])
 
         summary = summarize_session(sel, profile)
-        logger.info(f"Summary ({len(summary)} chars): {summary[:100]}...")
+        log.info(f"Summary ({len(summary)} chars): {summary[:100]}...")
 
         ctx = "## Your last session with Carbon:\n\n"
         if summary:
@@ -200,10 +211,10 @@ def inject_prefill(**kwargs):
 
         with open(sentinel, 'w') as f:
             f.write('done')
-        logger.info(f"Pre-fill injected: {len(sel)} exchanges + summary")
+        log.info(f"Pre-fill injected: {len(sel)} exchanges + summary")
         return {"context": ctx}
     except Exception as e:
-        logger.warning(f"Prefill failed: {e}")
+        log.warning(f"Prefill failed: {e}")
         return None
 
 def register(ctx):

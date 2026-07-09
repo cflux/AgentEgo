@@ -1,7 +1,13 @@
 # Mood Scoring Refactor — LLM backbone + a small, legible per-profile corrective layer
 
-**Status:** design. Prompted by the mood system becoming too complex to comprehend/tune. Product of an
-audit + a data-driven replay analysis (2026-07-05).
+**Status:** ✅ shipped & in production (2026-07). The shadow→cutover→delete migration described below is
+complete — v2 (LLM backbone + gap-filled corrective layer) is the sole engine; the 57-rule engine, shadow
+mode, and the `mood_scoring_mode` setting have been removed. Refinements added since the original design:
+gap-filling corrections (`mood_correction_headroom`), backbone-weighted resting, exit triggers, and
+round/mood history + resting/threshold editing on the `/corrective` page. Original design record preserved.
+
+Prompted by the mood system becoming too complex to comprehend/tune. Product of an audit + a data-driven
+replay analysis (2026-07-05).
 
 ## Context & motivation
 

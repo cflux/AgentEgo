@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -46,17 +46,6 @@ CREATE TABLE IF NOT EXISTS moods (
     icon        TEXT,
     min_votes   INTEGER NOT NULL DEFAULT 1,
     created_at  REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS mood_rules (
-    id           TEXT PRIMARY KEY,
-    profile_name TEXT NOT NULL,
-    mood_id      TEXT NOT NULL,
-    rule_type    TEXT NOT NULL,
-    params       TEXT NOT NULL,
-    label        TEXT,
-    enabled      INTEGER NOT NULL DEFAULT 1,
-    created_at   REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS agent_moods (
@@ -404,12 +393,6 @@ async def run_migrations(db_path: str) -> None:
         row = await (await conn.execute("SELECT version FROM schema_version LIMIT 1")).fetchone()
         current_version = row[0] if row else 0
 
-        if current_version < 2:
-            try:
-                await conn.execute("ALTER TABLE mood_rules ADD COLUMN mood_gate TEXT")
-            except Exception:
-                pass  # column already exists
-
         if current_version < 3:
             # conversations table created by DDL above; no ALTER needed
             pass
@@ -467,6 +450,10 @@ async def run_migrations(db_path: str) -> None:
         if current_version < 15:
             # mood_exits created by DDL above; no ALTER needed
             pass
+
+        if current_version < 16:
+            # Legacy 57-rule engine removed; drop its now-inert table.
+            await conn.execute("DROP TABLE IF EXISTS mood_rules")
 
         if current_version < SCHEMA_VERSION:
             if current_version == 0:

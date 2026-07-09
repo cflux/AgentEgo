@@ -166,6 +166,20 @@ async def arbitrate(profile: str, cls: str, *, db_path: str | None = None, commi
         result["reason"] = f"no enabled {cls} capabilities"
         return result
 
+    if cls == "outward":
+        # Time-of-day gate — no unprompted DMs in the middle of the night (container TZ = Pacific).
+        from datetime import datetime
+        try:
+            h0 = int(await get_setting("impulse_outward_hour_start", "6"))
+            h1 = int(await get_setting("impulse_outward_hour_end", "20"))
+        except (TypeError, ValueError):
+            h0, h1 = 6, 20
+        hour = datetime.now().hour
+        in_window = (h0 <= hour < h1) if h0 <= h1 else (hour >= h0 or hour < h1)
+        if not in_window:
+            result["reason"] = f"outside outward hours ({h0:02d}:00-{h1:02d}:00 local; now {hour:02d}:00)"
+            return result
+
     state_text, facts = await _assemble_state(profile, cls, db_path, idle_min)
     result["mood"] = facts.get("mood")
 

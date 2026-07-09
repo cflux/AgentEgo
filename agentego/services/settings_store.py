@@ -19,6 +19,9 @@ DEFAULTS = {
     "trait_drift_delta": "0.1",
     "impulse_enabled": "1",
     "impulse_restraint_weight": "0.5",
+    # Outward (reach-out) time-of-day gate — no unprompted DMs outside these local (Pacific) hours.
+    "impulse_outward_hour_start": "6",
+    "impulse_outward_hour_end": "20",
     # Impulse v2 — the generative arbiter's capability manifest: the curated, cron-verified set of
     # affordances it may choose among (fences composition to what the agent can actually do). Each
     # entry: {id, intent, enabled, backing_kind (tool|skill|plugin-tool), skill, description,

@@ -1,0 +1,45 @@
+{# Research trees: research/<topic>/index.md (trunk) + dated branch entries. Expects: research_trees, active_profile #}
+{% set branch_colors = {"discovery": "#b47aff", "feeling": "#e57391", "art": "#ff9f4a", "transcript": "#4adbae"} %}
+{% macro open_modal(relpath) -%}
+hx-get="/den/entry?profile={{ active_profile }}&path={{ relpath|urlencode }}" hx-target="#den-modal-body" hx-swap="innerHTML"
+onclick="document.getElementById('den-modal-body').innerHTML='<p style=&quot;color:var(--pico-muted-color)&quot;>Loading…</p>'; document.getElementById('den-modal').showModal();"
+{%- endmacro %}
+
+{% if research_trees %}
+<section style="margin-bottom:1.75rem;">
+  <h4 style="font-size:1rem; margin-bottom:0.6rem;">🌳 Research trees
+    <small style="font-size:0.68em; font-weight:400; color:var(--pico-muted-color);">topics she's been digging into — {{ research_trees|length }} thread{{ 's' if research_trees|length != 1 }}</small></h4>
+  <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(21rem, 1fr)); gap:0.85rem;">
+    {% for t in research_trees %}
+    <article style="margin:0; padding:0; border-left:3px solid #b47aff; overflow:hidden;">
+      <div style="padding:0.7rem 0.9rem;">
+        <div style="display:flex; align-items:baseline; gap:0.5rem; justify-content:space-between;">
+          <a href="#" style="font-size:0.98rem; font-weight:600; text-decoration:none;"
+             {% if t.index_relpath %}{{ open_modal(t.index_relpath) }}{% else %}onclick="return false;"{% endif %}>{{ t.title }}</a>
+          <span style="font-size:0.7rem; color:var(--pico-muted-color); white-space:nowrap;">{{ t.count }} note{{ 's' if t.count != 1 }}</span>
+        </div>
+        {% if t.summary %}<p style="font-size:0.82rem; color:var(--pico-muted-color); margin:0.4rem 0 0; line-height:1.45;">{{ t.summary[:280] }}{% if t.summary|length > 280 %}…{% endif %}</p>{% endif %}
+        {% if not t.index_relpath %}<p style="font-size:0.72rem; color:var(--pico-muted-color); margin:0.3rem 0 0; font-style:italic;">(no index — branches only)</p>{% endif %}
+      </div>
+      {% if t.branches %}
+      <details style="border-top:1px solid var(--pico-muted-border-color);">
+        <summary style="cursor:pointer; padding:0.45rem 0.9rem; font-size:0.76rem; color:var(--pico-muted-color); list-style:none;">▸ {{ t.count }} research note{{ 's' if t.count != 1 }}</summary>
+        <div style="padding:0 0.6rem 0.5rem;">
+          {% for b in t.branches %}
+          {% set c = branch_colors.get(b.type, "#888") %}
+          <div style="padding:0.4rem 0.5rem; border-radius:var(--pico-border-radius); cursor:pointer; display:flex; gap:0.5rem; align-items:baseline;"
+               onmouseover="this.style.background='var(--pico-card-sectioning-background-color, rgba(255,255,255,0.03))'" onmouseout="this.style.background='transparent'"
+               {{ open_modal(b.relpath) }}>
+            <span style="font-size:0.68rem; color:var(--pico-muted-color); white-space:nowrap;">{{ b.date }}</span>
+            <span style="font-size:0.68rem; color:{{ c }}; text-transform:uppercase; letter-spacing:0.03em; white-space:nowrap;">{{ b.type or '—' }}</span>
+            <span style="font-size:0.8rem; line-height:1.35;">{{ (b.summary or b.slug)[:120] }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}

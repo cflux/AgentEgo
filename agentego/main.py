@@ -44,18 +44,69 @@ def _fmt_ts(value, fmt=None) -> str:
 
 
 def _den_md(text) -> "Markup":
-    """Minimal, safe markdown for Den entry bodies: escape, then **bold** / *italic* / paragraphs."""
+    """Safe markdown for Den entry bodies (escape-first, so no raw HTML/XSS). Handles headings, ordered/
+    unordered lists with nesting, links (http/https/relative/mailto only), inline code, bold/italic,
+    horizontal rules, and [[wikilinks]] — enough to render the research trees' structured notes legibly."""
     from markupsafe import Markup, escape
     import re
     if not text:
         return Markup("")
-    out = []
-    for para in re.split(r"\n\s*\n", str(text).strip()):
-        safe = str(escape(para))
-        safe = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", safe)
-        safe = re.sub(r"\*(.+?)\*", r"<em>\1</em>", safe)
-        out.append("<p>" + safe.replace("\n", "<br>") + "</p>")
-    return Markup("".join(out))
+
+    def inline(s: str) -> str:
+        s = str(escape(s))  # escape first — everything below only re-introduces a safe subset
+        s = re.sub(r"\[\[([^\]]+)\]\]", r'<span style="color:#b47aff; font-weight:500;">\1</span>', s)
+
+        def _link(m):
+            txt, url = m.group(1), m.group(2)
+            return (f'<a href="{url}" target="_blank" rel="noopener">{txt}</a>'
+                    if re.match(r"(?:https?:|mailto:|/|#)", url, re.I) else m.group(0))
+        s = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", _link, s)
+        s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+        s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+        s = re.sub(r"(?<!\*)\*(?!\*)([^*]+?)\*(?!\*)", r"<em>\1</em>", s)
+        return s
+
+    html: list[str] = []
+    stack: list[str] = []   # open list tags by nesting depth
+    para: list[str] = []
+
+    def flush_para():
+        if para:
+            html.append("<p>" + "<br>".join(inline(x) for x in para) + "</p>")
+            para.clear()
+
+    def close_lists(to: int = 0):
+        while len(stack) > to:
+            html.append(f"</{stack.pop()}>")
+
+    for raw in str(text).strip().split("\n"):
+        stripped = raw.strip()
+        h = re.match(r"(#{1,6})\s+(.*)", stripped)
+        li = re.match(r"^(\s*)(?:[-*]|\d+\.)\s+(.*)", raw)
+        if not stripped:
+            flush_para(); close_lists(); continue
+        if re.match(r"^-{3,}$|^\*{3,}$", stripped):
+            flush_para(); close_lists(); html.append("<hr>"); continue
+        if h:
+            flush_para(); close_lists()
+            level = min(6, len(h.group(1)) + 2)  # '#' -> h3 (kept small inside the modal)
+            html.append(f"<h{level} style='margin:0.7em 0 0.3em; font-size:{max(0.8, 1.15-0.07*level):.2f}rem;'>"
+                        f"{inline(h.group(2))}</h{level}>")
+            continue
+        if li:
+            flush_para()
+            ordered = raw.lstrip()[0].isdigit()
+            tag = "ol" if ordered else "ul"
+            depth = len(li.group(1)) // 2 + 1
+            close_lists(depth)
+            while len(stack) < depth:
+                html.append(f"<{tag} style='margin:0.2em 0 0.4em 1.1rem;'>"); stack.append(tag)
+            html.append("<li>" + inline(li.group(2)) + "</li>")
+            continue
+        para.append(stripped)
+
+    flush_para(); close_lists()
+    return Markup("".join(html))
 
 
 @asynccontextmanager

@@ -132,6 +132,96 @@ def get_entry(profile: str, relpath: str) -> dict | None:
     return parse_entry(profile, target)
 
 
+# --- Research trees: `research/<topic>/index.md` (trunk) + dated branch entries (relates_to) ---
+
+RESEARCH_DIR = "research"
+
+
+def _research_dir(profile: str) -> Path:
+    return _profile_dir(profile) / RESEARCH_DIR
+
+
+def has_research(profile: str) -> bool:
+    return _research_dir(profile).is_dir()
+
+
+def _slug_title(slug: str) -> str:
+    return slug.replace("-", " ").replace("_", " ").strip().title()
+
+
+def _extract_title(body: str, fallback: str) -> str:
+    for line in body.splitlines():
+        s = line.strip()
+        if s.startswith("# "):
+            return s[2:].strip()
+    return fallback
+
+
+def _extract_summary(body: str) -> str:
+    """Text under a `## Summary` heading (to the next heading); else the first paragraph after the H1."""
+    lines = body.splitlines()
+    section, capturing = [], False
+    for line in lines:
+        s = line.strip()
+        if not capturing and s.lower().startswith("## summary"):
+            capturing = True
+            continue
+        if capturing:
+            if s.startswith("#"):
+                break
+            section.append(line)
+    text = "\n".join(section).strip()
+    if text:
+        return text
+    para, seen_h1 = [], False
+    for line in lines:
+        s = line.strip()
+        if s.startswith("# ") and not seen_h1:
+            seen_h1 = True
+            continue
+        if seen_h1:
+            if s.startswith("#"):
+                continue
+            if not s and para:
+                break
+            if s:
+                para.append(s)
+    return " ".join(para).strip()
+
+
+def list_research_trees(profile: str) -> list[dict]:
+    """Each `research/<topic>/` as a tree: the index.md trunk (title + summary) plus its dated branch
+    entries (newest first). Sorted by most-recently-touched. Empty if the profile has no research/."""
+    rdir = _research_dir(profile)
+    if not rdir.is_dir():
+        return []
+    trees = []
+    for topic in sorted(rdir.iterdir()):
+        if not topic.is_dir():
+            continue
+        idx = topic / "index.md"
+        title, summary, index_relpath, idx_mtime = _slug_title(topic.name), "", None, 0.0
+        if idx.is_file():
+            try:
+                text = idx.read_text()
+                idx_mtime = idx.stat().st_mtime
+            except OSError:
+                text = ""
+            title = _extract_title(text, title)
+            summary = _extract_summary(text)
+            index_relpath = _rel(profile, idx)
+        branches = [e for p in topic.glob("*.md") if p.name != "index.md"
+                    and (e := parse_entry(profile, p))]
+        branches.sort(key=lambda e: (e["date"], e["mtime"]), reverse=True)
+        trees.append({
+            "slug": topic.name, "title": title, "summary": summary,
+            "index_relpath": index_relpath, "branches": branches, "count": len(branches),
+            "updated": max([idx_mtime] + [b["mtime"] for b in branches], default=idx_mtime),
+        })
+    trees.sort(key=lambda t: t["updated"], reverse=True)
+    return trees
+
+
 _SORTS = ("new", "old", "important", "edited")
 _DATE_SORTS = ("new", "old")  # the sorts for which month grouping is meaningful
 

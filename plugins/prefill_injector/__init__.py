@@ -1,5 +1,7 @@
 """Prefill Injector — injects session summary + key exchanges on session start."""
-import logging, os, json, sqlite3, urllib.request, time, re, datetime
+import logging, os, json, sqlite3, urllib.request, time, re, datetime, sys
+sys.path.insert(0, os.path.expanduser('~/.hermes/scripts'))
+from platform_config import source_clause
 
 logger = logging.getLogger(__name__)
 OLLAMA = "http://localhost:11434/api/generate"
@@ -8,8 +10,8 @@ MODEL = "ikiru/Dolphin-Mistral-24B-Venice-Edition:latest"
 def get_closed_session(db_path):
     cutoff = time.time() - (24 * 3600)
     db = sqlite3.connect(db_path)
-    row = db.execute("""
-        SELECT id, message_count FROM sessions WHERE id NOT LIKE 'cron_%' AND source IN ('telegram','discord')
+    row = db.execute(f"""
+        SELECT id, message_count FROM sessions WHERE id NOT LIKE 'cron_%' AND {source_clause()}
         AND ended_at IS NOT NULL AND ended_at > ? ORDER BY ended_at DESC LIMIT 5
     """, (cutoff,)).fetchone()
     return row[0] if row else None

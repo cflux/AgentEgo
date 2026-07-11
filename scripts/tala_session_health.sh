@@ -12,8 +12,9 @@ CRITICAL_THRESHOLD=1500
 COUNT=$(python3 -c "
 import sqlite3
 db = sqlite3.connect('$DB')
-# Get the session with the most recent message (may not be 'active' due to Telegram bug)
-count = db.execute(\"SELECT message_count FROM sessions WHERE id NOT LIKE 'cron_%' AND source IN ('telegram','discord') ORDER BY (SELECT MAX(timestamp) FROM messages WHERE session_id = sessions.id) DESC LIMIT 1\").fetchone()
+# Get the session with the most recent message (may not be 'active' due to Discord threading)
+from platform_config import source_clause
+count = db.execute(f\"SELECT message_count FROM sessions WHERE id NOT LIKE 'cron_%' AND {source_clause()} ORDER BY (SELECT MAX(timestamp) FROM messages WHERE session_id = sessions.id) DESC LIMIT 1\").fetchone()
 print(count[0] if count else 0)
 " 2>/dev/null)
 

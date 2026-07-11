@@ -345,6 +345,8 @@ _DEFAULT_SETTINGS = {
     "mood_correction_mutual_bonus": "0.5",
     "mood_correction_mode_baseline": "0.1",
     "mood_correction_headroom": "20",
+    "mood_solo_positive_weight": "0.6",
+    "mood_solo_negative_weight": "0.3",
     "mood_directive_enabled": "1",
     "mood_directive_template": (
         "## Current disposition\n"

@@ -1,3 +1,4 @@
+import logging
 import time
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import Response, PlainTextResponse, HTMLResponse
@@ -8,6 +9,7 @@ from ..db.ego import get_ego_db
 from ..services import impulse_engine, settings_store
 from ..services.profiles import discover_profiles, resolve_profile
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
@@ -176,18 +178,21 @@ async def impulse_decide_txt(profile: str = "default", cls: str = Query("inward"
 
 @router.post("/api/impulse/outcome")
 async def impulse_outcome(request: Request) -> dict:
-    """Receive a sidequest outcome from the plugin's post_llm_call hook. Phase-1 stub: persist it;
-    the sidequest scorer (agent-solo emotion → mood) arrives in Phase 3."""
+    """Receive a sidequest outcome from the plugin's post_llm_call hook. Persist the raw outcome (the log),
+    and for INWARD (solo) sidequests run the Phase-3 scorer → a de-rated `solo_round` that folds into mood.
+    Outward reach-outs are persist-only here; their emotional effect is Phase-5 reply attribution."""
     import json as _json
     from uuid import uuid4
     body = await request.json()
     profile = str(body.get("profile") or "default")
     session_id = str(body.get("session_id") or "")
+    kind = str(body.get("kind") or "")
+    response = str(body.get("response") or "")
     record = {
         "profile": profile,
         "label": str(body.get("label") or ""),
-        "kind": str(body.get("kind") or ""),
-        "response": str(body.get("response") or ""),
+        "kind": kind,
+        "response": response,
         "at": time.time(),
     }
     conn = await get_ego_db()
@@ -200,4 +205,14 @@ async def impulse_outcome(request: Request) -> dict:
         await conn.commit()
     finally:
         await conn.close()
-    return {"ok": True, "stored": True}
+
+    scored = None
+    if kind == "inward" and response.strip():
+        from ..services.sidequest_scorer import record_sidequest
+        try:
+            rec = await record_sidequest(profile, session_id, response)
+            if rec:
+                scored = {"valence": rec["valence"], "subject": rec["subject"]}
+        except Exception as exc:  # scoring must never break outcome ingestion
+            logger.warning("sidequest scoring failed: %s", exc)
+    return {"ok": True, "stored": True, "scored": scored}

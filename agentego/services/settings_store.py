@@ -146,6 +146,11 @@ DEFAULTS = {
     "mood_correction_mode_baseline": "0.1",# flat per-round undercurrent while a correction's mode is active
     "mood_correction_headroom": "20",      # ceiling a correction fills TOWARD; it fades to ~0 once the
                                            # backbone alone reaches this (gap-fill: correct misses, don't amplify hits)
+    # Sidequest (solo-round) impact: a self-directed action's emotion votes are de-rated vs a real
+    # conversation, and negatives weighted below positives — "left alone she stews a little; you show
+    # up and it lifts". Applied per solo round in both backbone_votes and correction_votes.
+    "mood_solo_positive_weight": "0.6",
+    "mood_solo_negative_weight": "0.3",
     # Agent-facing disposition block (injected into the system prompt each turn).
     "mood_directive_enabled": "1",
     "mood_directive_template": (

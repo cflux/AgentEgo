@@ -31,6 +31,19 @@ _DEN_INSTRUCTION = (
     "tools, then record what you did and how it felt as a short entry in your Den so you remember it."
 )
 
+# Appended to inward prompts so the sidequest ends with a first-party feeling read. The entry mood is
+# framed as a baseline to move FROM (not confirm), and "or if it didn't" avoids manufacturing change — this
+# is input #1 of the three-input sidequest scorer.
+_SELF_REPORT_TEMPLATE = (
+    "\n\nWhen you're done, on its own final line, honestly finish this: you came into this feeling "
+    "{mood} — now that it's over, in one line, how do you feel? Say if it shifted, or if it didn't."
+)
+
+
+def _self_report_instruction(facts: dict) -> str:
+    mood = (facts.get("mood") or {}).get("name") or "however you were"
+    return _SELF_REPORT_TEMPLATE.format(mood=mood)
+
 
 def _class_of(cap: dict) -> str:
     """A capability's class ('inward'|'outward'). Explicit `class` wins; otherwise derive from the legacy
@@ -237,7 +250,7 @@ async def arbitrate(profile: str, cls: str, *, db_path: str | None = None, commi
     if cls == "outward":
         prompt = f"{OUTWARD_MARKER}\n{prompt}"
     else:
-        prompt = prompt + _DEN_INSTRUCTION
+        prompt = prompt + _DEN_INSTRUCTION + _self_report_instruction(facts)
 
     result.update(fired=True, capability_id=cap_id, intent=cap.get("intent"), prompt=prompt,
                   reason="acting")

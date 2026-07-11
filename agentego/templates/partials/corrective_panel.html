@@ -29,7 +29,7 @@
     <span style="color:var(--pico-muted-color);">held {{ v.shaping.tenure }} round(s){% if v.shaping.bias > 0 %}, <span style="color:#4caf50;">+{{ v.shaping.bias }} inertia</span> (holding it){% elif v.shaping.bias < 0 %}, <span style="color:#e57373;">{{ v.shaping.bias }} decay</span> (anti-stuck pressure){% else %}, no bias{% endif %}{% if v.shaping.cooldown %} · cooldown: {{ v.shaping.cooldown | join(', ') }}{% endif %}</span>
   </div>
   {% endif %}
-  <span style="font-size:0.72rem; color:var(--pico-muted-color);">{{ v.rounds }} rounds · backbone×{{ v.config.backbone_scale }} · halflife {{ v.config.halflife }} · ceiling {{ v.config.headroom }}</span>
+  <span style="font-size:0.72rem; color:var(--pico-muted-color);">{{ v.rounds }} rounds · backbone×{{ v.config.backbone_scale }} · halflife {{ v.config.halflife }} · ceiling {{ v.config.headroom }} · solo +{{ v.config.solo_positive_weight }}/−{{ v.config.solo_negative_weight }}</span>
 </article>
 
 <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">

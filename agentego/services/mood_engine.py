@@ -129,38 +129,53 @@ async def _fetch_round_enrichment(round_ids: list, conv_ids: list) -> tuple[dict
 
 async def _build_round_enriched(profile_name: str, db_path: str | None) -> list:
     """Recent rounds as mood data points: each round's own sentiment + its parent
-    conversation's topic & mode (inherited). Newest first."""
+    conversation's topic & mode (inherited), plus recent solo (sidequest) rounds folded in. Newest first."""
     from .conversations import sync_recent_conversations, get_recent_rounds
     from .settings_store import get_low_signal_emotions
     await sync_recent_conversations(profile_name, db_path=db_path)
-    rounds = await get_recent_rounds(profile_name, limit=await _lookback_rounds())
-    if not rounds:
-        return []
-    round_ids = [r["id"] for r in rounds]
-    conv_ids = list({r["conversation_id"] for r in rounds})
-    sentiment_map, mood_scores_map, topic_map, mode_map = await _fetch_round_enrichment(round_ids, conv_ids)
-    low_signal = await get_low_signal_emotions()
+    lookback = await _lookback_rounds()
+    rounds = await get_recent_rounds(profile_name, limit=lookback)
 
     enriched = []
-    for r in rounds:
-        cid = r["conversation_id"]
-        sdata = sentiment_map.get(r["id"]) or {}
-        # A party can be explicitly null (e.g. a round with no agent messages), so coerce to {}.
-        u = sdata.get("user") or {}
-        a = sdata.get("agent") or {}
-        enriched.append({
-            "id": r["id"], "conversation_id": cid,
-            "round_index": r.get("round_index"),
-            "start_ts": r.get("start_ts"), "end_ts": r.get("end_ts"),
-            "msg_count": r.get("msg_count"),
-            "mode": mode_map.get(cid), "topic": topic_map.get(cid),
-            "mood_scores": mood_scores_map.get(r["id"]) or {},
-            "sentiment_user": u.get("dominant"), "sentiment_agent": a.get("dominant"),
-            "sentiment_user_top3": _top_emotions(u, low_signal),
-            "sentiment_agent_top3": _top_emotions(a, low_signal),
-            "user_scores": u.get("scores") or {}, "agent_scores": a.get("scores") or {},
-            "user_msg_count": u.get("message_count"), "agent_msg_count": a.get("message_count"),
-        })
+    if rounds:
+        round_ids = [r["id"] for r in rounds]
+        conv_ids = list({r["conversation_id"] for r in rounds})
+        sentiment_map, mood_scores_map, topic_map, mode_map = await _fetch_round_enrichment(round_ids, conv_ids)
+        low_signal = await get_low_signal_emotions()
+        for r in rounds:
+            cid = r["conversation_id"]
+            sdata = sentiment_map.get(r["id"]) or {}
+            # A party can be explicitly null (e.g. a round with no agent messages), so coerce to {}.
+            u = sdata.get("user") or {}
+            a = sdata.get("agent") or {}
+            enriched.append({
+                "id": r["id"], "conversation_id": cid,
+                "round_index": r.get("round_index"),
+                "start_ts": r.get("start_ts"), "end_ts": r.get("end_ts"),
+                "msg_count": r.get("msg_count"),
+                "mode": mode_map.get(cid), "topic": topic_map.get(cid),
+                "mood_scores": mood_scores_map.get(r["id"]) or {},
+                "sentiment_user": u.get("dominant"), "sentiment_agent": a.get("dominant"),
+                "sentiment_user_top3": _top_emotions(u, low_signal),
+                "sentiment_agent_top3": _top_emotions(a, low_signal),
+                "user_scores": u.get("scores") or {}, "agent_scores": a.get("scores") or {},
+                "user_msg_count": u.get("message_count"), "agent_msg_count": a.get("message_count"),
+            })
+
+    # Fold in recent solo (sidequest) rounds — de-rated synthetic rounds (mood_corrections._solo_weight)
+    # that take their true recency slot in the same window the vote functions read. Never touches the
+    # rounds/conversations tables, so conversation analytics stay clean.
+    try:
+        from .sidequest_scorer import recent_solo_enriched
+        solo = await recent_solo_enriched(profile_name, limit=lookback)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("solo-round merge failed: %s", exc)
+        solo = []
+    if solo:
+        enriched.extend(solo)
+        enriched.sort(key=lambda r: (r.get("end_ts") or 0), reverse=True)
+        enriched = enriched[:lookback]
     return enriched
 
 

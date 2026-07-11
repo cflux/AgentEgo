@@ -164,7 +164,18 @@ async def get_correction_config() -> dict:
         "mutual_bonus": await _f("mood_correction_mutual_bonus", 0.5),
         "mode_baseline": await _f("mood_correction_mode_baseline", 0.1),
         "headroom": await _f("mood_correction_headroom", 20.0),
+        "solo_positive_weight": await _f("mood_solo_positive_weight", 0.6),
+        "solo_negative_weight": await _f("mood_solo_negative_weight", 0.3),
     }
+
+
+def _solo_weight(rnd: dict, cfg: dict) -> float:
+    """De-rating multiplier for a solo (sidequest) round: <1, and negatives weighted below positives so a
+    flopped sidequest barely dents mood while a good one still lifts. 1.0 for normal conversation rounds."""
+    if not rnd.get("solo"):
+        return 1.0
+    neg = float(rnd.get("valence", 0.0)) < 0
+    return cfg.get("solo_negative_weight", 0.3) if neg else cfg.get("solo_positive_weight", 0.6)
 
 
 def backbone_votes(enriched: list[dict], moods: dict, cfg: dict) -> dict:
@@ -173,7 +184,7 @@ def backbone_votes(enriched: list[dict], moods: dict, cfg: dict) -> dict:
     hl = cfg["halflife"]
     out: dict = {}
     for i, rnd in enumerate(enriched):
-        rec = 0.5 ** (i / hl)
+        rec = 0.5 ** (i / hl) * _solo_weight(rnd, cfg)
         for mid, sc in (rnd.get("mood_scores") or {}).items():
             if mid in moods:
                 out[mid] = out.get(mid, 0.0) + rec * (float(sc) / 10.0)
@@ -235,7 +246,8 @@ def correction_votes(corrections: list[dict], enriched: list[dict], cfg: dict) -
         modes = set(c.get("mode") or [])
         total = 0.0
         for i, rnd in enumerate(enriched):
-            rec = 0.5 ** (i / halflife)  # newest round (i=0) weight 1.0, halving every `halflife` rounds
+            # newest round (i=0) weight 1.0, halving every `halflife` rounds; solo rounds de-rated (asymmetric)
+            rec = 0.5 ** (i / halflife) * _solo_weight(rnd, cfg)
             ag = rnd.get("agent_scores") or {}
             term = sum(w * float(ag.get(e, 0.0)) for e, w in emo.items())
             if rel == "mutual":

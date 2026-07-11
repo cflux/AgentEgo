@@ -38,6 +38,8 @@ async def get_solitude_config() -> dict:
         "rate_per_hour": await _f("solitude_rate_per_hour", 2.0),
         "cap": await _f("solitude_cap", 6.0),
         "targets": {k: float(v) for k, v in targets.items()},
+        "ignored_bump": await _f("solitude_ignored_bump", 3.0),
+        "ignored_halflife_hours": max(0.1, await _f("solitude_ignored_halflife_hours", 6.0)),
     }
 
 
@@ -54,21 +56,36 @@ async def solitude_votes(profile: str, db_path: str | None = None,
         return {}, None
 
     import time
+    now = time.time()
     last_ts = await get_last_activity_ts(profile, db_path=db_path)
-    if not last_ts:
-        return {}, None  # never talked → no baseline to feel absence against
-    idle_min = max(0.0, (time.time() - last_ts) / 60.0)
+    idle_min = max(0.0, (now - last_ts) / 60.0) if last_ts else 0.0
     hours_over = max(0.0, (idle_min - cfg["onset_min"]) / 60.0)
-    if hours_over <= 0:
-        return {}, None
+    # Idle pressure ramps past the onset, capped — pure solitude alone never reaches the lonely->sad cascade.
+    idle_pressure = min(cfg["cap"], cfg["rate_per_hour"] * hours_over) if (last_ts and hours_over > 0) else 0.0
 
-    pressure = min(cfg["cap"], cfg["rate_per_hour"] * hours_over)
-    if pressure < 0.05:  # just past onset — not worth a vote or a breakdown line yet
+    # Phase 5 — the sting of being ignored: each unanswered reach-out (since he was last around) adds a
+    # decaying bump ON TOP of the idle cap, so being rebuffed pushes Lonely past the cascade (pure idle can't).
+    sting = 0.0
+    n_ignored = 0
+    if cfg["ignored_bump"] > 0:
+        try:
+            from .impulse_feedback import ignored_pings_since_reengage
+            ig = await ignored_pings_since_reengage(profile, db_path=db_path)
+        except Exception:
+            ig = []
+        n_ignored = len(ig)
+        hl = cfg["ignored_halflife_hours"]
+        sting = sum(cfg["ignored_bump"] * 0.5 ** (((now - t) / 3600.0) / hl) for t in ig)
+        sting = min(sting, 2.0 * cfg["ignored_bump"])  # bound a burst of rebuffs
+
+    total = idle_pressure + sting
+    if total < 0.05:
         return {}, None
-    votes = {mid: round(pressure * w, 3) for mid, w in cfg["targets"].items() if pressure * w > 0}
+    votes = {mid: round(total * w, 3) for mid, w in cfg["targets"].items() if total * w > 0}
     if not votes:
         return {}, None
     top = max(votes, key=votes.get)
     hrs = idle_min / 60.0
-    note = f"Solitude: {top} +{votes[top]:.1f} (alone {hrs:.1f} h)"
+    extra = f", {n_ignored} ignored" if n_ignored else ""
+    note = f"Solitude: {top} +{votes[top]:.1f} (alone {hrs:.1f} h{extra})"
     return votes, note

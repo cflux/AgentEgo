@@ -31,6 +31,7 @@
   {% endif %}
   <span style="font-size:0.72rem; color:var(--pico-muted-color);">{{ v.rounds }} rounds · backbone×{{ v.config.backbone_scale }} · halflife {{ v.config.halflife }} · ceiling {{ v.config.headroom }} · solo +{{ v.config.solo_positive_weight }}/−{{ v.config.solo_negative_weight }}</span>
   {% if v.solitude %}<br><span style="font-size:0.72rem; color:var(--pico-muted-color);">solitude {% if v.solitude.enabled %}on{% else %}off{% endif %} · onset {{ (v.solitude.onset_min / 60)|round(1) }} h · {{ v.solitude.rate_per_hour }}/h → cap {{ v.solitude.cap }}</span>{% endif %}
+  {% if v.attribution and v.attribution.total %}<br><span style="font-size:0.72rem; color:var(--pico-muted-color);">reach-outs: {{ v.attribution.landed }} landed / {{ v.attribution.ignored }} ignored{% if v.attribution.consecutive_ignored %} · backoff ×{{ v.attribution.consecutive_ignored }} unanswered{% endif %}</span>{% endif %}
 </article>
 
 <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">

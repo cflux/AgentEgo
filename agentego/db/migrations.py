@@ -248,12 +248,15 @@ _DEFAULT_SETTINGS = {
     "impulse_outward_hour_start": "6",
     "impulse_outward_hour_end": "20",
     "impulse_outward_min_idle_minutes": "30",
+    "impulse_outward_backoff_cap_min": "480",
     # Phase 4 solitude/pacing (see settings_store.DEFAULTS for docs).
     "solitude_enabled": "1",
     "solitude_onset_min": "90",
     "solitude_rate_per_hour": "2.0",
     "solitude_cap": "6.0",
     "solitude_targets": '{"lonely": 1.0, "bored": 0.6, "tired": 0.2}',
+    "solitude_ignored_bump": "3.0",
+    "solitude_ignored_halflife_hours": "6.0",
     "impulse_act_gate_enabled": "1",
     "impulse_act_probability_default": "0.6",
     "impulse_act_probability": (

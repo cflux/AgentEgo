@@ -184,6 +184,13 @@ async def _solitude_cfg() -> dict:
     return await get_solitude_config()
 
 
+async def _attribution(profile_name: str) -> dict:
+    """Phase-5 outward reply-attribution readout (lazy import)."""
+    from .impulse_feedback import attribution_summary
+    from .profiles import resolve_profile
+    return await attribution_summary(profile_name, db_path=resolve_profile(profile_name))
+
+
 def backbone_votes(enriched: list[dict], moods: dict, cfg: dict) -> dict:
     """Continuous backbone: recency-weighted sum of the local scorer's per-round mood scores (0–10,
     normalized to 0–1), unscaled. The caller applies backbone_scale."""
@@ -565,6 +572,7 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
         "narrative": _narrative(current, bb_ranked, net_ranked, corrs, moods),
         "config": cfg,
         "solitude": await _solitude_cfg(),
+        "attribution": await _attribution(profile_name),
         "all_moods": sorted(({"id": m, "name": moods[m]["name"]} for m in moods), key=lambda x: x["name"]),
         "all_modes": CONVERSATION_MODES,
         "emotion_groups": await emotion_groups(),

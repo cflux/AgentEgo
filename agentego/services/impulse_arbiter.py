@@ -249,8 +249,23 @@ async def arbitrate(profile: str, cls: str, *, db_path: str | None = None, commi
             min_idle = float(await get_setting("impulse_outward_min_idle_minutes", "30"))
         except (TypeError, ValueError):
             min_idle = 30.0
+        # Phase 5 backoff — each unanswered reach-out since he was last around doubles the required idle
+        # (capped), so she spaces out and effectively goes quiet; re-engagement zeroes the count.
+        consec = 0
+        try:
+            from .impulse_feedback import consecutive_ignored
+            consec = await consecutive_ignored(profile, db_path=db_path)
+        except Exception:
+            consec = 0
+        if consec:
+            try:
+                cap_idle = float(await get_setting("impulse_outward_backoff_cap_min", "480"))
+            except (TypeError, ValueError):
+                cap_idle = 480.0
+            min_idle = min(cap_idle, min_idle * (2 ** consec))
         if idle_min is not None and idle_min < min_idle:
-            result["reason"] = f"user active {idle_min:.0f} min ago (< {min_idle:.0f} min idle gate) - not interrupting"
+            tail = f", backoff ×{consec} unanswered" if consec else ""
+            result["reason"] = f"user active {idle_min:.0f} min ago (< {min_idle:.0f} min gate{tail}) - not interrupting"
             return result
 
     # Phase 4 — mood-gated "act at all": a settled mood often just lets the moment pass; a restless one

@@ -27,6 +27,10 @@ DEFAULTS = {
     "impulse_outward_hour_end": "20",
     # Mid-conversation guard: outward won't fire unless the user has been quiet at least this long (min).
     "impulse_outward_min_idle_minutes": "30",
+    # Phase 5 backoff: each unanswered reach-out (since he was last around) doubles the required idle
+    # (min_idle * 2**consecutive_ignored), capped here — so she spaces out then goes quiet, resetting when
+    # he re-engages.
+    "impulse_outward_backoff_cap_min": "480",
     # Phase 4 — solitude pressure: time alone feeds votes toward lonely/bored/tired (the loop-damper). No
     # pressure while engaged (idle < onset); ramps rate_per_hour beyond it, capped. Targets = per-mood weight.
     "solitude_enabled": "1",
@@ -34,6 +38,11 @@ DEFAULTS = {
     "solitude_rate_per_hour": "2.0",
     "solitude_cap": "6.0",
     "solitude_targets": '{"lonely": 1.0, "bored": 0.6, "tired": 0.2}',
+    # Phase 5 — the sting of being ignored: each unanswered reach-out (since he was last around) adds a
+    # decaying bump ON TOP of the idle cap, so reaching out and getting silence pushes Lonely past the
+    # lonely->sad cascade threshold (which pure idle, capped at solitude_cap, never reaches).
+    "solitude_ignored_bump": "3.0",
+    "solitude_ignored_halflife_hours": "6.0",
     # Phase 4 — mood-gated "act at all" probability: how likely she acts on a cron tick, by current mood
     # (restless moods high, settled moods low). Outward + lonely/bored is floored high so solitude reaches out.
     "impulse_act_gate_enabled": "1",

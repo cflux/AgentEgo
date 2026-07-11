@@ -101,5 +101,16 @@ def start_scheduler() -> AsyncIOScheduler:
         max_instances=1,
         coalesce=True,
     )
+    # Phase 5 — outward reply attribution: classify each reach-out landed/ignored once its reply window
+    # has closed, feeding the lonely-sting + outward backoff.
+    from .impulse_feedback import attribute_outward
+    scheduler.add_job(
+        attribute_outward,
+        "interval",
+        minutes=5,
+        id="attribute_outward",
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
     return scheduler

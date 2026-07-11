@@ -17,6 +17,12 @@ SFW = [
     "OldSchoolCool", "TheWayWeWere", "VintageMenus",
     "crappyoffbrands", "mildlyinfuriating", "ATBGE",
     "DiWHY", "ExpectationVsReality",
+    "cyberpunk", "outrun", "ImaginaryTechnology", "ImaginaryCyberpunk",
+    "ProgrammerHumor", "mechanicalkeyboards", "battlestations",
+    "somethingimade", "woodworking", "3Dprinting", "DIY",
+    "miniatures", "tiltshift", "generative", "fractals",
+    "evilbuildings", "brutalism", "astrophotography", "CLOUDS",
+    "megalophobia", "LiminalSpace",
 ]
 
 # NSFW — female nudity, no gore/bio

@@ -39,6 +39,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 echo "Tests passed — proceeding with commit"
-git add plugins/
+cd "$REPO"
+git add plugins/ scripts/ hermes/
 git diff --cached --quiet || git commit -m "chore: sync hermex plugins $(date +%Y-%m-%d)" 2>/dev/null
 echo "Committed"

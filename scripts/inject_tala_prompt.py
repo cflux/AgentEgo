@@ -7,7 +7,7 @@ MSG = sys.argv[1] if len(sys.argv) > 1 else "🔄 State save — update your cur
 
 db = sqlite3.connect(DB)
 sid = db.execute("""
-    SELECT id FROM sessions WHERE id NOT LIKE 'cron_%' AND source='telegram'
+    SELECT id FROM sessions WHERE id NOT LIKE 'cron_%' AND source IN ('telegram','discord')
     ORDER BY started_at DESC LIMIT 1
 """).fetchone()[0]
 

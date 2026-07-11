@@ -1,0 +1,23 @@
+{# Expects: items (list of {at, landed, text}) #}
+{% if items %}
+<table style="margin:0;">
+  <thead>
+    <tr><th>When</th><th style="text-align:center;">Outcome</th><th>What she sent</th></tr>
+  </thead>
+  <tbody>
+    {% for it in items %}
+    <tr>
+      <td style="white-space:nowrap; font-size:0.78rem; color:var(--pico-muted-color);">{{ it.at | ts }}</td>
+      <td style="text-align:center;">
+        <span style="font-size:0.72rem; padding:0.12em 0.5em; border-radius:999px; background:{{ '#1e3a2e' if it.landed else '#3a1e1e' }}; color:{{ '#4adbae' if it.landed else '#e07a7a' }};">
+          {{ 'landed' if it.landed else 'ignored' }}
+        </span>
+      </td>
+      <td style="font-size:0.8rem; color:var(--pico-muted-color);">{{ it.text[:160] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="padding:0.75rem 1rem; font-size:0.85rem; color:var(--pico-muted-color); margin:0;">No outward reach-outs attributed yet.</p>
+{% endif %}

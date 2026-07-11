@@ -19,6 +19,10 @@
 </div>
 {% endif %}
 
+<div id="impulse-status" hx-get="/partials/impulse-status?profile={{ active_profile }}" hx-trigger="load, every 30s" hx-swap="innerHTML" style="margin:0 0 1rem;">
+  <p style="font-size:0.8rem; color:var(--pico-muted-color);">Loading…</p>
+</div>
+
 <article style="padding:1rem 1.25rem; margin:0 0 1.25rem;">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
     <h6 style="margin:0; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--pico-muted-color);">What she'd do right now <span style="text-transform:none; font-weight:400;">(dry run — nothing fires)</span></h6>
@@ -30,9 +34,33 @@
   </div>
 </article>
 
+<details style="margin:0 0 1.25rem;">
+  <summary style="font-size:1rem; font-weight:600; cursor:pointer;">Behavior &amp; pacing <small style="font-size:0.7em; font-weight:400; color:var(--pico-muted-color);">solitude, act-at-all, budgets, backoff</small></summary>
+  <article style="padding:1rem 1.25rem; margin:0.6rem 0 0;">
+    <div id="impulse-tuning">
+      {% include "partials/impulse_tuning.html" %}
+    </div>
+  </article>
+</details>
+
 <h4 style="font-size:1rem;">Capabilities</h4>
 <div id="capability-list">
   {% include "partials/capability_list.html" %}
+</div>
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(24rem, 1fr)); gap:1.25rem; margin-top:1.5rem;">
+  <div>
+    <h4 style="font-size:1rem;">Recent sidequests <small style="font-size:0.7em; color:var(--pico-muted-color);">what she did alone & how it left her</small></h4>
+    <div id="solo-rounds" hx-get="/partials/solo-rounds?profile={{ active_profile }}" hx-trigger="load, every 60s" hx-swap="innerHTML">
+      <p style="font-size:0.8rem; color:var(--pico-muted-color);">Loading…</p>
+    </div>
+  </div>
+  <div>
+    <h4 style="font-size:1rem;">Recent reach-outs <small style="font-size:0.7em; color:var(--pico-muted-color);">did they land?</small></h4>
+    <div id="attributions" hx-get="/partials/attributions?profile={{ active_profile }}" hx-trigger="load, every 60s" hx-swap="innerHTML">
+      <p style="font-size:0.8rem; color:var(--pico-muted-color);">Loading…</p>
+    </div>
+  </div>
 </div>
 
 <h4 style="font-size:1rem; margin-top:1.5rem;">Recent self-initiated actions</h4>

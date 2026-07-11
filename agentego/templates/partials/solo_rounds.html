@@ -1,0 +1,25 @@
+{# Expects: items (list of {subject, valence, emotion, mood, at}) #}
+{% if items %}
+<table style="margin:0;">
+  <thead>
+    <tr><th>When</th><th>What she did</th><th>Left her feeling</th><th style="text-align:center;">Impact</th></tr>
+  </thead>
+  <tbody>
+    {% for it in items %}
+    <tr>
+      <td style="white-space:nowrap; font-size:0.78rem; color:var(--pico-muted-color);">{{ it.at | ts }}</td>
+      <td style="font-size:0.85rem;">{{ it.subject }}</td>
+      <td style="font-size:0.8rem; color:var(--pico-muted-color);">{{ it.emotion or "—" }}{% if it.mood %} · {{ it.mood }}{% endif %}</td>
+      <td style="text-align:center;">
+        {% set warm = it.valence >= 0 %}
+        <span style="font-size:0.72rem; padding:0.12em 0.5em; border-radius:999px; background:{{ '#1e3a2e' if warm else '#3a1e1e' }}; color:{{ '#4adbae' if warm else '#e07a7a' }};">
+          {{ '+' if warm else '' }}{{ it.valence | round(2) }}
+        </span>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="padding:0.75rem 1rem; font-size:0.85rem; color:var(--pico-muted-color); margin:0;">No solo sidequests scored yet.</p>
+{% endif %}

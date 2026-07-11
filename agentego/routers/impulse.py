@@ -29,7 +29,48 @@ async def _editor_ctx(profile: str) -> dict:
         "profiles": discover_profiles(), "active_profile": profile,
         "capabilities": caps, "classes": CLASSES, "backing_kinds": BACKING_KINDS,
         "log": await impulse_engine.get_recent_log(profile),
+        "settings": await settings_store.get_all_settings(),
     }
+
+
+# Editable impulse/solitude/pacing knobs (Phase 6). Grouped by handling so the save can coerce correctly.
+_TUNING_CHECKBOX = ["impulse_enabled", "impulse_act_gate_enabled", "solitude_enabled"]
+_TUNING_NUMERIC = [
+    "impulse_inward_hour_start", "impulse_inward_hour_end",
+    "impulse_outward_hour_start", "impulse_outward_hour_end",
+    "impulse_outward_min_idle_minutes", "impulse_outward_backoff_cap_min",
+    "impulse_act_probability_default",
+    "solitude_onset_min", "solitude_rate_per_hour", "solitude_cap",
+    "solitude_ignored_bump", "solitude_ignored_halflife_hours",
+    "mood_solo_positive_weight", "mood_solo_negative_weight",
+]
+_TUNING_JSON = ["impulse_act_probability", "impulse_action_daily_budget", "solitude_targets"]
+
+
+@router.post("/api/impulse/tuning")
+async def update_tuning(request: Request):
+    import json as _json
+    form = await request.form()
+    profile = str(form.get("profile") or "default")
+    updates: dict = {}
+    for k in _TUNING_CHECKBOX:
+        updates[k] = "1" if form.get(k) else "0"
+    for k in _TUNING_NUMERIC:
+        v = str(form.get(k) or "").strip()
+        if v:
+            updates[k] = v
+    for k in _TUNING_JSON:  # only overwrite on valid JSON (mirrors config_panel's cascade guard)
+        v = str(form.get(k) or "").strip()
+        if v:
+            try:
+                _json.loads(v)
+                updates[k] = v
+            except ValueError:
+                pass
+    await settings_store.set_settings(updates)
+    ctx = {"request": request, "active_profile": profile, "saved": True,
+           "settings": await settings_store.get_all_settings()}
+    return templates.TemplateResponse("partials/impulse_tuning.html", ctx)
 
 
 @router.get("/impulses")
@@ -108,6 +149,59 @@ async def impulse_decide_partial(request: Request, profile: str = "default"):
 async def impulse_log_partial(request: Request, profile: str = "default"):
     log = await impulse_engine.get_recent_log(profile)
     return templates.TemplateResponse("partials/impulse_log.html", {"request": request, "log": log})
+
+
+# --- Dashboard v2 (Phase 6): status strip, recent sidequests, reach-out attribution ---
+
+async def _status_ctx(profile: str) -> dict:
+    from ..services.mood_engine import get_cached_mood
+    from ..services.impulse_engine import get_last_activity_ts
+    from ..services.solitude import solitude_votes
+    from ..services.impulse_feedback import consecutive_ignored, attribution_summary
+    db_path = resolve_profile(profile)
+    mood = await get_cached_mood(profile)
+    last = await get_last_activity_ts(profile, db_path=db_path)
+    idle_min = (time.time() - last) / 60.0 if last else None
+    _, sol_note = await solitude_votes(profile, db_path=db_path)
+    return {
+        "mood": mood, "idle_min": idle_min, "solitude": sol_note,
+        "consecutive_ignored": await consecutive_ignored(profile, db_path=db_path),
+        "attribution": await attribution_summary(profile, db_path=db_path),
+    }
+
+
+@router.get("/partials/impulse-status")
+async def impulse_status_partial(request: Request, profile: str = "default"):
+    ctx = await _status_ctx(profile)
+    ctx["request"] = request
+    return templates.TemplateResponse("partials/impulse_status.html", ctx)
+
+
+@router.get("/partials/solo-rounds")
+async def solo_rounds_partial(request: Request, profile: str = "default"):
+    from ..services.sidequest_scorer import recent_solo_enriched
+    rounds = await recent_solo_enriched(profile, limit=12)
+    items = []
+    for r in rounds:
+        emo = r.get("agent_scores") or {}
+        mood = r.get("mood_scores") or {}
+        items.append({
+            "subject": r.get("topic") or "—",
+            "valence": r.get("valence", 0.0),
+            "emotion": max(emo, key=emo.get) if emo else None,
+            "mood": max(mood, key=mood.get) if mood else None,
+            "at": r.get("end_ts"),
+        })
+    return templates.TemplateResponse(
+        "partials/solo_rounds.html", {"request": request, "items": items})
+
+
+@router.get("/partials/attributions")
+async def attributions_partial(request: Request, profile: str = "default"):
+    from ..services.impulse_feedback import recent_attributions
+    items = await recent_attributions(profile, limit=15)
+    return templates.TemplateResponse(
+        "partials/attributions.html", {"request": request, "items": items})
 
 
 # --- Impulse v2: brief (plugin pre_llm_call) + the arbiter decision (cron target) + outcome ---

@@ -1,0 +1,56 @@
+{# Expects: settings, active_profile, saved(optional) #}
+{% macro num(name, label, step="1", hint="") %}
+<label style="font-size:0.78rem;">{{ label }}{% if hint %} <span style="color:var(--pico-muted-color);">{{ hint }}</span>{% endif %}
+  <input type="number" step="{{ step }}" name="{{ name }}" value="{{ settings.get(name, '') }}" style="margin-bottom:0.4rem;"></label>
+{% endmacro %}
+{% macro check(name, label) %}
+<label style="font-size:0.82rem; display:inline-flex; align-items:center; gap:0.4rem; margin:0.2rem 0;">
+  <input type="checkbox" name="{{ name }}" value="1" {% if settings.get(name) == '1' %}checked{% endif %} style="width:1.05em; height:1.05em; margin:0;">{{ label }}</label>
+{% endmacro %}
+{% macro jsonarea(name, label) %}
+<label style="font-size:0.78rem;">{{ label }} <span style="color:var(--pico-muted-color);">(JSON)</span>
+  <textarea name="{{ name }}" rows="2" style="font-family:monospace; font-size:0.75rem; margin-bottom:0.4rem;">{{ settings.get(name, '') }}</textarea></label>
+{% endmacro %}
+
+<form hx-post="/api/impulse/tuning" hx-target="#impulse-tuning" hx-swap="innerHTML">
+  <input type="hidden" name="profile" value="{{ active_profile }}">
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(15rem, 1fr)); gap:0 1.25rem;">
+    <div>
+      <h6 style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--pico-muted-color);">Pacing</h6>
+      {{ check("impulse_enabled", "Impulse system enabled") }}
+      {{ num("impulse_inward_hour_start", "Inward hours start", "1") }}
+      {{ num("impulse_inward_hour_end", "Inward hours end", "1") }}
+      {{ num("impulse_outward_hour_start", "Outward hours start", "1") }}
+      {{ num("impulse_outward_hour_end", "Outward hours end", "1") }}
+      {{ num("impulse_outward_min_idle_minutes", "Outward min idle", "1", "min") }}
+      {{ num("impulse_outward_backoff_cap_min", "Backoff cap", "5", "min") }}
+    </div>
+    <div>
+      <h6 style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--pico-muted-color);">Act-at-all</h6>
+      {{ check("impulse_act_gate_enabled", "Mood-gated act probability") }}
+      {{ num("impulse_act_probability_default", "Default probability", "0.05") }}
+      {{ jsonarea("impulse_act_probability", "Per-mood probability") }}
+      {{ jsonarea("impulse_action_daily_budget", "Per-action daily budget") }}
+    </div>
+    <div>
+      <h6 style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--pico-muted-color);">Solitude &amp; sting</h6>
+      {{ check("solitude_enabled", "Solitude pressure enabled") }}
+      {{ num("solitude_onset_min", "Onset", "5", "min") }}
+      {{ num("solitude_rate_per_hour", "Rate", "0.5", "votes/h") }}
+      {{ num("solitude_cap", "Idle cap", "0.5") }}
+      {{ num("solitude_ignored_bump", "Ignored-ping sting", "0.5") }}
+      {{ num("solitude_ignored_halflife_hours", "Sting half-life", "1", "h") }}
+      {{ jsonarea("solitude_targets", "Target moods") }}
+    </div>
+    <div>
+      <h6 style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--pico-muted-color);">Sidequest scoring</h6>
+      {{ num("mood_solo_positive_weight", "Solo positive weight", "0.05") }}
+      {{ num("mood_solo_negative_weight", "Solo negative weight", "0.05") }}
+      <p style="font-size:0.72rem; color:var(--pico-muted-color); margin-top:0.5rem;">The <code>lonely→sad</code> cascade lives in mood_cascade on the <a href="/config">config panel</a>.</p>
+    </div>
+  </div>
+  <div style="display:flex; align-items:center; gap:0.8rem; margin-top:0.4rem;">
+    <button type="submit" style="margin:0; padding:0.3rem 1rem; font-size:0.8rem;">Save</button>
+    {% if saved %}<span style="font-size:0.8rem; color:#4adbae;">✓ saved</span>{% endif %}
+  </div>
+</form>

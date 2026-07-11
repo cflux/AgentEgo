@@ -30,17 +30,30 @@ async def _conv_gap_seconds() -> float:
         return 1800.0
 
 
-async def _dm_session_id(db_path: str | None) -> str | None:
-    """The profile's live DM session = most-recent non-cron session (same rule as arbiter.recent_gist)."""
+async def _user_reply_in_window(db_path: str | None, T: float, gap: float) -> bool:
+    """Was there a user message in (T, T+gap] on a chat platform? Reach-outs are delivered to a chat DM
+    (telegram), and sessions rotate over time, so we can't just search 'the current session' — we scan any
+    chat-platform (telegram/discord/…) session whose span overlaps the window. Non-chat sessions (cli,
+    subagent) and cron/impulse turns are excluded."""
+    from .conversations import _platform_of, _CHAT_PLATFORMS
     try:
-        for s in await get_recent_sessions(db_path=db_path):
-            sid = str(s.get("id") or "")
-            if sid.startswith("cron_") or "cron" in str(s.get("source") or "").lower():
-                continue
-            return sid
+        sessions = await get_recent_sessions(db_path=db_path)
     except Exception as exc:
-        logger.warning("dm session lookup failed: %s", exc)
-    return None
+        logger.warning("session scan failed: %s", exc)
+        raise
+    win_end = T + gap
+    for s in sessions:
+        sid = str(s.get("id") or "")
+        if sid.startswith("cron_") or _platform_of(s.get("source")) not in _CHAT_PLATFORMS:
+            continue
+        started = s.get("started_at") or 0
+        ended = s.get("ended_at") or win_end  # active session → treat as ongoing
+        if ended < T or started > win_end:
+            continue  # session span doesn't overlap the reply window
+        msgs = await get_session_messages_in_range(sid, T + 0.001, win_end, db_path=db_path)
+        if any(m.get("role") == "user" for m in msgs):
+            return True
+    return False
 
 
 async def _rows(module: str) -> list[tuple]:
@@ -98,8 +111,6 @@ async def attribute_profile(profile: str, db_path: str | None = None) -> int:
     gap = await _conv_gap_seconds()
     now = time.time()
     done = await _attributions(profile)
-    dm = None
-    dm_loaded = False
     resolved = 0
     for key, rec in await _outward_pings(profile):
         if key in done:
@@ -107,17 +118,10 @@ async def attribute_profile(profile: str, db_path: str | None = None) -> int:
         T = float(rec.get("at") or 0)
         if T <= 0 or (now - T) < gap:
             continue  # window still open — "no reply yet" must not read as ignored
-        if not dm_loaded:
-            dm = await _dm_session_id(db_path)
-            dm_loaded = True
-        landed = False
-        if dm:
-            try:
-                msgs = await get_session_messages_in_range(dm, T + 0.001, T + gap, db_path=db_path)
-                landed = any(m.get("role") == "user" for m in msgs)
-            except Exception as exc:
-                logger.warning("attribution range read failed (%s): %s", profile, exc)
-                continue  # retry next pass rather than mis-record
+        try:
+            landed = await _user_reply_in_window(db_path, T, gap)
+        except Exception:
+            continue  # transient read error — retry next pass rather than mis-record
         await _save_attribution(key, {"profile": profile, "landed": landed, "at": T, "resolved_at": now})
         resolved += 1
     if resolved:
@@ -161,3 +165,21 @@ async def attribution_summary(profile: str, db_path: str | None = None, limit: i
     ignored = sum(1 for r in recs if not r.get("landed"))
     consec = await consecutive_ignored(profile, db_path=db_path)
     return {"landed": landed, "ignored": ignored, "consecutive_ignored": consec, "total": len(recs)}
+
+
+async def recent_attributions(profile: str, limit: int = 15) -> list[dict]:
+    """Recent reach-outs with their outcome, newest first: {at, landed, text}. Joins the attribution
+    record to its ping text (both keyed by the ping's session_id)."""
+    texts: dict = {}
+    for key, val in await _rows("impulse_outcome"):
+        try:
+            rec = json.loads(val)
+        except (ValueError, TypeError):
+            continue
+        if rec.get("profile") == profile and rec.get("kind") == "outward":
+            texts[key] = rec.get("response", "")
+    done = await _attributions(profile)
+    items = [{"at": r.get("at"), "landed": bool(r.get("landed")), "text": texts.get(key, "")}
+             for key, r in done.items()]
+    items.sort(key=lambda x: x["at"] or 0, reverse=True)
+    return items[:limit]

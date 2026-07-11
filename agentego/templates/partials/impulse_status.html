@@ -1,0 +1,14 @@
+{# Expects: mood, idle_min, solitude, consecutive_ignored, attribution #}
+{% macro chip(label, value, color) %}
+<div style="padding:0.4rem 0.7rem; border-left:3px solid {{ color or '#888' }}; background:var(--pico-card-sectioning-background-color, rgba(255,255,255,0.02));">
+  <div style="font-size:0.62rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--pico-muted-color);">{{ label }}</div>
+  <div style="font-size:0.9rem; margin-top:0.1rem;">{{ value }}</div>
+</div>
+{% endmacro %}
+<div style="display:flex; flex-wrap:wrap; gap:0.5rem;">
+  {{ chip("Mood", mood.name if mood else "—", mood.color if mood else "#888") }}
+  {{ chip("Last talked", (idle_min | round(0) | int ~ " min ago") if idle_min is not none else "—", "#6a8fff") }}
+  {{ chip("Solitude", (solitude.split("(")[1].rstrip(")") if solitude else "quiet"), "#4adbae") }}
+  {{ chip("Reach-out backoff", ("×" ~ consecutive_ignored ~ " unanswered") if consecutive_ignored else "none", "#e0a04a" if consecutive_ignored else "#888") }}
+  {{ chip("Reach-outs", (attribution.landed ~ " landed / " ~ attribution.ignored ~ " ignored") if attribution.total else "none yet", "#b47aff" if attribution.total else "#888") }}
+</div>

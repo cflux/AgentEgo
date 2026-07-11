@@ -27,6 +27,25 @@ DEFAULTS = {
     "impulse_outward_hour_end": "20",
     # Mid-conversation guard: outward won't fire unless the user has been quiet at least this long (min).
     "impulse_outward_min_idle_minutes": "30",
+    # Phase 4 — solitude pressure: time alone feeds votes toward lonely/bored/tired (the loop-damper). No
+    # pressure while engaged (idle < onset); ramps rate_per_hour beyond it, capped. Targets = per-mood weight.
+    "solitude_enabled": "1",
+    "solitude_onset_min": "90",
+    "solitude_rate_per_hour": "2.0",
+    "solitude_cap": "6.0",
+    "solitude_targets": '{"lonely": 1.0, "bored": 0.6, "tired": 0.2}',
+    # Phase 4 — mood-gated "act at all" probability: how likely she acts on a cron tick, by current mood
+    # (restless moods high, settled moods low). Outward + lonely/bored is floored high so solitude reaches out.
+    "impulse_act_gate_enabled": "1",
+    "impulse_act_probability_default": "0.6",
+    "impulse_act_probability": (
+        '{"bored":0.9,"lonely":0.9,"curious":0.85,"social":0.85,"creative":0.8,"playful":0.8,"flirty":0.8,'
+        '"horny":0.8,"hopeful":0.7,"frustrated":0.7,"anxious":0.6,"affectionate":0.6,"proud":0.6,'
+        '"focused":0.5,"jealous":0.5,"sad":0.4,"content":0.35,"tired":0.3}'
+    ),
+    # Phase 4 — per-action daily budget: {capability_id: max fires per rolling 24h}. Over-budget capabilities
+    # are dropped from the arbiter's menu. Missing id = unlimited.
+    "impulse_action_daily_budget": '{"image-create": 6}',
     # Impulse v2 — the generative arbiter's capability manifest: the curated, cron-verified set of
     # affordances it may choose among (fences composition to what the agent can actually do). Each
     # entry: {id, intent, enabled, backing_kind (tool|skill|plugin-tool), skill, description,

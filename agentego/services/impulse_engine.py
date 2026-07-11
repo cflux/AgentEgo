@@ -42,6 +42,20 @@ async def _log_fire(profile_name: str, action: dict, prompt: str, mood_id, idle_
         await conn.close()
 
 
+async def count_fires_since(profile_name: str, action_id: str, since_ts: float) -> int:
+    """How many times a capability has fired since `since_ts` — for per-action daily budgets."""
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT COUNT(*) FROM impulse_log WHERE profile_name = ? AND action_id = ? AND fired_at >= ?",
+            (profile_name, action_id, since_ts),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+    finally:
+        await conn.close()
+
+
 async def get_recent_log(profile_name: str, limit: int = 15) -> list[dict]:
     conn = await get_ego_db()
     try:

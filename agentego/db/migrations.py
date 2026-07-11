@@ -248,6 +248,20 @@ _DEFAULT_SETTINGS = {
     "impulse_outward_hour_start": "6",
     "impulse_outward_hour_end": "20",
     "impulse_outward_min_idle_minutes": "30",
+    # Phase 4 solitude/pacing (see settings_store.DEFAULTS for docs).
+    "solitude_enabled": "1",
+    "solitude_onset_min": "90",
+    "solitude_rate_per_hour": "2.0",
+    "solitude_cap": "6.0",
+    "solitude_targets": '{"lonely": 1.0, "bored": 0.6, "tired": 0.2}',
+    "impulse_act_gate_enabled": "1",
+    "impulse_act_probability_default": "0.6",
+    "impulse_act_probability": (
+        '{"bored":0.9,"lonely":0.9,"curious":0.85,"social":0.85,"creative":0.8,"playful":0.8,"flirty":0.8,'
+        '"horny":0.8,"hopeful":0.7,"frustrated":0.7,"anxious":0.6,"affectionate":0.6,"proud":0.6,'
+        '"focused":0.5,"jealous":0.5,"sad":0.4,"content":0.35,"tired":0.3}'
+    ),
+    "impulse_action_daily_budget": '{"image-create": 6}',
     # Impulse v2 arbiter (see settings_store.DEFAULTS for the authoritative copy + docs).
     "impulse_capabilities": (
         '[{"id":"web-explore","class":"inward","intent":"explore","enabled":true,"backing_kind":"tool",'

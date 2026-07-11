@@ -584,6 +584,22 @@ async def _generate_v2_votes(profile_name: str, enriched: list, moods: dict) -> 
     for m, v in dbg.get("corrections", {}).items():
         if m in moods and v:
             breakdown.append(f"Correction: {moods[m]['name']} +{v:.1f}")
+
+    # Phase 4 — solitude pressure: time alone adds current-state votes toward lonely/bored/tired, folded
+    # through the same shaping layer so being left alone becomes a felt mood the arbiter reads.
+    try:
+        from .solitude import solitude_votes
+        sol, sol_note = await solitude_votes(profile_name)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("solitude votes failed: %s", exc)
+        sol, sol_note = {}, None
+    for mid, v in sol.items():
+        if mid in moods and v:
+            vote_map[mid] = round(vote_map.get(mid, 0.0) + v, 3)
+            dbg.setdefault("solitude", {})[mid] = round(v, 2)
+    if sol_note:
+        breakdown.append(sol_note)
     return vote_map, breakdown, dbg
 
 

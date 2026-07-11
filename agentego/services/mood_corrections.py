@@ -178,6 +178,12 @@ def _solo_weight(rnd: dict, cfg: dict) -> float:
     return cfg.get("solo_negative_weight", 0.3) if neg else cfg.get("solo_positive_weight", 0.6)
 
 
+async def _solitude_cfg() -> dict:
+    """Solitude knobs for the panel readout (lazy import; solitude votes inject in mood_engine)."""
+    from .solitude import get_solitude_config
+    return await get_solitude_config()
+
+
 def backbone_votes(enriched: list[dict], moods: dict, cfg: dict) -> dict:
     """Continuous backbone: recency-weighted sum of the local scorer's per-round mood scores (0–10,
     normalized to 0–1), unscaled. The caller applies backbone_scale."""
@@ -558,6 +564,7 @@ async def corrective_view(profile_name: str, db_path: str | None = None) -> dict
         "mood_config": mood_config, "retention_days": _cfg_settings.retention_days,
         "narrative": _narrative(current, bb_ranked, net_ranked, corrs, moods),
         "config": cfg,
+        "solitude": await _solitude_cfg(),
         "all_moods": sorted(({"id": m, "name": moods[m]["name"]} for m in moods), key=lambda x: x["name"]),
         "all_modes": CONVERSATION_MODES,
         "emotion_groups": await emotion_groups(),

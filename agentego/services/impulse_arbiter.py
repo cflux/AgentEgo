@@ -158,6 +158,51 @@ def _capability_menu(caps: list) -> str:
     return "\n".join(f"- {c['id']}: {c['description']}" for c in caps)
 
 
+async def _act_probability(mood_id, cls: str, idle_min: float | None) -> float:
+    """Phase 4 — how likely she acts *at all* this tick, by current mood. Restless moods act nearly always;
+    settled ones (content/tired) often let the moment pass. Outward + a solitude mood is floored high so
+    accumulated loneliness reliably converts into a reach-out."""
+    import json
+    try:
+        pmap = json.loads(await get_setting("impulse_act_probability", "") or "{}")
+    except (ValueError, TypeError):
+        pmap = {}
+    try:
+        default = float(await get_setting("impulse_act_probability_default", "0.6"))
+    except (TypeError, ValueError):
+        default = 0.6
+    try:
+        p = float(pmap.get(mood_id, default)) if mood_id else default
+    except (TypeError, ValueError):
+        p = default
+    if cls == "outward" and mood_id in ("lonely", "bored"):
+        p = max(p, 0.9)
+    return max(0.0, min(1.0, p))
+
+
+async def _within_budget(profile: str, caps: list) -> list:
+    """Phase 4 — drop capabilities that have hit their rolling-24h fire budget from the offered menu."""
+    import json
+    try:
+        budgets = json.loads(await get_setting("impulse_action_daily_budget", "") or "{}")
+    except (ValueError, TypeError):
+        budgets = {}
+    if not budgets:
+        return caps
+    from .impulse_engine import count_fires_since
+    since = time.time() - 86400
+    out = []
+    for c in caps:
+        cap_max = budgets.get(c["id"])
+        try:
+            over = cap_max is not None and await count_fires_since(profile, c["id"], since) >= int(cap_max)
+        except (TypeError, ValueError):
+            over = False
+        if not over:
+            out.append(c)
+    return out
+
+
 async def arbitrate(profile: str, cls: str, *, db_path: str | None = None, commit: bool = True) -> dict:
     """Decide whether/what the agent does on its own for class `cls` ('inward'|'outward').
 
@@ -207,6 +252,27 @@ async def arbitrate(profile: str, cls: str, *, db_path: str | None = None, commi
         if idle_min is not None and idle_min < min_idle:
             result["reason"] = f"user active {idle_min:.0f} min ago (< {min_idle:.0f} min idle gate) - not interrupting"
             return result
+
+    # Phase 4 — mood-gated "act at all": a settled mood often just lets the moment pass; a restless one
+    # nearly always acts. Rolled before the (costly) arbiter LLM call.
+    if (await get_setting("impulse_act_gate_enabled", "1")) == "1":
+        import random
+        from .mood_engine import get_cached_mood
+        _mood = await get_cached_mood(profile)
+        _mid = (_mood or {}).get("id")
+        p_act = await _act_probability(_mid, cls, idle_min)
+        if random.random() > p_act:
+            if _mood:
+                result["mood"] = {"id": _mid, "name": _mood.get("name")}
+            nm = (_mood or {}).get("name") or "quiet"
+            result["reason"] = f"mood-gated ({nm}, p={p_act:.2f}) — content to just be right now"
+            return result
+
+    # Phase 4 — per-action daily budget: an over-budget capability is simply not offered.
+    caps = await _within_budget(profile, caps)
+    if not caps:
+        result["reason"] = "all capabilities over daily budget"
+        return result
 
     state_text, facts = await _assemble_state(profile, cls, db_path, idle_min)
     result["mood"] = facts.get("mood")

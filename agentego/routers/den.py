@@ -53,7 +53,8 @@ async def den_entry(request: Request, profile: str, path: str):
     if not entry:
         return HTMLResponse("<p style='color:#e57373;'>Entry not found.</p>", status_code=404)
     return templates.TemplateResponse(
-        "partials/den_entry.html", {"request": request, "entry": entry, "active_profile": profile})
+        "partials/den_entry.html", {"request": request, "entry": entry, "active_profile": profile,
+                                    "wikilinks": den.wikilink_targets(profile)})
 
 
 @router.get("/den/media")

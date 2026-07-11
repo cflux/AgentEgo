@@ -8,12 +8,18 @@ entries (no `file:`) are the ones eligible to seed a dream.
 """
 import json
 import os
+import re
 from datetime import date, datetime
 from pathlib import Path
 
 import yaml
 
 from ..config import settings
+
+
+def norm_wikilink(s: str) -> str:
+    """Normalize a `[[wikilink]]` target (or a tree slug/title) to a comparable slug."""
+    return re.sub(r"[^a-z0-9]+", "-", str(s).strip().lower()).strip("-")
 
 ENTRY_TYPES = ("feeling", "art", "discovery", "transcript", "gift", "fantasy")
 
@@ -220,6 +226,19 @@ def list_research_trees(profile: str) -> list[dict]:
         })
     trees.sort(key=lambda t: t["updated"], reverse=True)
     return trees
+
+
+def wikilink_targets(profile: str) -> dict:
+    """Map a normalized wikilink target -> {relpath, title} for each research tree that has an index, so
+    `[[Coastal Wolves]]` / `[[coastal-wolves]]` both resolve. Unmatched wikilinks stay inert (dangling)."""
+    out: dict = {}
+    for t in list_research_trees(profile):
+        if not t["index_relpath"]:
+            continue
+        val = {"relpath": t["index_relpath"], "title": t["title"]}
+        out[norm_wikilink(t["slug"])] = val
+        out.setdefault(norm_wikilink(t["title"]), val)
+    return out
 
 
 _SORTS = ("new", "old", "important", "edited")

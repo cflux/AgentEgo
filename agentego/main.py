@@ -43,18 +43,33 @@ def _fmt_ts(value, fmt=None) -> str:
     return f"{dt.strftime('%b %-d, %Y')}, {t}"
 
 
-def _den_md(text) -> "Markup":
+def _den_md(text, links=None, profile="") -> "Markup":
     """Safe markdown for Den entry bodies (escape-first, so no raw HTML/XSS). Handles headings, ordered/
     unordered lists with nesting, links (http/https/relative/mailto only), inline code, bold/italic,
-    horizontal rules, and [[wikilinks]] — enough to render the research trees' structured notes legibly."""
+    horizontal rules, and [[wikilinks]] — enough to render the research trees' structured notes legibly.
+    `links` (from den.wikilink_targets) resolves [[wikilinks]] to clickable tree jumps; unmatched ones
+    stay inert."""
     from markupsafe import Markup, escape
+    from urllib.parse import quote
     import re
     if not text:
         return Markup("")
 
+    def _wikilink(m):
+        label = m.group(1)
+        tgt = (links or {}).get(re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-"))
+        if not tgt:
+            return f'<span style="color:#b47aff; font-weight:500;" title="no research tree yet">{label}</span>'
+        href = f"/den/entry?profile={quote(profile)}&amp;path={quote(tgt['relpath'])}"
+        onclick = ("document.getElementById(&#39;den-modal-body&#39;).innerHTML=&#39;&#39;;"
+                   "document.getElementById(&#39;den-modal&#39;).showModal();")
+        return (f'<a href="#" hx-get="{href}" hx-target="#den-modal-body" hx-swap="innerHTML" '
+                f'onclick="{onclick}" style="color:#b47aff; font-weight:600;" '
+                f'title="{tgt["title"]}">{label}</a>')
+
     def inline(s: str) -> str:
         s = str(escape(s))  # escape first — everything below only re-introduces a safe subset
-        s = re.sub(r"\[\[([^\]]+)\]\]", r'<span style="color:#b47aff; font-weight:500;">\1</span>', s)
+        s = re.sub(r"\[\[([^\]]+)\]\]", _wikilink, s)
 
         def _link(m):
             txt, url = m.group(1), m.group(2)

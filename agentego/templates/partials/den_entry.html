@@ -9,7 +9,7 @@
 {% endif %}
 
 {% if entry.body %}
-<div style="font-size:0.9rem; line-height:1.55;">{{ entry.body | den_md }}</div>
+<div style="font-size:0.9rem; line-height:1.55;">{{ entry.body | den_md(wikilinks, active_profile) }}</div>
 {% else %}
 <p style="font-size:0.85rem; color:var(--pico-muted-color);">(No body — summary only.)</p>
 {% endif %}

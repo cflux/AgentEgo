@@ -55,17 +55,20 @@ def _den_md(text, links=None, profile="") -> "Markup":
     if not text:
         return Markup("")
 
+    def _js(s: str) -> str:  # safe inside a double-quoted onclick attribute
+        return str(escape(s)).replace("\\", "\\\\").replace("'", "\\'")
+
     def _wikilink(m):
-        label = m.group(1)
-        tgt = (links or {}).get(re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-"))
-        if not tgt:
-            return f'<span style="color:#b47aff; font-weight:500;" title="no research tree yet">{label}</span>'
-        href = f"/den/entry?profile={quote(profile)}&amp;path={quote(tgt['relpath'])}"
-        onclick = ("document.getElementById(&#39;den-modal-body&#39;).innerHTML=&#39;&#39;;"
-                   "document.getElementById(&#39;den-modal&#39;).showModal();")
-        return (f'<a href="#" hx-get="{href}" hx-target="#den-modal-body" hx-swap="innerHTML" '
-                f'onclick="{onclick}" style="color:#b47aff; font-weight:600;" '
-                f'title="{tgt["title"]}">{label}</a>')
+        label = m.group(1)  # already HTML-escaped (inline() escapes before this runs)
+        plain = re.sub(r"<[^>]+>", "", label)  # de-entity-safe key source
+        tgt = (links or {}).get(re.sub(r"[^a-z0-9]+", "-", plain.lower()).strip("-"))
+        if tgt:
+            return (f"<a href=\"#\" onclick=\"denOpen('{_js(profile)}','{_js(tgt['relpath'])}');return false;\" "
+                    f'style="color:#b47aff; font-weight:600;" title="{escape(tgt["title"])}">{label}</a>')
+        # No tree yet — fall back to a Den search so the link still goes somewhere.
+        href = f"/den?profile={quote(profile)}&amp;q={quote(plain)}"
+        return (f'<a href="{href}" style="color:#b47aff; font-weight:500;" '
+                f'title="search the Den for “{escape(plain)}”">{label}</a>')
 
     def inline(s: str) -> str:
         s = str(escape(s))  # escape first — everything below only re-introduces a safe subset

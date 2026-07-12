@@ -100,6 +100,16 @@
     // htmx has already been told to load the entry into #den-modal-body; just open the dialog.
     dlg.showModal();
   }
+  // Open (or swap, if already open) the modal to a Den entry. Used by wikilinks inside modal content,
+  // where declarative hx-get on injected anchors + showModal() on an open dialog is unreliable.
+  function denOpen(profile, path) {
+    var dlg = document.getElementById('den-modal');
+    var body = document.getElementById('den-modal-body');
+    body.innerHTML = '<p style="color:var(--pico-muted-color)">Loading…</p>';
+    if (dlg && !dlg.open) dlg.showModal();
+    htmx.ajax('GET', '/den/entry?profile=' + encodeURIComponent(profile) + '&path=' + encodeURIComponent(path),
+              { target: '#den-modal-body', swap: 'innerHTML' });
+  }
   // Close when clicking the backdrop (outside the article).
   document.addEventListener('click', function (e) {
     var dlg = document.getElementById('den-modal');

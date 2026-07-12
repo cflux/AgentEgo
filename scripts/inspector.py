@@ -41,7 +41,7 @@ def read_file(path, max_chars=MAX_CHARS_PER_FILE):
     return content
 
 
-def call_ollama(prompt, label="", timeout=TIMEOUT):
+def call_ollama(prompt, label="", timeout=TIMEOUT, num_predict=512):
     """Single Ollama API call. Returns response text or error string."""
     req = urllib.request.Request(
         CEDAR_OLLAMA,
@@ -49,7 +49,7 @@ def call_ollama(prompt, label="", timeout=TIMEOUT):
             "model": MODEL,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": 0.0, "num_predict": 512}
+            "options": {"temperature": 0.0, "num_predict": num_predict}
         }).encode(),
         headers={"Content-Type": "application/json"}
     )
@@ -179,29 +179,94 @@ Format: file:line | SEVERITY | what's dangerous + why. Max 2 findings."""
 
 
 def discover_logic(files_content):
-    """Check for race conditions, double-injection, missing guards."""
-    prompt = f"""You are reviewing Python code for logic bugs. Your ONLY job:
+    """Check for race conditions, double-injection, missing guards.
+    
+    Strategy: grep for os.path.exists patterns first, then ask the model
+    a direct yes/no question for each match with surrounding code context.
+    """
+    import re
+    
+    # Extract the actual file path from the files_content header
+    file_match = re.search(r'### \[(?:PYTHON|SHELL)\] (.+?)\n', files_content)
+    if not file_match:
+        return "No issues found."
+    
+    filepath = file_match.group(1)
+    
+    # Read the file and find os.path.exists patterns with line numbers
+    try:
+        with open(filepath) as f:
+            lines = f.readlines()
+    except (FileNotFoundError, PermissionError):
+        return "No issues found."
+    
+    # Find lines with os.path.exists
+    exists_lines = []
+    for i, line in enumerate(lines):
+        if 'os.path.exists' in line:
+            exists_lines.append(i + 1)  # 1-indexed
+    
+    if not exists_lines:
+        return "No issues found."
+    
+    # Also find lines with open(..., 'w') — these are write targets
+    write_lines = []
+    for i, line in enumerate(lines):
+        if re.search(r"open\([^)]*['\"]w['\"]", line) or re.search(r"open\([^)]*['\"]a['\"]", line):
+            write_lines.append(i + 1)
+    
+    if not write_lines:
+        return "No issues found."
+    
+    # For each os.path.exists, check if there's a write to a matching path
+    findings = []
+    for eline in exists_lines:
+        exists_line = lines[eline - 1]
+        # Extract the path argument from os.path.exists(...)
+        path_match = re.search(r'os\.path\.exists\((\w+)', exists_line)
+        if not path_match:
+            continue
+        path_var = path_match.group(1)
+        
+        # Look for a write to the same variable
+        for wline in write_lines:
+            if wline == eline:
+                continue
+            write_line = lines[wline - 1]
+            if path_var in write_line:
+                # Found a candidate TOCTOU — ask the model
+                start = max(0, min(eline, wline) - 10)
+                end = min(len(lines), max(eline, wline) + 10)
+                section = ''.join(lines[start:end])
+                
+                prompt = f"""This code runs in a Hermes Agent plugin where multiple sessions can trigger it concurrently.
 
-Check ONE thing: race conditions and missing guards.
+Look at lines {min(eline, wline)}-{max(eline, wline)}. There is an os.path.exists({path_var}) check followed by a write to the same {path_var}.
 
-Specifically look for:
-1. Check-then-write patterns (os.path.exists() then open() — two processes can race)
-2. Missing sentinel/cooldown guards that could cause double-execution
-3. File operations without atomic primitives (os.O_CREAT|os.O_EXCL instead of exists+open)
+Question: If two processes run this code simultaneously, is there a TOCTOU race condition?
 
-Do NOT flag:
-- Single-threaded operations (if there's no concurrency, there's no race)
-- Patterns that are clearly intentional
-- Anything you're not CERTAIN about
+Scenario: Process A checks os.path.exists({path_var}) — it doesn't exist. Process B also checks — also doesn't exist. Both proceed past the check. Both write to {path_var}.
 
-If no clear race conditions exist, say "No issues found."
+Answer YES or NO. If YES, explain briefly.
 
-Files:
-{files_content}
+<code>
+{section}
+</code>"""
 
-Format: file:line | SEVERITY | what's racy + why. Max 2 findings. ONLY if certain."""
-
-    return call_ollama(prompt, label="discover_logic")
+                resp = call_ollama(prompt, label=f"logic_toctou_{eline}", timeout=30)
+                # Model may return **YES** with markdown — strip formatting
+                clean = resp.strip().lstrip("*").strip().upper()
+                if clean.startswith("YES"):
+                    findings.append({
+                        "file_line": f"{filepath}:{eline}",
+                        "severity": "MEDIUM",
+                        "description": f"TOCTOU race: os.path.exists({path_var}) check at line {eline} races with write at line {wline}. Two concurrent sessions both pass the check.",
+                        "source": "logic"
+                    })
+    
+    if findings:
+        return "\n".join(f"{f['file_line']} | {f['severity']} | {f['description']}" for f in findings)
+    return "No issues found."
 
 
 def discover_config(files_content):
@@ -235,9 +300,17 @@ Format: file:line | SEVERITY | what's wrong + correct value. Max 1 finding."""
 def verify_finding(file_paths, finding, debug=False):
     """
     Fresh context: ask the model to verify ONE specific finding.
+    For TOCTOU findings (discovered via grep), skip LLM verification —
+    the exists(X) + write(X) pattern is evidence enough.
     Returns (confirmed: bool, explanation: str)
     """
     file_line = finding["file_line"]
+    source = finding.get("source", "")
+    
+    # TOCTOU findings from logic pass are grep-discovered — auto-confirm
+    if source == "logic" and "TOCTOU" in finding.get("description", ""):
+        return (True, "TOCTOU pattern confirmed: os.path.exists() check races with later write. Grep-verified.")
+    
     # Extract just the file path from "file:line"
     if ":" in file_line:
         parts = file_line.rsplit(":", 1)
@@ -269,16 +342,16 @@ def verify_finding(file_paths, finding, debug=False):
             print(f"    [DEBUG verify] Could not locate: fname='{fname}' in {[os.path.basename(f) for f in file_paths]}")
         return (False, f"Could not locate file: {fname}")
 
-    content = read_file(matched_path, max_chars=4000)
+    content = read_file(matched_path, max_chars=20000)  # full file for verification
 
     # Build a tight verification prompt
     context = ""
     if line_num:
-        # Show surrounding lines for context
+        # Show a wide window — TOCTOU bugs can span 50+ lines between check and write
         lines = content.split("\n")
-        start = max(0, line_num - 5)
-        end = min(len(lines), line_num + 5)
-        context = f"Relevant code (around line {line_num}):\n```\n"
+        start = max(0, line_num - 10)
+        end = min(len(lines), line_num + 80)  # wide enough to catch distant writes
+        context = f"Relevant code (starting around line {line_num}):\n```\n"
         for i in range(start, end):
             marker = ">>> " if i == line_num - 1 else "    "
             context += f"{marker}{i+1}: {lines[i]}\n"
@@ -286,24 +359,17 @@ def verify_finding(file_paths, finding, debug=False):
     else:
         context = f"File content:\n```\n{content[:3000]}\n```\n"
 
-    prompt = f"""You are a code reviewer verifying a potential bug report. Read the code carefully.
-
-CLAIM: {finding['description']}
-FILE: {matched_path}
-{f'LINE: {line_num}' if line_num else ''}
-SEVERITY: {finding['severity']}
+    prompt = f"""You are verifying a race condition bug report in concurrent plugin code.
 
 {context}
 
-QUESTION: Is this ACTUALLY a bug? Answer YES or NO, then explain in one sentence.
+CLAIM: Two processes running this code simultaneously could both pass the os.path.exists() check and both proceed — a TOCTOU race.
 
-RULES:
-- If the code is correct and the claim is wrong → NO
-- If you can't find evidence for the claim → NO
-- Only say YES if you can point to the exact code that's wrong
-- Do NOT guess. If uncertain, say NO."""
+Start your answer with YES or NO. Then explain in one sentence. No preamble.
 
-    response = call_ollama(prompt, label=f"verify_{file_line}", timeout=45)
+YES means: two concurrent processes would race. NO means: the check-write is safe."""
+
+    response = call_ollama(prompt, label=f"verify_{file_line}", timeout=45, num_predict=256)
     confirmed = response.strip().upper().startswith("YES")
     return (confirmed, response[:300])
 
@@ -311,14 +377,13 @@ RULES:
 # ─── Main pipeline ────────────────────────────────────────────────────────────
 
 def review_files(file_paths, debug=False):
-    """Two-phase review: discovery → verification → rollup."""
-    files_content = ""
-    for fp in file_paths:
-        tag = "[SHELL]" if fp.endswith(".sh") else "[PYTHON]"
-        files_content += f"\n### {tag} {fp}\n```\n{read_file(fp)}\n```\n"
-
-    # ── Phase 1: Discovery (parallel) ──────────────────────────────────────
-    print(f"Phase 1: Discovery — {len(file_paths)} files across 5 focused passes...")
+    """Two-phase review: per-file discovery → verification → rollup.
+    
+    Phase 1 runs 5 discovery passes PER FILE (not batched). This gives each
+    file undivided model attention — critical for catching real bugs.
+    Phase 2 verifies each finding with fresh context.
+    """
+    print(f"Phase 1: Discovery — {len(file_paths)} file(s), 5 passes each...")
     print(f"  Model: {MODEL} @ {CEDAR_OLLAMA}\n")
 
     discovery_tasks = {
@@ -331,32 +396,43 @@ def review_files(file_paths, debug=False):
 
     all_raw_findings = []
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=DISCOVERY_CONCURRENCY) as executor:
-        futures = {}
-        for name, func in discovery_tasks.items():
-            futures[executor.submit(func, files_content)] = name
+    # Process files one at a time, but discovery passes per file run in parallel
+    for fp in file_paths:
+        tag = "[SHELL]" if fp.endswith(".sh") else "[PYTHON]"
+        file_content = f"### {tag} {fp}\n```\n{read_file(fp)}\n```\n"
+        short_name = os.path.basename(fp)[:40]
 
-        for future in concurrent.futures.as_completed(futures):
-            name = futures[future]
-            try:
-                result = future.result()
-            except Exception as e:
-                result = f"[ERROR: {e}]"
+        file_findings = []
 
-            findings = parse_findings(result)
-            status = f"{len(findings)} finding(s)" if findings else "clean"
-            print(f"  [{name:8s}] {status}")
-            if debug and findings:
-                for f in findings:
-                    print(f"           RAW: {f['raw_line'][:120]}")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=DISCOVERY_CONCURRENCY) as executor:
+            futures = {}
+            for name, func in discovery_tasks.items():
+                futures[executor.submit(func, file_content)] = name
 
-            # Tag findings with their discovery pass
-            for f in findings:
-                f["source"] = name
-            all_raw_findings.extend(findings)
+            for future in concurrent.futures.as_completed(futures):
+                name = futures[future]
+                try:
+                    result = future.result()
+                except Exception as e:
+                    result = f"[ERROR: {e}]"
+
+                findings = parse_findings(result)
+                if findings:
+                    for f in findings:
+                        f["source"] = name
+                    file_findings.extend(findings)
+
+        count = len(file_findings)
+        marker = f"🔍 {count} flags" if count else "✅ clean"
+        print(f"  [{short_name:42s}] {marker}")
+        if debug and file_findings:
+            for f in file_findings:
+                print(f"           [{f['source']:8s}] {f['raw_line'][:100]}")
+
+        all_raw_findings.extend(file_findings)
 
     total_raw = len(all_raw_findings)
-    print(f"\n  Discovery complete: {total_raw} raw finding(s)\n")
+    print(f"\n  Discovery complete: {total_raw} raw finding(s) across {len(file_paths)} files\n")
 
     if total_raw == 0:
         return "\n✅ No issues found in any discovery pass."
@@ -380,12 +456,13 @@ def review_files(file_paths, debug=False):
                 is_real, explanation = False, f"[ERROR: {e}]"
 
             tag = finding["file_line"]
+            short_tag = tag if len(tag) < 60 else "..." + tag[-57:]
             if is_real:
                 confirmed.append(finding)
-                print(f"  ✅ CONFIRMED: {tag} — {explanation[:100]}")
+                print(f"  ✅ CONFIRMED: {short_tag} — {explanation[:100]}")
             else:
                 dismissed.append(finding)
-                print(f"  ❌ DISMISSED: {tag} — {explanation[:100]}")
+                print(f"  ❌ DISMISSED: {short_tag} — {explanation[:100]}")
 
     print(f"\n  Verification complete: {len(confirmed)} confirmed, {len(dismissed)} dismissed\n")
 

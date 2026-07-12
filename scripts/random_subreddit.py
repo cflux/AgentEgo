@@ -22,12 +22,12 @@ SFW = [
     "somethingimade", "woodworking", "3Dprinting", "DIY",
     "miniatures", "tiltshift", "generative", "fractals",
     "evilbuildings", "brutalism", "astrophotography", "CLOUDS",
-    "megalophobia", "LiminalSpace",
+    "megalophobia", "LiminalSpace", "AnimeFigures",
 ]
 
 # NSFW — female nudity, no gore/bio
 NSFW = [
-    "ArtGW", "classysexy", "gentlemanboners", "prettygirls",
+    "rule34", "gonewild", "workplace_gw", "HENTAI_GIF", "ArtGW", "classysexy", "gentlemanboners", "prettygirls",
 ]
 
 # Mix: 80% SFW, 20% NSFW

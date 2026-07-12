@@ -28,7 +28,6 @@ def _jobs_for_log(log_path):
     log_name = os.path.basename(log_path)
     # Map log filenames to job IDs that write to them
     LOG_TO_JOB_IDS = {
-        "tala_session_end.log":  ["e12bca4ed74c", "416c87757cf0"],
         "tala_reflection.log":   ["76b399ac370b"],
     }
     job_ids = LOG_TO_JOB_IDS.get(log_name, [])
@@ -184,15 +183,9 @@ def check_processes():
 # ── run all checks ──────────────────────────────────────────────────────────
 
 for log, name in [
-    ("/home/cflux/.hermes/logs/tala_session_end.log", "Session detector"),
     ("/home/cflux/.hermes/logs/tala_reflection.log", "Reflection pipeline"),
 ]:
     check_log(log, name)
-
-for path, name in [
-    ("/home/cflux/.hermes/logs/tala_session_end.log", "Session end"),
-]:
-    check_cron(path, name)
 
 check_cron_errors()
 check_gateway()

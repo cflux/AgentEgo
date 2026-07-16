@@ -125,6 +125,15 @@ for attempt in $(seq 0 $MAX_REROLLS); do
         continue
     fi
 
+    # ── Size & type guard (keep Discord-compatible output, reject the rest) ──
+    FILE_SIZE=$(stat -c%s /tmp/gelbooru_find.jpg 2>/dev/null || echo 0)
+    FILE_TYPE=$(file -b /tmp/gelbooru_find.jpg 2>/dev/null || echo "unknown")
+    if [ "$FILE_SIZE" -gt 8388608 ] || echo "$FILE_TYPE" | grep -qiE 'MP4|WebM|video|animation|movie'; then
+        echo "REJECTED: $FILE_TYPE, $FILE_SIZE bytes (tag=$TAG, id=$RANDOM_ID)" >&2
+        rm -f /tmp/gelbooru_find.jpg
+        continue
+    fi
+
     # Success — output and exit the loop
     echo "${IMG_URL}|${TITLE}|${RATING}|${SCORE}|${TAGS}"
     exit 0

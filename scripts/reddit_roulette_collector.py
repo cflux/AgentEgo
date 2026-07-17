@@ -34,8 +34,8 @@ DOWNLOAD_TIMEOUT = 30
 SFW_SUBS = ["aww", "funny", "pics", "cats", "Eyebleach", "mademesmile",
             "natureisfuckinglit", "interestingasfuck", "oddlysatisfying",
             "damnthatsinteresting", "BeAmazed"]
-NSFW_SUBS = ["NSFW", "gonewild", "RealGirls", "Amateur",
-             "ass", "LegalTeens"]
+NSFW_SUBS = ["rule34","NSFW", "gonewild", "RealGirls", "Amateur",
+             "ass", "LegalTeens","DirtyGaming","hentai","Curvy_Women_Gone_Wild","gonewildATwork","AsiansGoneWild"]
 
 # ── HELPERS ──────────────────────────────────────────────────
 def log(msg):
@@ -208,6 +208,8 @@ def main():
     
     # Output JSON to stdout
     print(json.dumps({"candidates": results}, indent=2))
+    # Files stay in /tmp/reddit_roulette/ — Hermes handles MEDIA delivery,
+    # and /tmp gets purged on reboot. No early cleanup. 
 
 
 if __name__ == "__main__":

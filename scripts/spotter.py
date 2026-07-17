@@ -197,7 +197,7 @@ check_processes()
 
 now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 if STATUS["healthy"]:
-    pass  # silent — no output, no delivery
+    print(f"✅ All clear — {now} — GPU, disk, processes, gateway, cron all healthy")
 else:
     print(f"⚠️ {now} — {len(STATUS['issues'])} issues detected:\n" +
           "\n".join(f"  - {i}" for i in STATUS["issues"]))

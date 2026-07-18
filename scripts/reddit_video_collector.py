@@ -26,12 +26,15 @@ import sys
 import urllib.request
 import xml.etree.ElementTree as ET
 
+from reddit_request_pacing import RedditRateLimited, RedditRequestGate, reddit_open
+
 # ── CONFIG ───────────────────────────────────────────────────
 OUTPUT_DIR = "/tmp/reddit_video"
 VLM_ENDPOINT = "http://salt-gx10.local:8000/v1/chat/completions"
 VLM_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct-AWQ"
 VLM_TIMEOUT = 180
 DOWNLOAD_TIMEOUT = 30
+REDDIT_GATE = RedditRequestGate()
 
 # Video-heavy SFW subreddits — subs where v.redd.it posts are common
 VIDEO_SUBS = [
@@ -92,7 +95,7 @@ def fetch_video_posts(subreddit: str) -> list[dict]:
         "User-Agent": "Hermes/1.0 (by u/AlternateFlux; local script; contact via DM)"
     })
 
-    with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as resp:
+    with reddit_open(req, timeout=DOWNLOAD_TIMEOUT, gate=REDDIT_GATE) as resp:
         raw = resp.read().decode("utf-8")
 
     root = ET.fromstring(raw)
@@ -125,6 +128,24 @@ def fetch_video_posts(subreddit: str) -> list[dict]:
     return posts
 
 
+def find_video_posts(selected_subreddit: str, fallback_subreddits: list[str]) -> tuple[list[dict], str]:
+    """Fetch the selected feed, then one paced fallback at a time if needed.
+
+    RedditRateLimited deliberately propagates: the caller must end the run instead
+    of issuing more fallback requests after Reddit asks us to slow down.
+    """
+    posts = fetch_video_posts(selected_subreddit)
+    if posts:
+        return posts, selected_subreddit
+
+    log(f"No v.redd.it posts in r/{selected_subreddit}, trying backup sub...")
+    for fallback in fallback_subreddits:
+        posts = fetch_video_posts(fallback)
+        if posts:
+            return posts, fallback
+    return [], selected_subreddit
+
+
 def download_video(vreddit_url: str) -> str:
     """Download Reddit video with yt-dlp. Returns path to mp4."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -136,6 +157,8 @@ def download_video(vreddit_url: str) -> str:
         "-o", output_tmpl,
         "--merge-output-format", "mp4",
         "--no-playlist",
+        "--sleep-requests", f"{random.uniform(6.0, 7.0):.2f}",
+        "--retry-sleep", "http:60",
         vreddit_url,
     ]
 
@@ -236,16 +259,13 @@ def main() -> None:
     log(f"Selected: r/{sub}")
 
     # Step 2: Fetch video posts
-    posts = fetch_video_posts(sub)
-
-    # Fallback: try a guaranteed video-heavy sub
-    if not posts:
-        log(f"No v.redd.it posts in r/{sub}, trying backup sub...")
-        for fallback in ["funny", "videos", "gifs", "nextfuckinglevel"]:
-            posts = fetch_video_posts(fallback)
-            if posts:
-                sub = fallback
-                break
+    try:
+        posts, sub = find_video_posts(
+            sub, ["funny", "videos", "gifs", "nextfuckinglevel"]
+        )
+    except RedditRateLimited as error:
+        log(f"Reddit rate limited the feed fetch; ending run without fallbacks: {error}")
+        sys.exit(1)
 
     if not posts:
         log("No video posts found anywhere. Exiting.")
@@ -332,7 +352,7 @@ def main() -> None:
     # Step 8: Build the Discord post
     commentary = pick_commentary(post["subreddit"], post["title"])
 
-    post = (
+    rendered_post = (
         f"🎬 **Reddit Video Roulette** — r/{post['subreddit']}\n\n"
         f"MEDIA:{frame1_path}\n\n"
         f"> {frame1_blurb} *(~{round(frame1_ts, 1)}s)*\n\n"
@@ -342,11 +362,11 @@ def main() -> None:
         f"[Source]({post['permalink']})"
     )
 
-    # Step 9: Clean up frames — delivery is instant, frames are served
-    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-    log("Frames cleaned. Post delivered below.")
+    # Step 9: Keep frames available for the cron delivery layer. It resolves the
+    # MEDIA paths only after this script exits; the next successful run overwrites them.
+    log("Frames retained for cron delivery.")
 
-    print(post)
+    print(rendered_post)
 
     # Step 10: Log structured data to stderr for debugging
     log(json.dumps({

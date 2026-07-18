@@ -24,12 +24,15 @@ import sys
 import urllib.request
 import xml.etree.ElementTree as ET
 
+from reddit_request_pacing import RedditRateLimited, RedditRequestGate, reddit_open
+
 # ── CONFIG ───────────────────────────────────────────────────
 OUTPUT_DIR = "/tmp/reddit_roulette"
 VLM_ENDPOINT = "http://salt-gx10.local:8000/v1/chat/completions"
 VLM_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct-AWQ"
 VLM_TIMEOUT = 180
 DOWNLOAD_TIMEOUT = 30
+REDDIT_GATE = RedditRequestGate()
 
 SFW_SUBS = ["aww", "funny", "pics", "cats", "Eyebleach", "mademesmile",
             "natureisfuckinglit", "interestingasfuck", "oddlysatisfying",
@@ -51,7 +54,7 @@ def fetch_rss(subreddit: str) -> list[dict]:
         "User-Agent": "Hermes/1.0 (by u/AlternateFlux; local script; contact via DM)"
     })
     
-    with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as resp:
+    with reddit_open(req, timeout=DOWNLOAD_TIMEOUT, gate=REDDIT_GATE) as resp:
         raw = resp.read().decode("utf-8")
     
     root = ET.fromstring(raw)
@@ -97,12 +100,26 @@ def download_image(url: str, filename: str) -> str:
     req = urllib.request.Request(url, headers={
         "User-Agent": "Hermes/1.0 (by u/AlternateFlux; local script)"
     })
-    with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as resp:
+    with reddit_open(req, timeout=DOWNLOAD_TIMEOUT, gate=REDDIT_GATE) as resp:
         data = resp.read()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     with open(path, "wb") as f:
         f.write(data)
     return path
+
+
+def collect_image_posts(subreddits: list[str]) -> list[dict]:
+    """Collect feeds until exhausted or Reddit rate-limits this run."""
+    all_posts = []
+    for sub in subreddits:
+        try:
+            all_posts.extend(fetch_rss(sub))
+        except RedditRateLimited as error:
+            log(f"Reddit rate limited r/{sub}; stopping feed scan: {error}")
+            break
+        except Exception as error:
+            log(f"Failed r/{sub}: {error}")
+    return all_posts
 
 
 def get_vlm_blurb(image_path: str) -> str:
@@ -160,14 +177,7 @@ def main():
     log(f"Target subreddits: {subs}")
     
     # Phase 1: Collect candidates from RSS
-    all_posts = []
-    for sub in subs:
-        try:
-            posts = fetch_rss(sub)
-            all_posts.extend(posts)
-        except Exception as e:
-            log(f"Failed r/{sub}: {e}")
-            continue
+    all_posts = collect_image_posts(subs)
     
     if not all_posts:
         log("No image posts found across any subreddit. Exiting.")

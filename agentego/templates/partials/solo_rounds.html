@@ -1,13 +1,14 @@
-{# Expects: items (list of {subject, valence, emotion, mood, at}) #}
+{# Expects: items (list of {subject, source, valence, emotion, mood, at}) #}
 {% if items %}
 <table style="margin:0;">
   <thead>
-    <tr><th>When</th><th>What she did</th><th>Left her feeling</th><th style="text-align:center;">Impact</th></tr>
+    <tr><th>When</th><th>Impulse</th><th>What she did</th><th>Left her feeling</th><th style="text-align:center;">Impact</th></tr>
   </thead>
   <tbody>
     {% for it in items %}
     <tr>
       <td style="white-space:nowrap; font-size:0.78rem; color:var(--pico-muted-color);">{{ it.at | ts }}</td>
+      <td style="font-size:0.8rem; color:var(--pico-muted-color);">{{ it.source or "—" }}</td>
       <td style="font-size:0.85rem;">{{ it.subject }}</td>
       <td style="font-size:0.8rem; color:var(--pico-muted-color);">{{ it.emotion or "—" }}{% if it.mood %} · {{ it.mood }}{% endif %}</td>
       <td style="text-align:center;">

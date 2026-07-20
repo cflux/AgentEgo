@@ -21,13 +21,16 @@ BACKING_KINDS = ("tool", "skill", "plugin-tool")
 
 async def _editor_ctx(profile: str) -> dict:
     from ..services.impulse_arbiter import _class_of
+    from ..services import mood_engine
     caps = await settings_store._load_capabilities_raw()
     for c in caps:
         c["class"] = _class_of(c)  # normalize (fills legacy entries) for display
     caps.sort(key=lambda c: (c["class"], not c.get("enabled"), c.get("id", "")))
+    moods = sorted((await mood_engine._load_moods()).values(), key=lambda m: m.get("name") or m["id"])
     return {
         "profiles": discover_profiles(), "active_profile": profile,
         "capabilities": caps, "classes": CLASSES, "backing_kinds": BACKING_KINDS,
+        "moods": moods,
         "log": await impulse_engine.get_recent_log(profile),
         "settings": await settings_store.get_all_settings(),
     }
@@ -97,6 +100,7 @@ def _parse_capability(form) -> dict:
         "description": str(form.get("description", "")),
         "operational_hint": str(form.get("operational_hint", "")),
         "enabled": str(form.get("enabled", "")) in ("on", "true", "1"),
+        "mood_tags": form.getlist("mood_tags"),  # multi-value — getlist, not get
     }
 
 
@@ -177,23 +181,62 @@ async def impulse_status_partial(request: Request, profile: str = "default"):
     return templates.TemplateResponse("partials/impulse_status.html", ctx)
 
 
+async def _outcome_labels(profile: str, kind: str) -> dict:
+    """{session_id: source-impulse label} from the impulse_outcome records for a class. Lets the
+    sidequest panel show which impulse fired a round (solo_round & impulse_outcome share the key)."""
+    import json as _json
+    conn = await get_ego_db()
+    try:
+        cur = await conn.execute("SELECT key, value FROM module_data WHERE module = 'impulse_outcome'")
+        rows = await cur.fetchall()
+    finally:
+        await conn.close()
+    labels: dict = {}
+    for key, val in rows:
+        try:
+            rec = _json.loads(val)
+        except (ValueError, TypeError):
+            continue
+        if rec.get("profile") == profile and rec.get("kind") == kind:
+            labels[key] = rec.get("label") or ""
+    return labels
+
+
 @router.get("/partials/solo-rounds")
 async def solo_rounds_partial(request: Request, profile: str = "default"):
     from ..services.sidequest_scorer import recent_solo_enriched
     rounds = await recent_solo_enriched(profile, limit=12)
+    label_map = await _outcome_labels(profile, "inward")
     items = []
     for r in rounds:
         emo = r.get("agent_scores") or {}
         mood = r.get("mood_scores") or {}
+        key = str(r.get("id") or "").split(":", 1)[-1]
         items.append({
             "subject": r.get("topic") or "—",
+            "source": label_map.get(key) or "",
             "valence": r.get("valence", 0.0),
             "emotion": max(emo, key=emo.get) if emo else None,
             "mood": max(mood, key=mood.get) if mood else None,
             "at": r.get("end_ts"),
         })
+    # Backfill the source impulse for rounds recorded before the fire→outcome label bridge existed.
+    if any(not it["source"] for it in items):
+        fires = await impulse_engine.class_fires(profile, outward=False)
+        for it in items:
+            if not it["source"]:
+                it["source"] = impulse_engine.nearest_preceding_label(fires, it["at"] or 0)
+    for it in items:
+        it["source"] = it["source"] or None
     return templates.TemplateResponse(
         "partials/solo_rounds.html", {"request": request, "items": items})
+
+
+@router.get("/partials/impulse-overview")
+async def impulse_overview_partial(request: Request, profile: str = "default"):
+    overview = await impulse_engine.fire_overview(profile)
+    return templates.TemplateResponse(
+        "partials/impulse_overview.html", {"request": request, "overview": overview})
 
 
 @router.get("/partials/attributions")
@@ -282,9 +325,11 @@ async def impulse_outcome(request: Request) -> dict:
     session_id = str(body.get("session_id") or "")
     kind = str(body.get("kind") or "")
     response = str(body.get("response") or "")
+    # The plugin doesn't send the source capability — bridge it from the fire we stashed at decide time.
+    label = str(body.get("label") or "") or await impulse_engine.last_fire_label(profile, kind)
     record = {
         "profile": profile,
-        "label": str(body.get("label") or ""),
+        "label": label,
         "kind": kind,
         "response": response,
         "at": time.time(),

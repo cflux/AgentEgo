@@ -26,6 +26,9 @@ OUTWARD_MARKER = "[IMPULSE-OUTWARD]"
 INWARD_INTENTS = {"explore", "create", "write-den"}
 OUTWARD_INTENTS = {"reach-out"}
 
+# Anti-repetition window: how far back the menu counts prior self-initiated fires (per class).
+_REPETITION_HOURS = 24
+
 _DEN_INSTRUCTION = (
     "\n\nThis is a private, self-directed moment — no one is watching. Carry it out fully with your "
     "tools, then record what you did and how it felt as a short entry in your Den so you remember it."
@@ -65,17 +68,20 @@ async def _idle_minutes(profile: str, db_path: str | None) -> float | None:
 async def recent_gist(profile: str, db_path: str | None = None, max_turns: int = 8) -> str:
     """A short recent user/agent transcript (excludes cron/sidequest sessions). Shared by the arbiter
     (outward state) and the /api/impulse/brief endpoint so both use one implementation."""
-    from ..db.hermes import get_recent_sessions, get_session_messages
+    from ..db.hermes import get_recent_sessions_by_activity, get_session_messages
     from .profiles import resolve_profile
     db_path = db_path or resolve_profile(profile)
 
-    def _is_cron_session(s: dict) -> bool:
-        if str(s.get("id") or "").startswith("cron_"):
-            return True
-        return "cron" in str(s.get("source") or "").lower()
+    def _skip_session(s: dict) -> bool:
+        # Not "the current conversation": scheduled (cron) and autonomous (subagent/sidequest) work.
+        sid = str(s.get("id") or "")
+        src = str(s.get("source") or "").lower()
+        return sid.startswith("cron_") or "cron" in src or src == "subagent"
 
     try:
-        sessions = [s for s in await get_recent_sessions(db_path=db_path) if not _is_cron_session(s)]
+        # Ordered by last activity, not started_at — a still-live long session must win over a
+        # shorter session that merely started later (else the judge reads the wrong transcript).
+        sessions = [s for s in await get_recent_sessions_by_activity(db_path=db_path) if not _skip_session(s)]
         if not sessions:
             return ""
         msgs = await get_session_messages(sessions[0]["id"], db_path=db_path)
@@ -92,7 +98,6 @@ async def _assemble_state(profile: str, cls: str, db_path: str | None,
     from .mood_engine import get_cached_mood
     from .affinity_engine import get_taste_context
     from .reflection_engine import get_today_reflection, get_recent_reflections
-    from .impulse_engine import get_recent_log
     from . import den
 
     parts: list[str] = []
@@ -135,10 +140,8 @@ async def _assemble_state(profile: str, cls: str, db_path: str | None,
     if den_lines:
         parts.append("Recent things in your Den:\n- " + "\n- ".join(den_lines))
 
-    # Anti-repetition: what you've already done on your own recently.
-    recent = [x["label"] for x in await get_recent_log(profile, limit=8) if x.get("label")]
-    if recent:
-        parts.append("Things you did on your own recently (don't just repeat these): " + ", ".join(recent))
+    # (Anti-repetition now rides on the capability menu itself — see _capability_menu / arbitrate —
+    # keyed to the exact ids and scoped to the class being decided.)
 
     if idle_min is not None:
         facts["idle_minutes"] = idle_min
@@ -154,8 +157,22 @@ async def _assemble_state(profile: str, cls: str, db_path: str | None,
     return "\n\n".join(parts), facts
 
 
-def _capability_menu(caps: list) -> str:
-    return "\n".join(f"- {c['id']}: {c['description']}" for c in caps)
+def _capability_menu(caps: list, mood_id: str | None = None, recent: dict | None = None) -> str:
+    """The 'what you can do' menu the arbiter chooses from. Each line carries soft steering markers,
+    keyed to the id the LLM picks: how many times it's already been chosen recently (anti-repetition)
+    and whether it fits the current mood (mood→impulse affinity)."""
+    recent = recent or {}
+    lines = []
+    for c in caps:
+        marks = []
+        n = recent.get(c["id"], 0)
+        if n:
+            marks.append(f"done {n}× recently")
+        if mood_id and mood_id in (c.get("mood_tags") or []):
+            marks.append("fits your current mood")
+        suffix = f"  ({'; '.join(marks)})" if marks else ""
+        lines.append(f"- {c['id']}: {c['description']}{suffix}")
+    return "\n".join(lines)
 
 
 async def _act_probability(mood_id, cls: str, idle_min: float | None) -> float:
@@ -300,9 +317,17 @@ async def arbitrate(profile: str, cls: str, *, db_path: str | None = None, commi
     except Exception:
         persona = f"Character profile: {profile}."
 
+    # Per-id recent-fire counts (anti-repetition) + current mood (affinity) for the menu markers.
+    from .impulse_engine import count_fires_since
+    since = time.time() - _REPETITION_HOURS * 3600
+    recent = {c["id"]: await count_fires_since(profile, c["id"], since) for c in caps}
+    mood_id = (facts.get("mood") or {}).get("id")
+
     user = (
         f"{persona}\n\n--- HOW YOU ARE RIGHT NOW ---\n{state_text or '(a quiet, unremarkable moment)'}\n\n"
-        f"--- WHAT YOU CAN DO RIGHT NOW ---\n{_capability_menu(caps)}\n\n"
+        f"--- WHAT YOU CAN DO RIGHT NOW ---\n{_capability_menu(caps, mood_id, recent)}\n\n"
+        "Prefer variety — something you haven't done much recently — and lean toward options that fit "
+        "your current mood, though you may pick any, or none.\n"
         "Pick exactly one capability id, or \"none\"."
     )
 
@@ -337,9 +362,10 @@ async def arbitrate(profile: str, cls: str, *, db_path: str | None = None, commi
                   reason="acting")
 
     if commit:
-        from .impulse_engine import _log_fire
+        from .impulse_engine import _log_fire, stash_last_fire
         mood_id = (facts.get("mood") or {}).get("id")
         action = {"id": cap_id, "label": cap.get("intent") or cap_id}
         await _log_fire(profile, action, prompt, mood_id, idle_min or 0.0)
+        await stash_last_fire(profile, cls, action)  # so the outcome POST can be labelled with what fired
 
     return result

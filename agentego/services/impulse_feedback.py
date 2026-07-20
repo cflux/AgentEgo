@@ -168,18 +168,27 @@ async def attribution_summary(profile: str, db_path: str | None = None, limit: i
 
 
 async def recent_attributions(profile: str, limit: int = 15) -> list[dict]:
-    """Recent reach-outs with their outcome, newest first: {at, landed, text}. Joins the attribution
-    record to its ping text (both keyed by the ping's session_id)."""
-    texts: dict = {}
+    """Recent reach-outs with their outcome, newest first: {at, landed, text, label}. Joins the
+    attribution record to its ping (text + source-impulse label, both keyed by the ping's session_id)."""
+    pings: dict = {}
     for key, val in await _rows("impulse_outcome"):
         try:
             rec = json.loads(val)
         except (ValueError, TypeError):
             continue
         if rec.get("profile") == profile and rec.get("kind") == "outward":
-            texts[key] = rec.get("response", "")
+            pings[key] = {"text": rec.get("response", ""), "label": rec.get("label", "")}
     done = await _attributions(profile)
-    items = [{"at": r.get("at"), "landed": bool(r.get("landed")), "text": texts.get(key, "")}
+    items = [{"at": r.get("at"), "landed": bool(r.get("landed")),
+              "text": pings.get(key, {}).get("text", ""), "label": pings.get(key, {}).get("label", "")}
              for key, r in done.items()]
     items.sort(key=lambda x: x["at"] or 0, reverse=True)
-    return items[:limit]
+    items = items[:limit]
+    # Backfill the source impulse for rows recorded before the fire→outcome label bridge existed.
+    if any(not it["label"] for it in items):
+        from .impulse_engine import class_fires, nearest_preceding_label
+        fires = await class_fires(profile, outward=True)
+        for it in items:
+            if not it["label"]:
+                it["label"] = nearest_preceding_label(fires, it["at"] or 0)
+    return items

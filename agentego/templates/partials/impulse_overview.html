@@ -1,0 +1,29 @@
+{# Expects: overview ({rows: [{label, fires, last_fired, cls}], total, inward, outward, hours}) #}
+{% if overview.rows %}
+<p style="font-size:0.85rem; margin:0 0 0.5rem;">
+  <strong>{{ overview.total }}</strong> impulse{{ '' if overview.total == 1 else 's' }} fired in the last {{ overview.hours }}h
+  <small style="color:var(--pico-muted-color);">· {{ overview.inward }} inward · {{ overview.outward }} outward</small>
+</p>
+<table style="margin:0;">
+  <thead>
+    <tr><th>Impulse</th><th style="text-align:center;">Kind</th><th style="text-align:center;">Fires</th><th>Last</th></tr>
+  </thead>
+  <tbody>
+    {% for r in overview.rows %}
+    <tr>
+      <td style="font-size:0.85rem;"><strong>{{ r.label }}</strong></td>
+      <td style="text-align:center;">
+        {% set outward = r.cls == 'outward' %}
+        <span style="font-size:0.72rem; padding:0.12em 0.5em; border-radius:999px; background:{{ '#1e2f3a' if outward else '#2a2a1e' }}; color:{{ '#6bb8e0' if outward else '#d6c56b' }};">
+          {{ r.cls }}
+        </span>
+      </td>
+      <td style="text-align:center; font-size:0.85rem;">{{ r.fires }}</td>
+      <td style="white-space:nowrap; font-size:0.78rem; color:var(--pico-muted-color);">{{ r.last_fired | ts }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="padding:0.75rem 1rem; font-size:0.85rem; color:var(--pico-muted-color); margin:0;">No impulses fired in the last {{ overview.hours }} hours.</p>
+{% endif %}

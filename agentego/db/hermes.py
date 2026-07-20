@@ -37,6 +37,35 @@ async def get_recent_sessions(db_path: str | None = None) -> list:
         return [dict(r) for r in rows]
 
 
+async def get_recent_sessions_by_activity(db_path: str | None = None) -> list:
+    """Like get_recent_sessions, but ordered by last *message* time (newest activity first).
+
+    A long-running session that's still receiving messages must outrank a shorter session that
+    merely *started* more recently — otherwise callers that want "the current conversation" (mood
+    exit judge, impulse arbiter) read the wrong transcript. ended_at is unreliable for this (it's
+    NULL while a session is live), so activity is derived from MAX(messages.timestamp)."""
+    async with aiosqlite.connect(_hermes_uri(db_path), uri=True) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA query_only = true")
+        await conn.execute("PRAGMA busy_timeout = 3000")
+        cursor = await conn.execute(
+            """
+            SELECT s.id, s.source, s.user_id, s.model, s.started_at, s.ended_at,
+                   s.message_count, s.title, s.input_tokens, s.output_tokens,
+                   s.estimated_cost_usd, s.end_reason, s.cwd,
+                   COALESCE((SELECT MAX(m.timestamp) FROM messages m
+                             WHERE m.session_id = s.id AND m.active = 1),
+                            s.started_at) AS last_activity
+            FROM sessions s
+            WHERE s.started_at >= ?
+            ORDER BY last_activity DESC
+            """,
+            (cutoff_ts(),),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
 async def get_all_recent_sessions() -> list:
     """Aggregate sessions from all discovered profiles, tagged with profile_name."""
     from ..services.profiles import discover_profiles

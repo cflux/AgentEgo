@@ -48,24 +48,32 @@
   {% include "partials/capability_list.html" %}
 </div>
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(24rem, 1fr)); gap:1.25rem; margin-top:1.5rem;">
-  <div>
-    <h4 style="font-size:1rem;">Recent sidequests <small style="font-size:0.7em; color:var(--pico-muted-color);">what she did alone & how it left her</small></h4>
-    <div id="solo-rounds" hx-get="/partials/solo-rounds?profile={{ active_profile }}" hx-trigger="load, every 60s" hx-swap="innerHTML">
-      <p style="font-size:0.8rem; color:var(--pico-muted-color);">Loading…</p>
-    </div>
+<details open style="margin-top:1.5rem;">
+  <summary style="cursor:pointer; font-size:1rem; font-weight:600;">Last 24 hours <small style="font-size:0.7em; font-weight:400; color:var(--pico-muted-color);">which impulses fired</small></summary>
+  <div id="impulse-overview" hx-get="/partials/impulse-overview?profile={{ active_profile }}" hx-trigger="load, every 60s" hx-swap="innerHTML" style="margin-top:0.6rem;">
+    <p style="font-size:0.8rem; color:var(--pico-muted-color);">Loading…</p>
   </div>
-  <div>
-    <h4 style="font-size:1rem;">Recent reach-outs <small style="font-size:0.7em; color:var(--pico-muted-color);">did they land?</small></h4>
-    <div id="attributions" hx-get="/partials/attributions?profile={{ active_profile }}" hx-trigger="load, every 60s" hx-swap="innerHTML">
-      <p style="font-size:0.8rem; color:var(--pico-muted-color);">Loading…</p>
-    </div>
-  </div>
-</div>
+</details>
 
-<h4 style="font-size:1rem; margin-top:1.5rem;">Recent self-initiated actions</h4>
-<div id="impulse-log" hx-get="/partials/impulse-log?profile={{ active_profile }}" hx-trigger="load, every 30s" hx-swap="innerHTML">
-  {% include "partials/impulse_log.html" %}
-</div>
+<details style="margin-top:1rem;">
+  <summary style="cursor:pointer; font-size:1rem; font-weight:600;">Recent sidequests <small style="font-size:0.7em; font-weight:400; color:var(--pico-muted-color);">what she did alone & how it left her</small></summary>
+  <div id="solo-rounds" hx-get="/partials/solo-rounds?profile={{ active_profile }}" hx-trigger="load, every 60s" hx-swap="innerHTML" style="margin-top:0.6rem;">
+    <p style="font-size:0.8rem; color:var(--pico-muted-color);">Loading…</p>
+  </div>
+</details>
+
+<details style="margin-top:1rem;">
+  <summary style="cursor:pointer; font-size:1rem; font-weight:600;">Recent reach-outs <small style="font-size:0.7em; font-weight:400; color:var(--pico-muted-color);">did they land?</small></summary>
+  <div id="attributions" hx-get="/partials/attributions?profile={{ active_profile }}" hx-trigger="load, every 60s" hx-swap="innerHTML" style="margin-top:0.6rem;">
+    <p style="font-size:0.8rem; color:var(--pico-muted-color);">Loading…</p>
+  </div>
+</details>
+
+<details style="margin-top:1rem;">
+  <summary style="cursor:pointer; font-size:1rem; font-weight:600;">Recent self-initiated actions</summary>
+  <div id="impulse-log" hx-get="/partials/impulse-log?profile={{ active_profile }}" hx-trigger="load, every 30s" hx-swap="innerHTML" style="margin-top:0.6rem;">
+    {% include "partials/impulse_log.html" %}
+  </div>
+</details>
 
 {% endblock %}

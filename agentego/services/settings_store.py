@@ -272,6 +272,12 @@ async def upsert_capability(cap: dict) -> dict:
         raise ValueError("class must be 'inward' or 'outward'")
     if not str(cap.get("description") or "").strip():
         raise ValueError("description is required")
+    # mood_tags: normalized, deduped mood ids that make this impulse more likely in those moods.
+    mood_tags: list[str] = []
+    for m in cap.get("mood_tags") or []:
+        mid = str(m).strip().lower()
+        if mid and mid not in mood_tags:
+            mood_tags.append(mid)
     clean = {
         "id": cid,
         "class": cls,
@@ -281,6 +287,7 @@ async def upsert_capability(cap: dict) -> dict:
         "skill": str(cap.get("skill") or "").strip(),
         "description": str(cap.get("description") or "").strip(),
         "operational_hint": str(cap.get("operational_hint") or "").strip(),
+        "mood_tags": mood_tags,
     }
     items = await _load_capabilities_raw()
     for i, it in enumerate(items):

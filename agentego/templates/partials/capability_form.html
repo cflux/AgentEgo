@@ -1,4 +1,4 @@
-{% macro capability_fields(cap, classes, backing_kinds, profile) %}
+{% macro capability_fields(cap, classes, backing_kinds, profile, moods) %}
 <input type="hidden" name="profile" value="{{ profile }}">
 <input type="hidden" name="intent" value="{{ cap.intent if cap else '' }}">
 <div style="display:grid; gap:0.5rem;">
@@ -27,6 +27,18 @@
   <label style="margin:0; font-size:0.8rem;">operational hint <span style="color:var(--pico-muted-color); font-weight:400;">(how to carry it out — appended to the composed prompt)</span>
     <textarea name="operational_hint" rows="2">{{ cap.operational_hint if cap else '' }}</textarea>
   </label>
+  <div style="margin:0; font-size:0.8rem;">mood tags <span style="color:var(--pico-muted-color); font-weight:400;">(more likely to be chosen while she feels one of these)</span>
+    {% set sel = (cap.mood_tags if cap and cap.mood_tags else []) %}
+    <div style="display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.25rem;">
+      {% for m in moods %}
+      <label style="display:inline-flex; align-items:center; gap:0.25rem; margin:0; font-size:0.72rem; padding:0.1rem 0.45rem; border:1px solid var(--pico-muted-border-color); border-radius:1rem; cursor:pointer;">
+        <input type="checkbox" name="mood_tags" value="{{ m.id }}" {% if m.id in sel %}checked{% endif %}
+               style="margin:0; width:0.9em; height:0.9em; flex:none;">
+        {{ m.icon }} {{ m.name }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
   <label style="margin:0; font-size:0.8rem; display:flex; align-items:center; gap:0.45rem;">
     <input type="checkbox" name="enabled" {% if cap and cap.enabled %}checked{% endif %}
            style="margin:0; width:1.05em; height:1.05em; flex:none;">

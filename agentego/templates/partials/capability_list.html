@@ -24,10 +24,13 @@
   </div>
   <div style="font-size:0.82rem; color:var(--pico-color); margin-top:0.3rem;">{{ c.description }}</div>
   {% if c.operational_hint %}<div style="font-size:0.72rem; color:var(--pico-muted-color); margin-top:0.2rem;">↳ {{ c.operational_hint }}</div>{% endif %}
+  {% if c.mood_tags %}<div style="display:flex; flex-wrap:wrap; gap:0.25rem; margin-top:0.3rem;">
+    {% for t in c.mood_tags %}<span style="font-size:0.66rem; padding:0.05rem 0.45rem; border-radius:1rem; background:var(--pico-muted-border-color); color:var(--pico-muted-color);">{{ t }}</span>{% endfor %}
+  </div>{% endif %}
   <details style="margin-top:0.35rem;">
     <summary style="cursor:pointer; font-size:0.72rem; color:var(--pico-muted-color);">edit</summary>
     <form hx-post="/api/capabilities" hx-target="#capability-list" hx-swap="innerHTML" style="margin-top:0.4rem;">
-      {{ capability_fields(c, classes, backing_kinds, active_profile) }}
+      {{ capability_fields(c, classes, backing_kinds, active_profile, moods) }}
       <button type="submit" style="margin:0.4rem 0 0; padding:0.2rem 0.9rem; font-size:0.8rem;">Save</button>
     </form>
   </details>
@@ -37,7 +40,7 @@
 <details style="margin-top:0.8rem;">
   <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">➕ Add a capability</summary>
   <form hx-post="/api/capabilities" hx-target="#capability-list" hx-swap="innerHTML" style="margin-top:0.5rem;">
-    {{ capability_fields(none, classes, backing_kinds, active_profile) }}
+    {{ capability_fields(none, classes, backing_kinds, active_profile, moods) }}
     <button type="submit" style="margin:0.5rem 0 0;">Add capability</button>
   </form>
 </details>

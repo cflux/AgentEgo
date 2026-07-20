@@ -349,31 +349,34 @@ def main() -> None:
         log(f"VLM frame 2 failed: {e}")
         frame2_blurb = "Another scene from the video."
 
-    # Step 8: Build the Discord post
+    # Step 8: Select commentary for the cron delivery layer.
     commentary = pick_commentary(post["subreddit"], post["title"])
-
-    rendered_post = (
-        f"🎬 **Reddit Video Roulette** — r/{post['subreddit']}\n\n"
-        f"MEDIA:{frame1_path}\n\n"
-        f"> {frame1_blurb} *(~{round(frame1_ts, 1)}s)*\n\n"
-        f"MEDIA:{frame2_path}\n\n"
-        f"> {frame2_blurb} *(~{round(frame2_ts, 1)}s)*\n\n"
-        f"{commentary}\n\n"
-        f"[Source]({post['permalink']})"
-    )
-
     # Step 9: Keep frames available for the cron delivery layer. It resolves the
     # MEDIA paths only after this script exits; the next successful run overwrites them.
     log("Frames retained for cron delivery.")
 
-    print(rendered_post)
+    # The cron layer renders the post from the JSON contract below.
 
-    # Step 10: Log structured data to stderr for debugging
-    log(json.dumps({
+    # Step 10: Emit one structured result on stdout. Diagnostics stay on stderr so
+    # the scheduler can parse stdout without accidentally mixing human text in.
+    print(json.dumps({
         "subreddit": post["subreddit"],
         "title": post["title"],
+        "permalink": post["permalink"],
         "duration": round(duration, 1),
         "commentary": commentary,
+        "frames": [
+            {
+                "path": frame1_path,
+                "timestamp": round(frame1_ts, 1),
+                "vlm_blurb": frame1_blurb,
+            },
+            {
+                "path": frame2_path,
+                "timestamp": round(frame2_ts, 1),
+                "vlm_blurb": frame2_blurb,
+            },
+        ],
     }))
 
 

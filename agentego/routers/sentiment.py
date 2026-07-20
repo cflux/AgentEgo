@@ -302,6 +302,24 @@ async def scoring_complete():
     return {"status": "ok"}
 
 
+@router.post("/sentiment/worker-error", status_code=202)
+async def report_worker_error(payload: dict):
+    """The worker reports a health problem (e.g. a missing Ollama model). Send kind=None to clear it."""
+    kind = payload.get("kind")
+    value = "" if not kind else json.dumps({
+        "kind": kind,
+        "message": payload.get("message") or "",
+        "model": payload.get("model") or "",
+    })
+    conn = await get_ego_db()
+    try:
+        await _upsert_module(conn, "_system", "sentiment_worker_error", value)
+        await conn.commit()
+    finally:
+        await conn.close()
+    return {"status": "ok"}
+
+
 @router.post("/sentiment/trigger-clear", status_code=202)
 async def clear_trigger():
     """Called by the worker after it picks up the trigger."""
@@ -371,6 +389,19 @@ async def scoring_status() -> dict:
                 "UPDATE module_data SET value='0' WHERE module='_system' AND key='sentiment_complete'"
             )
             await conn.commit()
+
+        # Worker-reported health problem (e.g. missing Ollama model). The 180s window lets a stale
+        # error self-clear if the worker dies without clearing it (worker_online then reads offline).
+        cursor = await conn.execute(
+            "SELECT value, updated_at FROM module_data WHERE module='_system' AND key='sentiment_worker_error'"
+        )
+        err_row = await cursor.fetchone()
+        worker_error = None
+        if err_row and err_row[0] and (time.time() - err_row[1]) < 180:
+            try:
+                worker_error = json.loads(err_row[0])
+            except Exception:
+                worker_error = None
     finally:
         await conn.close()
 
@@ -381,6 +412,7 @@ async def scoring_status() -> dict:
         "worker_online": worker_online,
         "progress": progress,
         "just_completed": just_completed,
+        "worker_error": worker_error,
     }
 
 

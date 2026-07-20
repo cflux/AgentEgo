@@ -51,6 +51,19 @@
     {% endif %}
   </div>
 
+  {# Worker health error — e.g. the Ollama model went missing #}
+  {% if status.worker_error %}
+  <div style="margin-top:0.65rem; padding:0.55rem 0.75rem; border-radius:6px;
+              background:rgba(229,115,115,0.12); border:1px solid #e57373;">
+    <span style="color:#e57373; font-weight:600; font-size:0.82rem;">⚠ {{ status.worker_error.message }}</span>
+    {% if status.worker_error.kind == "model_missing" and status.worker_error.model %}
+    <div style="margin-top:0.35rem; font-size:0.75rem; color:var(--pico-muted-color);">
+      Fix: <code>ollama pull {{ status.worker_error.model }}</code>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
   {% if status.progress and status.progress.total > 0 %}
   <div style="margin-top:0.6rem;">
     <div style="background:var(--pico-card-background-color); border-radius:4px; height:6px; overflow:hidden;">

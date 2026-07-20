@@ -164,10 +164,78 @@ def report_progress(current, total, session_id=""):
         pass
 
 
+# ---------------------------------------------------------------- worker-health guard
+_last_error_kind = None  # so the loud log line fires only on a state transition, not every cycle
+
+
+def _report_error(kind, message, model=""):
+    """Push a worker-health problem to the AgentEgo UI. kind=None clears a prior error."""
+    try:
+        requests.post(f"{EGO_URL}/api/sentiment/worker-error",
+                      json={"kind": kind, "message": message, "model": model}, timeout=5)
+    except Exception:
+        pass
+
+
+def _note_error(kind, message, model=""):
+    """Report an error each cycle (keeps the UI banner fresh) but log loudly only when it first appears."""
+    global _last_error_kind
+    if kind != _last_error_kind:
+        log.error("%s", message)
+        _last_error_kind = kind
+    _report_error(kind, message, model)
+
+
+def _clear_error():
+    global _last_error_kind
+    if _last_error_kind is not None:
+        log.info("Recovered — model reachable again, clearing worker error")
+        _last_error_kind = None
+        _report_error(None, "")
+
+
+def _norm_model(name):
+    """Ollama tags carry an explicit tag; treat a bare name as ':latest' so comparisons line up."""
+    return name if ":" in name else f"{name}:latest"
+
+
+def ollama_model_available(url, model):
+    """True if `model` is loaded in Ollama, False if Ollama is reachable but the model is absent,
+    None if Ollama can't be reached at all."""
+    if not model:
+        return False
+    try:
+        resp = requests.get(f"{url}/api/tags", timeout=5)
+        resp.raise_for_status()
+        names = {m.get("name", "") for m in resp.json().get("models", [])}
+    except Exception:
+        return None
+    want = _norm_model(model)
+    return any(_norm_model(n) == want for n in names)
+
+
 def process_pending():
     heartbeat()
     cfg = get_scoring_config()
     backend = cfg.get("backend", "goemotions")
+
+    # Preflight the LLM before doing any work: if the configured Ollama model is missing (the classic
+    # "someone swapped the Ollama instance out from under us" failure), surface it to the UI and skip
+    # the run instead of 404-ing on every pending round.
+    if backend == "llm":
+        url = cfg.get("llm_url") or "http://localhost:11434"
+        model = cfg.get("llm_model") or ""
+        avail = ollama_model_available(url, model)
+        if avail is None:
+            _note_error("ollama_unreachable", f"Ollama unreachable at {url} — emotion scoring paused", model)
+            return
+        if avail is False:
+            _note_error("model_missing",
+                        f"Model '{model or '(unset)'}' not found in Ollama — emotion scoring paused", model)
+            return
+        _clear_error()
+    else:
+        _clear_error()
 
     try:
         resp = requests.get(f"{EGO_URL}/api/sentiment/pending", timeout=10)

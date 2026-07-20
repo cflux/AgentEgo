@@ -35,7 +35,9 @@ async def den_page(request: Request, profile: str = "", q: str = "", tag: str = 
         "entries": [], "groups": None, "grouped": False, "active_profile": "", "q": q, "tag": tag,
         "type": type, "sort": "new", "view": "list", "types": den.ENTRY_TYPES, "sorts": den._SORTS}
     ctx.update({"request": request, "profiles": profiles, "all_tags": den.all_tags(profile) if profile else [],
-                "research_trees": den.list_research_trees(profile) if profile else []})
+                "research_trees": den.list_research_trees(profile) if profile else [],
+                "thread": den.get_thread(profile) if profile else None,
+                "wikilinks": den.wikilink_targets(profile) if profile else {}})
     return templates.TemplateResponse("den.html", ctx)
 
 

@@ -23,6 +23,10 @@ def norm_wikilink(s: str) -> str:
 
 ENTRY_TYPES = ("feeling", "art", "discovery", "transcript", "gift", "fantasy")
 
+# The continuity handoff file — a running log the agent appends to at session close / mood shifts. It
+# lives at the profile root (not under entries/) and is surfaced as a pinned panel, not a normal entry.
+THREAD_FILENAMES = ("THE_THREAD.md", "THE-THREAD.md")
+
 
 def den_root() -> Path:
     return Path(settings.den_path)
@@ -136,6 +140,44 @@ def get_entry(profile: str, relpath: str) -> dict | None:
     if not target.is_file():
         return None
     return parse_entry(profile, target)
+
+
+# --- The Thread: the continuity handoff file at the profile root ---
+
+def get_thread(profile: str) -> dict | None:
+    """The continuity handoff file (`THE_THREAD.md`) — a chronological log the agent appends to at
+    session close and mood shifts, so the next session doesn't wake up cold. It sits at the profile
+    root (not under entries/) and is surfaced as a pinned panel. Parses the leading `# ` title and the
+    `## <timestamp>` sections; returns them newest-first. None if the file is absent/unreadable."""
+    pdir = _profile_dir(profile)
+    path = next((pdir / n for n in THREAD_FILENAMES if (pdir / n).is_file()), None)
+    if path is None:
+        return None
+    try:
+        text = path.read_text()
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    title, sections, cur = "", [], None
+    for line in text.splitlines():
+        s = line.strip()
+        if re.match(r"^##\s+", s):            # a dated handoff section
+            if cur is not None:
+                sections.append(cur)
+            cur = {"heading": re.sub(r"^##\s+", "", s).strip(), "body": []}
+        elif cur is None and not title and re.match(r"^#\s+", s):  # the file's H1 title
+            title = re.sub(r"^#\s+", "", s).strip()
+        elif re.match(r"^-{3,}$", s):         # `---` separators between sections
+            continue
+        elif cur is not None:
+            cur["body"].append(line)
+    if cur is not None:
+        sections.append(cur)
+    for sec in sections:
+        sec["body"] = "\n".join(sec["body"]).strip()
+    sections.reverse()  # file is chronological (append-only); show newest handoff first
+    return {"title": title or "The Thread", "relpath": _rel(profile, path),
+            "sections": sections, "count": len(sections), "mtime": mtime}
 
 
 # --- Research trees: `research/<topic>/index.md` (trunk) + dated branch entries (relates_to) ---

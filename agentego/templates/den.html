@@ -44,6 +44,7 @@
 {% if not active_profile %}
 <p style="color:var(--pico-muted-color); font-size:0.9rem;">No Den profiles found.</p>
 {% else %}
+{% include "partials/den_thread.html" %}
 {% include "partials/den_research.html" %}
 
 {% if research_trees %}<h4 style="font-size:1rem; margin:0 0 0.6rem;">📓 Entries <small style="font-size:0.68em; font-weight:400; color:var(--pico-muted-color);">chronological journal</small></h4>{% endif %}

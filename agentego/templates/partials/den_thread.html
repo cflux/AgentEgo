@@ -1,0 +1,30 @@
+{# The Thread — the continuity handoff file (THE_THREAD.md) at the profile root. A chronological log
+   the agent appends to at session close / mood shifts, surfaced as a pinned panel above the journal.
+   Expects: thread, wikilinks, active_profile #}
+{% if thread and thread.sections %}
+{% set latest = thread.sections[0] %}
+<section style="margin-bottom:1.75rem;">
+  <h4 style="font-size:1rem; margin-bottom:0.6rem;">🧵 {{ thread.title }}
+    <small style="font-size:0.68em; font-weight:400; color:var(--pico-muted-color);">continuity handoff — {{ thread.count }} entr{{ 'ies' if thread.count != 1 else 'y' }}, updated {{ thread.mtime | ts }}</small></h4>
+  <article style="margin:0; padding:0; border-left:3px solid #4adbae; overflow:hidden;">
+    <div style="padding:0.7rem 0.9rem;">
+      <div style="font-size:0.8rem; font-weight:600; color:#4adbae; margin-bottom:0.35rem;">{{ latest.heading }}
+        <span style="font-weight:400; color:var(--pico-muted-color);">· most recent</span></div>
+      <div style="font-size:0.88rem; line-height:1.55;">{{ latest.body | den_md(wikilinks, active_profile) }}</div>
+    </div>
+    {% if thread.sections|length > 1 %}
+    <details style="border-top:1px solid var(--pico-muted-border-color);">
+      <summary style="cursor:pointer; padding:0.45rem 0.9rem; font-size:0.76rem; color:var(--pico-muted-color); list-style:none;">▸ {{ thread.sections|length - 1 }} earlier handoff{{ 's' if (thread.sections|length - 1) != 1 }}</summary>
+      <div style="padding:0 0.9rem 0.5rem;">
+        {% for sec in thread.sections[1:] %}
+        <div style="border-top:1px solid var(--pico-muted-border-color); padding:0.6rem 0;">
+          <div style="font-size:0.76rem; font-weight:600; color:var(--pico-muted-color); margin-bottom:0.25rem;">{{ sec.heading }}</div>
+          <div style="font-size:0.85rem; line-height:1.5;">{{ sec.body | den_md(wikilinks, active_profile) }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+  </article>
+</section>
+{% endif %}

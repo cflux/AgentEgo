@@ -10,6 +10,7 @@ import base64
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -49,17 +50,40 @@ def log(message: str) -> None:
     print(f"[bizarre-product-vlm] {message}", file=sys.stderr)
 
 
-def load_collector_module():
-    path = Path(__file__).with_name("bizarre_product_collector.py")
-    spec = importlib.util.spec_from_file_location("bizarre_product_collector", path)
+def load_module(filename: str, module_name: str):
+    path = Path(__file__).with_name(filename)
+    spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise SilentFailure("cannot load collector validation module")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
     script_dir = str(path.parent)
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
     spec.loader.exec_module(module)
     return module
+
+
+def load_collector_module():
+    return load_module("bizarre_product_collector.py", "bizarre_product_collector")
+
+
+def load_llava_audit_module():
+    return load_module("bizarre_product_llava_audit.py", "bizarre_product_llava_audit")
+
+
+def run_optional_llava_audit(image_path: str, image_sha256: str, analysis: str, commentary: str) -> None:
+    if os.environ.get("BIZARRE_PRODUCT_LLAVA_AUDIT", "0").strip().lower() not in {"1", "true", "yes", "on"}:
+        return
+    try:
+        audit = load_llava_audit_module().audit_commentary(
+            image_path, image_sha256, analysis, commentary
+        )
+        statuses = ",".join(audit.statuses) or "none"
+        log(f"llava_audit decision={audit.decision} claims={audit.claim_count} statuses={statuses} reason={audit.reason[:180]}")
+    except Exception as error:
+        # Soft-audit mode must never suppress the already validated delivery.
+        log(f"llava_audit decision=unavailable reason={type(error).__name__}: {error}")
 
 
 def image_bytes_and_mime(image_path: str) -> tuple[bytes, str]:
@@ -220,19 +244,36 @@ def enrich(
         "mention a source, listing, seller, brand, price, URL, user, or attachment. Return exactly {\"commentary\":\"...\"}.\n"
         f"TITLE CONTEXT: {verified['title']}\nVISUAL EVIDENCE: {analysis}"
     )
-    commentary = parse_model_object(
-        model_request(
-            CEDAR_ENDPOINT,
-            model_body([{"type": "text", "text": commentary_prompt}], 180, CEDAR_MODEL),
-            service="Cedar commentary",
-            timeout=CEDAR_TIMEOUT,
-            opener=cedar_opener,
-        ),
-        "commentary",
-        MAX_COMMENTARY_CHARS,
-    )
-    commentary = validate_commentary(commentary, verified["title"], analysis)
+    def request_commentary(prompt: str) -> str:
+        return parse_model_object(
+            model_request(
+                CEDAR_ENDPOINT,
+                model_body([{"type": "text", "text": prompt}], 180, CEDAR_MODEL),
+                service="Cedar commentary",
+                timeout=CEDAR_TIMEOUT,
+                opener=cedar_opener,
+            ),
+            "commentary",
+            MAX_COMMENTARY_CHARS,
+        )
 
+    commentary = request_commentary(commentary_prompt)
+    try:
+        commentary = validate_commentary(commentary, verified["title"], analysis)
+    except SilentFailure as error:
+        if str(error) != "commentary has no validated visual-evidence anchor":
+            raise
+        retry_prompt = (
+            commentary_prompt
+            + "\nRETRY REQUIREMENT: Your previous reaction lacked a validated anchor. "
+            "This time, copy one exact four-or-more-letter word from VISUAL EVIDENCE "
+            "into the reaction before making the joke. Do not use a synonym for that word."
+        )
+        commentary = validate_commentary(
+            request_commentary(retry_prompt), verified["title"], analysis
+        )
+
+    run_optional_llava_audit(verified["image_path"], image_sha256, analysis, commentary)
     return {
         "status": "ok",
         "title": verified["title"],

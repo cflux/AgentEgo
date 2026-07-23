@@ -11,22 +11,15 @@
   moods boost it, negative-marked dampen it).
 </p>
 
-{% if profiles and profiles|length > 1 %}
-<div class="profile-tabs">
-  {% for p in profiles %}
-  <a href="/intrusive?profile={{ p.name }}" class="profile-tab {% if active_profile == p.name %}active{% endif %}">{{ p.name }}</a>
-  {% endfor %}
-</div>
-{% endif %}
-
-{# --- Global settings + per-agent enable --- #}
+{# --- Global settings (apply to ALL agents; not scoped to the profile tabs below) --- #}
 <article>
-  <header><strong>Settings</strong></header>
+  <header><strong>Global settings</strong>
+    <small style="color:var(--pico-muted-color); font-weight:normal;">— apply to every agent</small></header>
   <form method="post" action="/api/intrusive/settings" style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
     <input type="hidden" name="profile" value="{{ active_profile }}">
     <label style="margin:0; display:flex; align-items:center; gap:0.4rem;">
       <input type="checkbox" name="intrusive_thoughts_enabled" {% if settings.intrusive_thoughts_enabled == "1" %}checked{% endif %} style="margin:0;">
-      <span>Enabled (global)</span>
+      <span>Enabled (master switch)</span>
     </label>
     <label style="margin:0; width:9rem;">
       Overall probability
@@ -48,26 +41,41 @@
       Loose-thread label
       <input type="text" name="intrusive_loose_thread_label" value="{{ settings.intrusive_loose_thread_label }}">
     </label>
-    <button type="submit" style="margin:0; padding:0.45rem 1rem;">Save</button>
+    <button type="submit" style="margin:0; padding:0.45rem 1rem;">Save global settings</button>
   </form>
-
-  <form method="post" action="/api/intrusive/profile-enabled" style="margin-top:0.75rem; display:flex; align-items:center; gap:0.6rem;">
-    <input type="hidden" name="profile" value="{{ active_profile }}">
-    <label style="margin:0; display:flex; align-items:center; gap:0.4rem;">
-      <input type="checkbox" name="enabled" {% if profile_enabled %}checked{% endif %} style="margin:0;">
-      <span>Enabled for <strong>{{ active_profile }}</strong></span>
-    </label>
-    <button type="submit" class="secondary outline" style="margin:0; padding:0.25rem 0.8rem; font-size:0.8rem;">Apply</button>
-    {% if settings.intrusive_thoughts_enabled != "1" %}
-      <small style="color:#d94f4f;">Global switch is off — no intrusions fire for any agent.</small>
-    {% elif not profile_enabled %}
-      <small style="color:#d94f4f;">Disabled for this agent.</small>
-    {% else %}
-      <small style="color:var(--pico-muted-color);">
-        Active — effective rate ≈ {{ settings.intrusive_thought_probability }}/turn.</small>
-    {% endif %}
-  </form>
+  {% if settings.intrusive_thoughts_enabled != "1" %}
+  <p style="margin:0.5rem 0 0; font-size:0.82rem; color:#d94f4f;">Master switch is off — no intrusions fire for any agent.</p>
+  {% endif %}
 </article>
+
+<hr style="margin:1.5rem 0 1rem; border:none; border-top:1px solid var(--pico-muted-border-color);">
+<h3 style="margin-bottom:0.5rem;">Per-agent</h3>
+
+{% if profiles and profiles|length > 1 %}
+<div class="profile-tabs">
+  {% for p in profiles %}
+  <a href="/intrusive?profile={{ p.name }}" class="profile-tab {% if active_profile == p.name %}active{% endif %}">{{ p.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# --- Per-agent enable (scoped to the selected agent; auto-submits on toggle) --- #}
+<form method="post" action="/api/intrusive/profile-enabled"
+      style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.75rem;">
+  <input type="hidden" name="profile" value="{{ active_profile }}">
+  <label style="margin:0; display:flex; align-items:center; gap:0.4rem;">
+    <input type="checkbox" name="enabled" onchange="this.form.submit()" {% if profile_enabled %}checked{% endif %} style="margin:0;">
+    <span>Intrusive thoughts enabled for <strong>{{ active_profile }}</strong></span>
+  </label>
+  <noscript><button type="submit" class="secondary outline" style="margin:0; padding:0.2rem 0.7rem; font-size:0.78rem;">Apply</button></noscript>
+  {% if settings.intrusive_thoughts_enabled != "1" %}
+    <small style="color:var(--pico-muted-color);">(master switch off)</small>
+  {% elif not profile_enabled %}
+    <small style="color:#d94f4f;">Disabled for this agent.</small>
+  {% else %}
+    <small style="color:var(--pico-muted-color);">Active — effective rate ≈ {{ settings.intrusive_thought_probability }}/turn.</small>
+  {% endif %}
+</form>
 
 {# --- Preview basis --- #}
 <p style="font-size:0.85rem; color:var(--pico-muted-color);">

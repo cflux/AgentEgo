@@ -180,6 +180,43 @@ def get_thread(profile: str) -> dict | None:
             "sections": sections, "count": len(sections), "mtime": mtime}
 
 
+def get_loose_threads(profile: str, label: str = "Loose threads") -> list[str]:
+    """The `**Loose threads:**` bullet items from the newest handoff in THE_THREAD.md — open,
+    unresolved musings the agent left dangling. Used as a live source for intrusive thoughts. Reuses
+    `get_thread` (sections already newest-first); scans for the first handoff whose body carries the
+    bold-label block, then collects the `-`/`*` bullets beneath it (until the next `**…:**` label).
+    Returns [] if the Den, file, or block is absent."""
+    thread = get_thread(profile)
+    if not thread:
+        return []
+    label_re = re.compile(r"^\*\*\s*" + re.escape(label.strip()) + r"\s*:?\s*\*\*\s*$", re.IGNORECASE)
+    other_label_re = re.compile(r"^\*\*.*\*\*\s*:?\s*$")
+    for sec in thread["sections"]:
+        lines = sec["body"].splitlines()
+        items, collecting = [], False
+        for line in lines:
+            s = line.strip()
+            if not collecting:
+                if label_re.match(s):
+                    collecting = True
+                continue
+            if label_re.match(s):
+                continue
+            if other_label_re.match(s):  # a different bold label ends the block
+                break
+            if s.startswith("- ") or s.startswith("* "):
+                item = s[2:].strip()
+                if item:
+                    items.append(item)
+            elif s == "":
+                continue  # tolerate blank lines within the block
+            else:
+                break  # non-bullet prose ends the block
+        if items:
+            return items
+    return []
+
+
 # --- Research trees: `research/<topic>/index.md` (trunk) + dated branch entries (relates_to) ---
 
 RESEARCH_DIR = "research"

@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Intrusive Thoughts — AgentEgo{% endblock %}
+{% block content %}
+
+<h2>Intrusive Thoughts <small style="font-size:0.55em; color:var(--pico-muted-color);">thoughts the agent didn't choose</small></h2>
+
+<p style="font-size:0.88rem; color:var(--pico-muted-color);">
+  On some turns a short prompt piggybacks on the mood directive — re-rolled each turn, so it flickers
+  in and out. The <strong>overall probability</strong> below is how often <em>any</em> intrusion is eligible;
+  which thought surfaces is weighted by its <strong>base weight × the current mood</strong> (positive-marked
+  moods boost it, negative-marked dampen it).
+</p>
+
+{% if profiles and profiles|length > 1 %}
+<div class="profile-tabs">
+  {% for p in profiles %}
+  <a href="/intrusive?profile={{ p.name }}" class="profile-tab {% if active_profile == p.name %}active{% endif %}">{{ p.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# --- Global settings + per-agent enable --- #}
+<article>
+  <header><strong>Settings</strong></header>
+  <form method="post" action="/api/intrusive/settings" style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+    <input type="hidden" name="profile" value="{{ active_profile }}">
+    <label style="margin:0; display:flex; align-items:center; gap:0.4rem;">
+      <input type="checkbox" name="intrusive_thoughts_enabled" {% if settings.intrusive_thoughts_enabled == "1" %}checked{% endif %} style="margin:0;">
+      <span>Enabled (global)</span>
+    </label>
+    <label style="margin:0; width:9rem;">
+      Overall probability
+      <input type="number" name="intrusive_thought_probability" value="{{ settings.intrusive_thought_probability }}" min="0" max="1" step="0.01">
+    </label>
+    <label style="margin:0; width:8rem;">
+      Positive ×
+      <input type="number" name="intrusive_positive_multiplier" value="{{ settings.intrusive_positive_multiplier }}" min="0" step="0.1">
+    </label>
+    <label style="margin:0; width:8rem;">
+      Negative ×
+      <input type="number" name="intrusive_negative_multiplier" value="{{ settings.intrusive_negative_multiplier }}" min="0" step="0.1">
+    </label>
+    <label style="margin:0; flex:1; min-width:220px;">
+      Wrapper template <small style="color:var(--pico-muted-color); font-size:0.72rem;">({{ '{thought}' }} = chosen text)</small>
+      <input type="text" name="intrusive_thought_template" value="{{ settings.intrusive_thought_template }}">
+    </label>
+    <label style="margin:0; width:10rem;">
+      Loose-thread label
+      <input type="text" name="intrusive_loose_thread_label" value="{{ settings.intrusive_loose_thread_label }}">
+    </label>
+    <button type="submit" style="margin:0; padding:0.45rem 1rem;">Save</button>
+  </form>
+
+  <form method="post" action="/api/intrusive/profile-enabled" style="margin-top:0.75rem; display:flex; align-items:center; gap:0.6rem;">
+    <input type="hidden" name="profile" value="{{ active_profile }}">
+    <label style="margin:0; display:flex; align-items:center; gap:0.4rem;">
+      <input type="checkbox" name="enabled" {% if profile_enabled %}checked{% endif %} style="margin:0;">
+      <span>Enabled for <strong>{{ active_profile }}</strong></span>
+    </label>
+    <button type="submit" class="secondary outline" style="margin:0; padding:0.25rem 0.8rem; font-size:0.8rem;">Apply</button>
+    {% if settings.intrusive_thoughts_enabled != "1" %}
+      <small style="color:#d94f4f;">Global switch is off — no intrusions fire for any agent.</small>
+    {% elif not profile_enabled %}
+      <small style="color:#d94f4f;">Disabled for this agent.</small>
+    {% else %}
+      <small style="color:var(--pico-muted-color);">
+        Active — effective rate ≈ {{ settings.intrusive_thought_probability }}/turn.</small>
+    {% endif %}
+  </form>
+</article>
+
+{# --- Preview basis --- #}
+<p style="font-size:0.85rem; color:var(--pico-muted-color);">
+  {% if mood %}
+    Current mood for <strong>{{ active_profile }}</strong>: {{ mood.icon or "" }} <strong>{{ mood.name }}</strong>.
+    Effective weights below are computed under it.
+  {% else %}
+    No current mood cached for <strong>{{ active_profile }}</strong> — effective weights use neutral multipliers.
+  {% endif %}
+</p>
+
+{% if thoughts %}
+<article style="padding:0; overflow:hidden; margin-bottom:1.25rem;">
+<table style="margin:0;">
+  <thead>
+    <tr>
+      <th style="width:3rem; text-align:center;">On</th>
+      <th>Thought</th>
+      <th style="width:5rem; text-align:center;">Weight</th>
+      <th>Mood associations</th>
+      <th style="width:6rem; text-align:center;" title="base weight × current-mood multiplier">Effective</th>
+      <th style="width:10rem;"></th>
+    </tr>
+  </thead>
+  <tbody id="intrusive-table">
+    {% for t in thoughts %}
+    {% include "partials/intrusive_row.html" %}
+    {% endfor %}
+  </tbody>
+</table>
+</article>
+{% else %}
+<p style="color:var(--pico-muted-color);">No intrusive thoughts defined for this agent yet. Add one below.</p>
+{% endif %}
+
+{# --- Add a static thought --- #}
+<article>
+  <header><strong>Add thought</strong></header>
+  <form method="post" action="/api/intrusive" style="display:flex; flex-direction:column; gap:0.6rem;">
+    <input type="hidden" name="profile" value="{{ active_profile }}">
+    <input type="hidden" name="kind" value="static">
+    <div style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
+      <label style="margin:0; flex:2; min-width:240px;">
+        Thought
+        <input type="text" name="text" required placeholder="e.g. What if she's getting bored of me?">
+      </label>
+      <label style="margin:0; width:6rem;">
+        Weight
+        <input type="number" name="weight" value="1.0" min="0" step="0.1">
+      </label>
+    </div>
+    {% set assoc = {} %}
+    {% include "partials/intrusive_mood_picker.html" %}
+    <div><button type="submit" style="margin:0; padding:0.45rem 1rem;">Add</button></div>
+  </form>
+</article>
+
+{# --- Add the single Loose Threads source (Den-backed) --- #}
+{% if not has_loose_row %}
+<article>
+  <header><strong>Add Loose Threads source</strong>
+    <small style="color:var(--pico-muted-color); font-weight:normal;">— pulls a random loose thread from the Den</small></header>
+  <p style="font-size:0.83rem; color:var(--pico-muted-color); margin-top:0;">
+    A special entry with no fixed text. When chosen, it injects a random item from the
+    <code>{{ settings.intrusive_loose_thread_label }}</code> block of this agent's
+    <code>THE_THREAD.md</code>. Currently <strong>{{ loose_threads|length }}</strong> item(s) available
+    {% if loose_threads %}
+      — e.g. <em>“{{ loose_threads[0] }}”</em>
+    {% endif %}.
+  </p>
+  <form method="post" action="/api/intrusive" style="display:flex; flex-direction:column; gap:0.6rem;">
+    <input type="hidden" name="profile" value="{{ active_profile }}">
+    <input type="hidden" name="kind" value="loose_threads">
+    <input type="hidden" name="text" value="">
+    <label style="margin:0; width:6rem;">
+      Weight
+      <input type="number" name="weight" value="1.0" min="0" step="0.1">
+    </label>
+    {% set assoc = {} %}
+    {% include "partials/intrusive_mood_picker.html" %}
+    <div><button type="submit" style="margin:0; padding:0.45rem 1rem;">Add Loose Threads source</button></div>
+  </form>
+</article>
+{% else %}
+<p style="font-size:0.83rem; color:var(--pico-muted-color);">
+  🧵 Loose Threads source is active for this agent — currently
+  <strong>{{ loose_threads|length }}</strong> item(s) available in the Den.
+</p>
+{% endif %}
+
+{% endblock %}

@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -207,6 +207,18 @@ CREATE TABLE IF NOT EXISTS mood_exits (
     created_at     REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_mood_exits_profile ON mood_exits(profile_name);
+
+CREATE TABLE IF NOT EXISTS intrusive_thoughts (
+    id           TEXT PRIMARY KEY,
+    profile_name TEXT NOT NULL,
+    kind         TEXT NOT NULL DEFAULT 'static',  -- 'static' (use text) | 'loose_threads' (pull live from Den)
+    text         TEXT NOT NULL DEFAULT '',        -- the prompt appended to the directive (unused for dynamic kinds)
+    weight       REAL NOT NULL DEFAULT 1.0,       -- per-thought base weight
+    mood_assoc   TEXT NOT NULL DEFAULT '{}',      -- JSON {mood_id: "positive" | "negative"} (neutral omitted)
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    created_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_intrusive_thoughts_profile ON intrusive_thoughts(profile_name);
 """
 
 _DEFAULT_MOODS = [
@@ -371,6 +383,15 @@ _DEFAULT_SETTINGS = {
         "the user's lead and let it pass naturally — don't force it or escalate it."
     ),
     "mood_directive_file": "",
+    # Intrusive thoughts — an optional short prompt that piggybacks on the mood directive on some
+    # turns. Global gate + per-mood boost/dampen; per-thought weights + associations live in the
+    # intrusive_thoughts table; per-profile enable lives in module_data (module='intrusive_enabled').
+    "intrusive_thoughts_enabled": "1",
+    "intrusive_thought_probability": "0.15",
+    "intrusive_positive_multiplier": "2.5",
+    "intrusive_negative_multiplier": "0.3",
+    "intrusive_thought_template": "## Intrusive thought\n{thought}",
+    "intrusive_loose_thread_label": "Loose threads",
     "affinity_dedupe_enabled": "1",
     "reflection_enabled": "1",
     "reflection_hour": "4",
@@ -481,6 +502,10 @@ async def run_migrations(db_path: str) -> None:
         if current_version < 17:
             # Impulse v1 weighted-lottery removed (v2 arbiter drives); drop its now-inert table.
             await conn.execute("DROP TABLE IF EXISTS impulse_actions")
+
+        if current_version < 18:
+            # intrusive_thoughts created by DDL above; no ALTER needed
+            pass
 
         if current_version < SCHEMA_VERSION:
             if current_version == 0:

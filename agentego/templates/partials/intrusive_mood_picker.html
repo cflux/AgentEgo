@@ -1,0 +1,16 @@
+{# Tri-state per-mood association picker. Expects `moods` (list) and `assoc` (dict {mood_id: polarity}). #}
+<div style="display:flex; flex-wrap:wrap; gap:0.4rem 0.75rem; align-items:center;">
+  <span style="font-size:0.78rem; color:var(--pico-muted-color); width:100%;">Mood associations
+    <small>(positive → more likely in that mood, negative → less likely)</small></span>
+  {% for m in moods %}
+  {% set pol = assoc.get(m.id, "neutral") %}
+  <label style="display:flex; align-items:center; gap:0.3rem; margin:0; font-size:0.8rem;">
+    <span title="{{ m.name }}">{{ m.icon or "" }} {{ m.name }}</span>
+    <select name="assoc_{{ m.id }}" style="width:auto; margin:0; padding:0.15rem 0.35rem; font-size:0.78rem;">
+      <option value="neutral" {% if pol == "neutral" %}selected{% endif %}>○</option>
+      <option value="positive" {% if pol == "positive" %}selected{% endif %}>➕</option>
+      <option value="negative" {% if pol == "negative" %}selected{% endif %}>➖</option>
+    </select>
+  </label>
+  {% endfor %}
+</div>

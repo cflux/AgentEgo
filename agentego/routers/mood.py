@@ -163,6 +163,13 @@ async def mood_directive(profile: str = "default"):
         return PlainTextResponse("")
     template = await settings_store.get_setting("mood_directive_template", "")
     text = render_mood_directive(template, mood["name"], mood.get("description", ""))
+    # Intrusive thought: on some turns, a short prompt piggybacks on the disposition block. Re-rolled
+    # per fetch (transient), pure read — see services/intrusive_thoughts.pick_intrusive_thought.
+    from ..services import intrusive_thoughts
+    thought = await intrusive_thoughts.pick_intrusive_thought(profile, mood["id"])
+    if thought:
+        wrapper = await settings_store.get_setting("intrusive_thought_template", "## Intrusive thought\n{thought}")
+        text = (text.strip() + "\n\n" + wrapper.replace("{thought}", thought)).strip()
     return PlainTextResponse(text.strip())
 
 

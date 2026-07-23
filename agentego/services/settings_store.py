@@ -187,6 +187,17 @@ DEFAULTS = {
         "the user's lead and let it pass naturally — don't force it or escalate it."
     ),
     "mood_directive_file": "",    # optional: write the block here on mood change (blank = HTTP only)
+    # Intrusive thoughts — an optional short prompt that piggybacks on the mood directive on some
+    # turns (re-rolled per fetch, so it flickers in and out like a real intrusive thought). The gate
+    # probability is the "overall weight"; per-mood boost/dampen are global multipliers. Per-thought
+    # weights + tri-state mood associations live in the intrusive_thoughts table; per-profile enable
+    # lives in module_data (module='intrusive_enabled', key=profile_name).
+    "intrusive_thoughts_enabled": "1",              # global master kill switch
+    "intrusive_thought_probability": "0.15",        # per-turn chance the agent is eligible for any intrusion
+    "intrusive_positive_multiplier": "2.5",         # boost when the current mood is marked positive on a thought
+    "intrusive_negative_multiplier": "0.3",         # dampen when the current mood is marked negative on a thought
+    "intrusive_thought_template": "## Intrusive thought\n{thought}",  # wrapper; {thought} replaced with the text
+    "intrusive_loose_thread_label": "Loose threads",  # THE_THREAD.md bold-label block the Loose Threads source pulls from
     # Fold a newly-inferred affinity into an existing near-identical one (LLM canonicalize).
     "affinity_dedupe_enabled": "1",
     # Daily reflection: nightly pass draws general takeaways, picks a day-mood, maybe a dream.

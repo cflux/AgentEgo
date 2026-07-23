@@ -1,0 +1,44 @@
+<tr id="intrusive-row-{{ t.id }}" {% if not t.enabled %}style="opacity:0.5;"{% endif %}>
+  <td style="text-align:center;">
+    <button class="secondary outline" style="margin:0; padding:0.15rem 0.5rem; font-size:0.9rem; line-height:1;"
+      title="{{ 'Enabled — click to disable' if t.enabled else 'Disabled — click to enable' }}"
+      hx-post="/api/intrusive/{{ t.id }}/toggle"
+      hx-target="#intrusive-row-{{ t.id }}"
+      hx-swap="outerHTML">{{ "🟢" if t.enabled else "⚪" }}</button>
+  </td>
+  <td>
+    {% if t.kind == "loose_threads" %}
+      <strong>🧵 Loose Threads</strong>
+      <small style="color:var(--pico-muted-color); display:block; font-size:0.75rem;">random item from the Den's THE_THREAD.md</small>
+    {% else %}
+      <span style="font-size:0.9rem;">{{ t.text or "—" }}</span>
+    {% endif %}
+  </td>
+  <td style="text-align:center;">{{ "%.2f"|format(t.weight) }}</td>
+  <td>
+    {% if t.assoc_moods %}
+      {% for a in t.assoc_moods %}
+        <span style="display:inline-block; font-size:0.72rem; padding:0.05rem 0.4rem; border-radius:10px; margin:0.1rem 0.15rem 0.1rem 0;
+          background:{{ 'rgba(76,175,80,0.18)' if a.polarity == 'positive' else 'rgba(217,79,79,0.18)' }};
+          border:1px solid {{ 'rgba(76,175,80,0.5)' if a.polarity == 'positive' else 'rgba(217,79,79,0.5)' }};">
+          {{ "➕" if a.polarity == "positive" else "➖" }} {{ a.icon or "" }} {{ a.name }}</span>
+      {% endfor %}
+    {% else %}
+      <small style="color:var(--pico-muted-color);">—</small>
+    {% endif %}
+  </td>
+  <td style="text-align:center;" title="base weight × current-mood multiplier">
+    <strong>{{ "%.2f"|format(t.eff) }}</strong>
+  </td>
+  <td style="white-space:nowrap;">
+    <button class="secondary outline" style="margin:0; padding:0.25rem 0.65rem; font-size:0.78rem;"
+      hx-get="/api/intrusive/{{ t.id }}/edit-form"
+      hx-target="#intrusive-row-{{ t.id }}"
+      hx-swap="outerHTML">Edit</button>
+    <button class="secondary outline" style="margin:0 0 0 0.4rem; padding:0.25rem 0.65rem; font-size:0.78rem; color:#d94f4f; border-color:#d94f4f;"
+      hx-delete="/api/intrusive/{{ t.id }}"
+      hx-confirm="Delete this intrusive thought?"
+      hx-target="#intrusive-row-{{ t.id }}"
+      hx-swap="outerHTML">Delete</button>
+  </td>
+</tr>

@@ -1,8 +1,9 @@
 """Intrusive thoughts — an optional short prompt that piggybacks on the mood directive on some turns.
 
 Thematically: a thought the agent didn't choose, surfacing and passing. The mood directive endpoint is
-hit per-turn and is a cheap pure read, so selection is done entirely in memory here (no writes on the
-pick path). Every fetch re-rolls, so a thought flickers in and out.
+hit per-turn and is a cheap pure read, so selection is done in memory. The one exception is the Loose
+Threads source: when it actually fires it records the surfaced item to an anti-repeat ledger (a bounded
+write, only on those rare turns). Every fetch re-rolls, so a thought flickers in and out.
 
 Model:
 - A per-profile catalog of thoughts (`intrusive_thoughts` table). Each has a base `weight` and a
@@ -16,6 +17,7 @@ Model:
 CRUD + selection live here; the router/templates render the management page. LLM-free, deterministic
 apart from the rolls.
 """
+import hashlib
 import json
 import random
 import time
@@ -27,6 +29,10 @@ from . import den, settings_store
 _COLS = "id, profile_name, kind, text, weight, mood_assoc, enabled, created_at"
 
 VALID_KINDS = ("static", "loose_threads")
+
+# Loose-thread anti-repeat ledger (module_data): once a loose thread surfaces it's disqualified for a
+# window; entries whose item is no longer in the Den's pool (overwritten) are pruned on next resolve.
+_LOOSE_SEEN_MODULE = "intrusive_loose_seen"
 
 
 def _j(v, default):
@@ -213,14 +219,113 @@ def _weighted_pick(items: list, weight_fn):
 
 
 async def resolve_thought_text(thought: dict, profile_name: str) -> str | None:
-    """The text to inject for a chosen thought. Static → its text; loose_threads → a random live
-    loose thread from the Den (None if the source is currently empty)."""
+    """The text to inject for a chosen thought. Static → its text; loose_threads → a live, non-repeating
+    loose thread from the Den (None if the source is empty or all items were recently surfaced)."""
     if thought.get("kind") == "loose_threads":
-        label = await settings_store.get_setting("intrusive_loose_thread_label", "Loose threads")
-        items = den.get_loose_threads(profile_name, label=label)
-        return random.choice(items) if items else None
+        return await pick_loose_thread(profile_name)
     text = (thought.get("text") or "").strip()
     return text or None
+
+
+# --- Loose-thread anti-repeat ledger ---
+
+def _loose_hash(text: str) -> str:
+    """Stable (cross-restart) short hash of a loose-thread bullet, for the surfaced-item ledger."""
+    return hashlib.md5(text.strip().encode("utf-8")).hexdigest()[:16]
+
+
+async def _load_loose_seen(profile_name: str) -> dict:
+    """{item_hash: last_surfaced_ts} for this profile."""
+    conn = await get_ego_db()
+    try:
+        cur = await conn.execute(
+            "SELECT key, value FROM module_data WHERE module = ? AND key LIKE ?",
+            (_LOOSE_SEEN_MODULE, f"{profile_name}:%"))
+        rows = await cur.fetchall()
+    finally:
+        await conn.close()
+    out = {}
+    for k, v in rows:
+        try:
+            out[k.rsplit(":", 1)[-1]] = float(v)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+async def _record_loose_seen(profile_name: str, item_hash: str, ts: float) -> None:
+    conn = await get_ego_db()
+    try:
+        await conn.execute(
+            "INSERT INTO module_data (module, key, value, updated_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(module, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (_LOOSE_SEEN_MODULE, f"{profile_name}:{item_hash}", str(ts), ts))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def _prune_loose_seen(profile_name: str, hashes) -> None:
+    """Drop ledger entries for items no longer in the pool (the thread block was overwritten)."""
+    hashes = list(hashes)
+    if not hashes:
+        return
+    conn = await get_ego_db()
+    try:
+        await conn.executemany(
+            "DELETE FROM module_data WHERE module = ? AND key = ?",
+            [(_LOOSE_SEEN_MODULE, f"{profile_name}:{h}") for h in hashes])
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def _loose_window_seconds() -> float:
+    try:
+        h = float(await settings_store.get_setting("intrusive_loose_repeat_window_hours", "168"))
+    except (TypeError, ValueError):
+        h = 168.0
+    return max(0.0, h) * 3600.0
+
+
+async def pick_loose_thread(profile_name: str) -> str | None:
+    """Pick a loose thread from the Den, excluding ones surfaced within the repeat window. Prunes
+    ledger entries for items no longer in the pool. Records the pick (a write). None if the pool is
+    empty or every item was recently surfaced."""
+    label = await settings_store.get_setting("intrusive_loose_thread_label", "Loose threads")
+    items = den.get_loose_threads(profile_name, label=label)
+    if not items:
+        return None
+    now = time.time()
+    window = await _loose_window_seconds()
+    by_hash = {_loose_hash(i): i for i in items}
+    seen = await _load_loose_seen(profile_name)
+    stale = [h for h in seen if h not in by_hash]     # overwritten → forget
+    if stale:
+        await _prune_loose_seen(profile_name, stale)
+        for h in stale:
+            seen.pop(h, None)
+    eligible = [i for h, i in by_hash.items() if h not in seen or (now - seen[h]) >= window]
+    if not eligible:
+        return None
+    chosen = random.choice(eligible)
+    await _record_loose_seen(profile_name, _loose_hash(chosen), now)
+    return chosen
+
+
+async def loose_eligibility(profile_name: str) -> tuple[int, int]:
+    """(total_in_pool, eligible_now) for the loose-thread source — read-only (no pruning/writes),
+    for the management page so the anti-repeat state is visible."""
+    label = await settings_store.get_setting("intrusive_loose_thread_label", "Loose threads")
+    items = den.get_loose_threads(profile_name, label=label)
+    if not items:
+        return (0, 0)
+    now = time.time()
+    window = await _loose_window_seconds()
+    seen = await _load_loose_seen(profile_name)
+    elig = sum(1 for i in items
+               if (h := _loose_hash(i)) not in seen or (now - seen[h]) >= window)
+    return (len(items), elig)
 
 
 async def pick_intrusive_thought(profile_name: str, mood_id: str | None) -> str | None:

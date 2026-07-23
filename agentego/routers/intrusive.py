@@ -23,7 +23,8 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 
 _SETTING_KEYS = ("intrusive_thoughts_enabled", "intrusive_thought_probability",
                  "intrusive_positive_multiplier", "intrusive_negative_multiplier",
-                 "intrusive_thought_template", "intrusive_loose_thread_label")
+                 "intrusive_thought_template", "intrusive_loose_thread_label",
+                 "intrusive_loose_repeat_window_hours")
 
 
 def _parse_mood_assoc(form, moods) -> dict:
@@ -115,6 +116,7 @@ async def intrusive_page(request: Request, profile: str = "default"):
     thoughts = _decorate_all(await _it.list_thoughts(profile), ctx, moods)
     settings = await settings_store.get_all_settings()
     loose = den.get_loose_threads(profile, label=settings.get("intrusive_loose_thread_label", "Loose threads"))
+    _loose_total, loose_eligible = await _it.loose_eligibility(profile)
     return templates.TemplateResponse("intrusive.html", {
         "request": request,
         "profiles": discover_profiles(),
@@ -125,6 +127,7 @@ async def intrusive_page(request: Request, profile: str = "default"):
         "profile_enabled": await _it.is_profile_enabled(profile),
         "has_loose_row": await _it.has_loose_threads_row(profile),
         "loose_threads": loose,
+        "loose_eligible": loose_eligible,
         **ctx,
     })
 

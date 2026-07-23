@@ -198,6 +198,7 @@ DEFAULTS = {
     "intrusive_negative_multiplier": "0.3",         # dampen when the current mood is marked negative on a thought
     "intrusive_thought_template": "## Intrusive thought\n{thought}",  # wrapper; {thought} replaced with the text
     "intrusive_loose_thread_label": "Loose threads",  # THE_THREAD.md bold-label block the Loose Threads source pulls from
+    "intrusive_loose_repeat_window_hours": "168",   # a surfaced loose thread is disqualified from re-firing for this long
     # Fold a newly-inferred affinity into an existing near-identical one (LLM canonicalize).
     "affinity_dedupe_enabled": "1",
     # Daily reflection: nightly pass draws general takeaways, picks a day-mood, maybe a dream.

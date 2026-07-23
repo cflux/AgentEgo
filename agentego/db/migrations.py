@@ -392,6 +392,7 @@ _DEFAULT_SETTINGS = {
     "intrusive_negative_multiplier": "0.3",
     "intrusive_thought_template": "## Intrusive thought\n{thought}",
     "intrusive_loose_thread_label": "Loose threads",
+    "intrusive_loose_repeat_window_hours": "168",
     "affinity_dedupe_enabled": "1",
     "reflection_enabled": "1",
     "reflection_hour": "4",

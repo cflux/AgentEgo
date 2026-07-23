@@ -38,6 +38,10 @@
         Loose-thread label
         <input type="text" name="intrusive_loose_thread_label" value="{{ settings.intrusive_loose_thread_label }}">
       </label>
+      <label style="margin:0; width:11rem;">
+        Loose-thread no-repeat (h)
+        <input type="number" name="intrusive_loose_repeat_window_hours" value="{{ settings.intrusive_loose_repeat_window_hours }}" min="0" step="1">
+      </label>
     </div>
     <label style="margin:0; width:100%;">
       Wrapper template <small style="color:var(--pico-muted-color); font-size:0.72rem;">({{ '{thought}' }} = chosen text; appended after the disposition block)</small>
@@ -163,8 +167,9 @@
 </article>
 {% else %}
 <p style="font-size:0.83rem; color:var(--pico-muted-color);">
-  🧵 Loose Threads source is active for this agent — currently
-  <strong>{{ loose_threads|length }}</strong> item(s) available in the Den.
+  🧵 Loose Threads source is active for this agent — <strong>{{ loose_eligible }}</strong> of
+  <strong>{{ loose_threads|length }}</strong> item(s) eligible now
+  <small>(the rest surfaced within the last {{ settings.intrusive_loose_repeat_window_hours }}h and are on cooldown; a rewritten thread block resets them).</small>
 </p>
 {% endif %}
 

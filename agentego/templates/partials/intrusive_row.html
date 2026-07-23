@@ -13,6 +13,26 @@
     {% else %}
       <span style="font-size:0.9rem;">{{ t.text or "—" }}</span>
     {% endif %}
+    <div style="font-size:0.72rem; color:var(--pico-muted-color); margin-top:0.3rem;">
+      {% if t.enabled %}
+        Fires ≈ <strong>{{ "%.1f"|format(t.final_cur * 100) }}%</strong>/turn now
+        <span title="overall gate probability × this thought's share of total effective weight under the current mood">
+          ({{ "%.0f"|format(gate_prob * 100) }}% gate × {{ "%.0f"|format(t.share_cur * 100) }}% share)</span>
+      {% else %}
+        <em>disabled — never fires</em>
+      {% endif %}
+    </div>
+    {% if t.enabled and t.mood_probs %}
+    <details style="margin-top:0.2rem;">
+      <summary style="font-size:0.7rem; color:var(--pico-muted-color); cursor:pointer;">final probability per mood</summary>
+      <div style="font-size:0.68rem; display:flex; flex-wrap:wrap; gap:0.1rem 0.55rem; margin-top:0.25rem;">
+        {% for mp in t.mood_probs %}
+        <span style="color:{{ '#4caf50' if mp.polarity == 'positive' else '#d94f4f' if mp.polarity == 'negative' else 'var(--pico-muted-color)' }};"
+          title="{{ mp.polarity or 'neutral' }}">{{ mp.icon }} {{ mp.name }}: {{ "%.1f"|format(mp.final * 100) }}%</span>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
   </td>
   <td style="text-align:center;">{{ "%.2f"|format(t.weight) }}</td>
   <td>

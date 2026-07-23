@@ -38,28 +38,71 @@ def _parse_mood_assoc(form, moods) -> dict:
 
 
 async def _selection_ctx(profile: str) -> dict:
-    """Current mood + global multipliers, for computing/rendering effective weights."""
+    """Current mood + global gate/multipliers, for computing/rendering effective weights + probabilities."""
     mood = await get_cached_mood(profile)
     pos_mult, neg_mult = await _it._multipliers()
-    return {"mood": mood, "mood_id": (mood or {}).get("id"), "pos_mult": pos_mult, "neg_mult": neg_mult}
+    try:
+        gate = float(await settings_store.get_setting("intrusive_thought_probability", "0.15"))
+    except (TypeError, ValueError):
+        gate = 0.15
+    return {"mood": mood, "mood_id": (mood or {}).get("id"),
+            "pos_mult": pos_mult, "neg_mult": neg_mult, "gate_prob": max(0.0, min(1.0, gate))}
 
 
-def _decorate(thoughts: list, ctx: dict, moods: list) -> list:
-    """Attach the effective weight (under the current mood) to each thought for the preview column."""
+def _totals(enabled: list, moods: list, ctx: dict) -> dict:
+    """Sum of effective weight across all enabled thoughts, per mood (+ the current mood) — the
+    denominator for a thought's selection share."""
+    pos, neg = ctx["pos_mult"], ctx["neg_mult"]
+    totals = {m["id"]: sum(_it.effective_weight(t, m["id"], pos, neg) for t in enabled) for m in moods}
+    totals["__cur__"] = sum(_it.effective_weight(t, ctx["mood_id"], pos, neg) for t in enabled)
+    return totals
+
+
+def _decorate_one(t: dict, totals: dict, ctx: dict, moods: list, by_id: dict) -> dict:
+    """Attach effective weight, current-mood fire probability, and the per-mood probability breakdown.
+
+    A thought's per-turn fire probability under a mood = gate × share, where share is its effective
+    weight over the total effective weight of all enabled thoughts under that mood. Disabled thoughts
+    never fire (share 0) and are excluded from the totals."""
+    pos, neg, gate = ctx["pos_mult"], ctx["neg_mult"], ctx["gate_prob"]
+    en = t.get("enabled")
+    eff_cur = _it.effective_weight(t, ctx["mood_id"], pos, neg)
+    t["eff"] = round(eff_cur, 3)
+    share_cur = (eff_cur / totals["__cur__"]) if (en and totals["__cur__"] > 0) else 0.0
+    t["share_cur"] = share_cur
+    t["final_cur"] = gate * share_cur
+    t["mood_probs"] = []
+    for m in moods:
+        eff = _it.effective_weight(t, m["id"], pos, neg)
+        tot = totals.get(m["id"], 0.0)
+        share = (eff / tot) if (en and tot > 0) else 0.0
+        t["mood_probs"].append({
+            "id": m["id"], "name": m["name"], "icon": m.get("icon", ""),
+            "polarity": (t.get("mood_assoc") or {}).get(m["id"]), "final": gate * share,
+        })
+    t["assoc_moods"] = [
+        {**by_id.get(mid, {"id": mid, "name": mid, "icon": ""}), "polarity": pol}
+        for mid, pol in (t.get("mood_assoc") or {}).items() if mid in by_id
+    ]
+    return t
+
+
+def _decorate_all(thoughts: list, ctx: dict, moods: list) -> list:
     by_id = {m["id"]: m for m in moods}
+    totals = _totals([t for t in thoughts if t.get("enabled")], moods, ctx)
     for t in thoughts:
-        t["eff"] = round(_it.effective_weight(t, ctx["mood_id"], ctx["pos_mult"], ctx["neg_mult"]), 3)
-        t["assoc_moods"] = [
-            {**by_id.get(mid, {"id": mid, "name": mid, "icon": ""}), "polarity": pol}
-            for mid, pol in (t.get("mood_assoc") or {}).items() if mid in by_id
-        ]
+        _decorate_one(t, totals, ctx, moods, by_id)
     return thoughts
 
 
 async def _row_ctx(request: Request, thought: dict, profile: str) -> dict:
+    """Context for a single display-row render. Denominators need the whole enabled catalog, so we
+    fetch it (fresh from the DB, post-commit) to compute shares — not just this one thought."""
     moods = await _get_moods()
     ctx = await _selection_ctx(profile)
-    _decorate([thought], ctx, moods)
+    by_id = {m["id"]: m for m in moods}
+    enabled = [t for t in await _it.list_thoughts(profile) if t.get("enabled")]
+    _decorate_one(thought, _totals(enabled, moods, ctx), ctx, moods, by_id)
     return {"request": request, "t": thought, "profile": profile, **ctx, "moods": moods}
 
 
@@ -69,7 +112,7 @@ async def _row_ctx(request: Request, thought: dict, profile: str) -> dict:
 async def intrusive_page(request: Request, profile: str = "default"):
     moods = await _get_moods()
     ctx = await _selection_ctx(profile)
-    thoughts = _decorate(await _it.list_thoughts(profile), ctx, moods)
+    thoughts = _decorate_all(await _it.list_thoughts(profile), ctx, moods)
     settings = await settings_store.get_all_settings()
     loose = den.get_loose_threads(profile, label=settings.get("intrusive_loose_thread_label", "Loose threads"))
     return templates.TemplateResponse("intrusive.html", {

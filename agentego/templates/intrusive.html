@@ -15,33 +15,35 @@
 <article>
   <header><strong>Global settings</strong>
     <small style="color:var(--pico-muted-color); font-weight:normal;">— apply to every agent</small></header>
-  <form method="post" action="/api/intrusive/settings" style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+  <form method="post" action="/api/intrusive/settings" style="display:flex; flex-direction:column; gap:0.75rem;">
     <input type="hidden" name="profile" value="{{ active_profile }}">
-    <label style="margin:0; display:flex; align-items:center; gap:0.4rem;">
-      <input type="checkbox" name="intrusive_thoughts_enabled" {% if settings.intrusive_thoughts_enabled == "1" %}checked{% endif %} style="margin:0;">
-      <span>Enabled (master switch)</span>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+      <label style="margin:0; display:flex; align-items:center; gap:0.4rem;">
+        <input type="checkbox" name="intrusive_thoughts_enabled" {% if settings.intrusive_thoughts_enabled == "1" %}checked{% endif %} style="margin:0;">
+        <span>Enabled (master switch)</span>
+      </label>
+      <label style="margin:0; width:9rem;">
+        Overall probability
+        <input type="number" name="intrusive_thought_probability" value="{{ settings.intrusive_thought_probability }}" min="0" max="1" step="0.01">
+      </label>
+      <label style="margin:0; width:8rem;">
+        Positive ×
+        <input type="number" name="intrusive_positive_multiplier" value="{{ settings.intrusive_positive_multiplier }}" min="0" step="0.1">
+      </label>
+      <label style="margin:0; width:8rem;">
+        Negative ×
+        <input type="number" name="intrusive_negative_multiplier" value="{{ settings.intrusive_negative_multiplier }}" min="0" step="0.1">
+      </label>
+      <label style="margin:0; width:10rem;">
+        Loose-thread label
+        <input type="text" name="intrusive_loose_thread_label" value="{{ settings.intrusive_loose_thread_label }}">
+      </label>
+    </div>
+    <label style="margin:0; width:100%;">
+      Wrapper template <small style="color:var(--pico-muted-color); font-size:0.72rem;">({{ '{thought}' }} = chosen text; appended after the disposition block)</small>
+      <textarea name="intrusive_thought_template" rows="3" style="width:100%; font-family:inherit; resize:vertical;">{{ settings.intrusive_thought_template }}</textarea>
     </label>
-    <label style="margin:0; width:9rem;">
-      Overall probability
-      <input type="number" name="intrusive_thought_probability" value="{{ settings.intrusive_thought_probability }}" min="0" max="1" step="0.01">
-    </label>
-    <label style="margin:0; width:8rem;">
-      Positive ×
-      <input type="number" name="intrusive_positive_multiplier" value="{{ settings.intrusive_positive_multiplier }}" min="0" step="0.1">
-    </label>
-    <label style="margin:0; width:8rem;">
-      Negative ×
-      <input type="number" name="intrusive_negative_multiplier" value="{{ settings.intrusive_negative_multiplier }}" min="0" step="0.1">
-    </label>
-    <label style="margin:0; flex:1; min-width:220px;">
-      Wrapper template <small style="color:var(--pico-muted-color); font-size:0.72rem;">({{ '{thought}' }} = chosen text)</small>
-      <input type="text" name="intrusive_thought_template" value="{{ settings.intrusive_thought_template }}">
-    </label>
-    <label style="margin:0; width:10rem;">
-      Loose-thread label
-      <input type="text" name="intrusive_loose_thread_label" value="{{ settings.intrusive_loose_thread_label }}">
-    </label>
-    <button type="submit" style="margin:0; padding:0.45rem 1rem;">Save global settings</button>
+    <div><button type="submit" style="margin:0; padding:0.45rem 1rem;">Save global settings</button></div>
   </form>
   {% if settings.intrusive_thoughts_enabled != "1" %}
   <p style="margin:0.5rem 0 0; font-size:0.82rem; color:#d94f4f;">Master switch is off — no intrusions fire for any agent.</p>

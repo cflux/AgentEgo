@@ -31,6 +31,8 @@ IMAGE_HOST = "i.redd.it"
 VIDEO_HOST = "v.redd.it"
 MAX_FEED_BYTES = 4 * 1024 * 1024
 MAX_MEDIA_BYTES = 25 * 1024 * 1024
+RSS_USER_PATH = Path("/home/cflux/.config/reddit/rss_user")
+RSS_TOKEN_PATH = Path("/home/cflux/.config/reddit/rss_token")
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 DIRECT_IMAGE_RE = re.compile(
     r"https://i\.redd\.it/[^\s\"'<>]+?\.(?:jpe?g|png)(?:\?[^\s\"'<>]*)?",
@@ -49,6 +51,16 @@ class RedditClientError(RuntimeError):
 
 class RedditResponseError(RedditClientError):
     """Reddit returned an unusable response."""
+
+
+class RedditHTTPError(RedditResponseError):
+    """Reddit returned an HTTP error, retaining only safe diagnostics."""
+
+    def __init__(self, status: int, path: str, safe_headers: dict[str, str]):
+        self.status = status
+        self.path = path
+        self.safe_headers = safe_headers
+        super().__init__(f"Reddit RSS request returned HTTP {status} at {path}")
 
 
 class RedditMediaError(RedditClientError):
@@ -83,6 +95,32 @@ def _safe_subreddit(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_+-]{1,80}", value):
         raise RedditClientError("invalid subreddit name")
     return value
+
+
+def load_rss_credentials() -> tuple[str, str]:
+    """Load the approved local RSS username/token without exposing either value."""
+    try:
+        user = RSS_USER_PATH.read_text().strip()
+        token = RSS_TOKEN_PATH.read_text().strip()
+    except OSError as error:
+        raise RedditClientError("Reddit RSS credentials are not configured") from error
+    if not user or not token:
+        raise RedditClientError("Reddit RSS credentials are not configured")
+    return user, token
+
+
+def _safe_path(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    return parsed.path or "/"
+
+
+def _safe_headers(headers) -> dict[str, str]:
+    allowed = {"retry-after", "content-type", "content-length"}
+    return {
+        str(key): str(value)
+        for key, value in (headers.items() if headers else [])
+        if str(key).lower() in allowed
+    }
 
 
 def _validate_permalink(value: str) -> str:
@@ -207,6 +245,7 @@ class RedditClient:
         max_feed_bytes: int = MAX_FEED_BYTES,
         max_media_bytes: int = MAX_MEDIA_BYTES,
         lock_path: Path = Path("/tmp/hermes-reddit-client.lock"),
+        credential_loader: Callable[[], tuple[str, str]] | None = load_rss_credentials,
     ) -> None:
         self.gate = gate or RedditRequestGate()
         self.opener = opener
@@ -214,6 +253,7 @@ class RedditClient:
         self.max_feed_bytes = max_feed_bytes
         self.max_media_bytes = max_media_bytes
         self.lock_path = lock_path
+        self.credential_loader = credential_loader
 
     def _request(self, url: str, *, nsfw: bool = False) -> urllib.request.Request:
         parsed = urllib.parse.urlsplit(url)
@@ -235,7 +275,11 @@ class RedditClient:
         subreddit = _safe_subreddit(subreddit)
         if sort not in {"top", "hot", "new"} or period not in {"hour", "day", "week", "month", "year", "all"}:
             raise RedditClientError("invalid RSS sort or period")
-        query = urllib.parse.urlencode({"t": period}) if sort == "top" else ""
+        query_args = {"t": period} if sort == "top" else {}
+        if self.credential_loader is not None:
+            user, token = self.credential_loader()
+            query_args.update({"feed": token, "user": user})
+        query = urllib.parse.urlencode(query_args)
         url = f"https://{REDDIT_HOST}/r/{urllib.parse.quote(subreddit, safe='')}/{sort}.rss"
         if query:
             url += f"?{query}"
@@ -248,6 +292,8 @@ class RedditClient:
                 raw = _read_bounded(response, self.max_feed_bytes)
         except RedditRateLimited:
             raise
+        except urllib.error.HTTPError as error:
+            raise RedditHTTPError(error.code, _safe_path(url), _safe_headers(error.headers)) from error
         except RedditClientError:
             raise
         except (urllib.error.URLError, OSError) as error:
@@ -306,7 +352,7 @@ def unsupported_transport(name: str) -> None:
 
 
 __all__ = [
-    "RedditClient", "RedditClientError", "RedditMediaError", "RedditPost",
-    "RedditRateLimited", "RedditResponseError", "RunLock", "parse_rss",
+    "RedditClient", "RedditClientError", "RedditHTTPError", "RedditMediaError", "RedditPost",
+    "RedditRateLimited", "RedditResponseError", "RunLock", "load_rss_credentials", "parse_rss",
     "unsupported_transport",
 ]

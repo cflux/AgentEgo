@@ -8,8 +8,11 @@ import json
 import mimetypes
 import os
 import random
+import socket
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -18,7 +21,7 @@ from reddit_client import RedditClient, RedditClientError, RedditPost, RedditRat
 OUTPUT_DIR = "/tmp/reddit_roulette"
 VLM_ENDPOINT = "http://salt-gx10.local:8000/v1/chat/completions"
 VLM_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct-AWQ"
-VLM_TIMEOUT = 180
+VLM_TIMEOUT = 240
 DOWNLOAD_TIMEOUT = 30  # retained for compatibility with callers/configuration
 
 SFW_SUBS = ["aww", "funny", "pics", "cats", "Eyebleach", "mademesmile",
@@ -66,11 +69,11 @@ def collect_image_posts(subreddits: list[str]) -> list[dict[str, str]]:
     for sub in subreddits:
         try:
             all_posts.extend(fetch_rss(sub))
-        except RedditRateLimited as error:
-            log(f"Reddit rate limited r/{sub}; stopping feed scan: {error}")
+        except RedditRateLimited:
+            log(f"Reddit rate limited r/{sub}; stopping feed scan: error_type=RedditRateLimited")
             break
         except Exception as error:
-            log(f"Failed r/{sub}: {error}")
+            log(f"Failed r/{sub}: error_type={type(error).__name__}")
     return all_posts
 
 
@@ -95,6 +98,15 @@ def get_vlm_blurb(image_path: str) -> str:
     with urllib.request.urlopen(request, timeout=VLM_TIMEOUT) as response:
         data = json.loads(response.read())
         return data["choices"][0]["message"]["content"].strip().strip('"').strip("'")
+
+
+def _is_timeout_error(error: BaseException) -> bool:
+    """Return whether an exception represents the bounded Salt request timing out."""
+    if isinstance(error, (TimeoutError, socket.timeout)):
+        return True
+    return isinstance(error, urllib.error.URLError) and isinstance(
+        error.reason, (TimeoutError, socket.timeout)
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -129,8 +141,22 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     local_path = download_image(post["image_url"], f"candidate_{index}")
                     log(f"Downloaded: {local_path} ({os.path.getsize(local_path)} bytes)")
-                    blurb = get_vlm_blurb(local_path)
-                    log(f"VLM blurb: {blurb}")
+                    vlm_started = time.monotonic()
+                    try:
+                        blurb = get_vlm_blurb(local_path)
+                    except Exception as error:
+                        elapsed = time.monotonic() - vlm_started
+                        status = "timeout" if _is_timeout_error(error) else "error"
+                        log(
+                            "VLM_TIMING "
+                            f"candidate={index} status={status} elapsed_s={elapsed:.3f} "
+                            f"error_type={type(error).__name__} "
+                            f"timeout_s={VLM_TIMEOUT} "
+                            f"timeout_margin_s={VLM_TIMEOUT - elapsed:.3f}"
+                        )
+                        continue
+                    elapsed = time.monotonic() - vlm_started
+                    log(f"VLM_TIMING candidate={index} status=ok elapsed_s={elapsed:.3f}")
                     results.append({
                         "path": local_path,
                         "title": post["title"],
@@ -139,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
                         "vlm_blurb": blurb,
                     })
                 except Exception as error:
-                    log(f"Failed candidate {index}: {error}")
+                    log(f"Failed candidate {index}: error_type={type(error).__name__}")
 
             if not results:
                 log("All candidates failed. Exiting.")
@@ -147,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"candidates": results}, indent=2))
             return 0
     except RedditClientError as error:
-        log(f"Reddit client failed closed: {error}")
+        log(f"Reddit client failed closed: error_type={type(error).__name__}")
         return 1
 
 

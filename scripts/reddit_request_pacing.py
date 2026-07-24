@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -13,6 +14,7 @@ from typing import Callable
 DEFAULT_MIN_INTERVAL = 6.0
 DEFAULT_JITTER_MAX = 1.0
 DEFAULT_429_DELAY = 60.0
+MAX_429_DELAY = 300.0
 MAX_429_ATTEMPTS = 2
 
 
@@ -68,10 +70,12 @@ def retry_after_seconds(headers) -> float:
 
     value = headers.get("Retry-After")
     if not value:
+        value = headers.get("x-ratelimit-reset") or headers.get("X-Ratelimit-Reset")
+    if not value:
         return DEFAULT_429_DELAY
 
     try:
-        return max(0.0, float(value))
+        return min(MAX_429_DELAY, max(0.0, float(value)))
     except (TypeError, ValueError):
         pass
 
@@ -79,9 +83,14 @@ def retry_after_seconds(headers) -> float:
         retry_at = parsedate_to_datetime(value)
         if retry_at.tzinfo is None:
             retry_at = retry_at.replace(tzinfo=timezone.utc)
-        return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+        return min(MAX_429_DELAY, max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds()))
     except (TypeError, ValueError, IndexError, OverflowError):
         return DEFAULT_429_DELAY
+
+
+def _safe_request_path(request) -> str:
+    parsed = urllib.parse.urlsplit(request.full_url)
+    return parsed.path or "/"
 
 
 def reddit_open(request, *, timeout: float, gate: RedditRequestGate, opener=urllib.request.urlopen):
@@ -100,7 +109,7 @@ def reddit_open(request, *, timeout: float, gate: RedditRequestGate, opener=urll
             delay = retry_after_seconds(error.headers)
             if attempt + 1 >= MAX_429_ATTEMPTS:
                 raise RedditRateLimited(
-                    f"Reddit kept rate-limiting {request.full_url} after one retry "
+                    f"Reddit kept rate-limiting {_safe_request_path(request)} after one retry "
                     f"(last requested cooldown: {delay:.0f}s)."
                 ) from error
             gate.defer(delay)

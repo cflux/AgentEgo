@@ -26,10 +26,9 @@ DOWNLOAD_TIMEOUT = 30  # retained for compatibility with callers/configuration
 
 SFW_SUBS = ["aww", "funny", "pics", "cats", "Eyebleach", "mademesmile",
             "natureisfuckinglit", "interestingasfuck", "oddlysatisfying",
-            "damnthatsinteresting", "BeAmazed"]
-NSFW_SUBS = ["rule34", "NSFW", "gonewild", "RealGirls", "Amateur",
-             "ass", "LegalTeens", "DirtyGaming", "hentai", "Curvy_Women_Gone_Wild",
-             "gonewildATwork", "AsiansGoneWild"]
+            "damnthatsinteresting", "BeAmazed", "Pizza", "tattoos","Breadit"]
+NSFW_SUBS = ["rule34", "NSFW", "gonewild", "RealGirls", "Amateur", "DirtyGaming", "hentai", "Curvy_Women_Gone_Wild",
+             "gonewildATwork", "AsiansGoneWild", "ecchi", "AnimeGirlsEcchi", "AnimeTitties", "AnimeLingerie"]
 
 CLIENT = RedditClient()
 

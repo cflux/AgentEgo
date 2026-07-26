@@ -11,6 +11,12 @@ def _hermes_uri(db_path: str | None = None) -> str:
     return f"file:{db_path or settings.hermes_db_path}?mode=ro"
 
 
+def _is_idoru(db_path: str | None) -> bool:
+    """An idoru agent is addressed by the sentinel db_path ``idoru://<profile>`` (DESIGN §6b).
+    When set, the reader delegates to the ego-local source instead of a Hermes state.db."""
+    return bool(db_path) and db_path.startswith("idoru://")
+
+
 def _is_system_msg(row: dict) -> bool:
     """Filter out Hermes-injected system notifications (background process completions etc.)."""
     content = row.get("content") or ""
@@ -18,6 +24,9 @@ def _is_system_msg(row: dict) -> bool:
 
 
 async def get_recent_sessions(db_path: str | None = None) -> list:
+    if _is_idoru(db_path):
+        from . import idoru_local
+        return await idoru_local.get_recent_sessions(idoru_local.profile_from_dbpath(db_path))
     async with aiosqlite.connect(_hermes_uri(db_path), uri=True) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA query_only = true")
@@ -44,6 +53,9 @@ async def get_recent_sessions_by_activity(db_path: str | None = None) -> list:
     merely *started* more recently — otherwise callers that want "the current conversation" (mood
     exit judge, impulse arbiter) read the wrong transcript. ended_at is unreliable for this (it's
     NULL while a session is live), so activity is derived from MAX(messages.timestamp)."""
+    if _is_idoru(db_path):
+        from . import idoru_local
+        return await idoru_local.get_recent_sessions_by_activity(idoru_local.profile_from_dbpath(db_path))
     async with aiosqlite.connect(_hermes_uri(db_path), uri=True) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA query_only = true")
@@ -84,6 +96,9 @@ async def get_all_recent_sessions() -> list:
 
 
 async def get_session(session_id: str, db_path: str | None = None) -> dict | None:
+    if _is_idoru(db_path):
+        from . import idoru_local
+        return await idoru_local.get_session(session_id, idoru_local.profile_from_dbpath(db_path))
     async with aiosqlite.connect(_hermes_uri(db_path), uri=True) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA query_only = true")
@@ -122,6 +137,9 @@ _MSG_COLS = """
 
 
 async def get_session_messages(session_id: str, db_path: str | None = None) -> list:
+    if _is_idoru(db_path):
+        from . import idoru_local
+        return await idoru_local.get_session_messages(session_id, idoru_local.profile_from_dbpath(db_path))
     async with aiosqlite.connect(_hermes_uri(db_path), uri=True) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA query_only = true")
@@ -137,6 +155,10 @@ async def get_session_messages(session_id: str, db_path: str | None = None) -> l
 async def get_session_messages_in_range(
     session_id: str, start_ts: float, end_ts: float, db_path: str | None = None
 ) -> list:
+    if _is_idoru(db_path):
+        from . import idoru_local
+        return await idoru_local.get_session_messages_in_range(
+            session_id, start_ts, end_ts, idoru_local.profile_from_dbpath(db_path))
     async with aiosqlite.connect(_hermes_uri(db_path), uri=True) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA query_only = true")
@@ -180,6 +202,9 @@ async def get_sessions_by_ids(session_ids: list[str], db_path: str | None = None
 
 
 async def get_session_stats(db_path: str | None = None) -> dict:
+    if _is_idoru(db_path):
+        from . import idoru_local
+        return await idoru_local.get_session_stats(idoru_local.profile_from_dbpath(db_path))
     async with aiosqlite.connect(_hermes_uri(db_path), uri=True) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA query_only = true")

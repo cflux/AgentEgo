@@ -11,7 +11,7 @@ from pathlib import Path
 from .config import settings
 from .db.migrations import run_migrations
 from .services.stats import start_scheduler
-from .routers import events, sessions, dashboard, sentiment, topic, mood, preferences, config_panel, impulse, soul, reflection, den, intrusive
+from .routers import events, sessions, dashboard, sentiment, topic, mood, preferences, config_panel, impulse, soul, reflection, den, intrusive, ingest
 from .modules import load_modules
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
@@ -174,3 +174,4 @@ app.include_router(soul.router)
 app.include_router(reflection.router)
 app.include_router(den.router)
 app.include_router(intrusive.router)
+app.include_router(ingest.router)

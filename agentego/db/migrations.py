@@ -1,7 +1,7 @@
 import aiosqlite
 import time as _time
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -113,6 +113,42 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 CREATE INDEX IF NOT EXISTS idx_conv_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_conv_profile ON conversations(profile_name, end_ts DESC);
+
+-- idoru integration (source-agnostic agents fed by push, not Hermes-DB scrape).
+-- `agents` registers non-Hermes profiles; `ext_sessions`/`ext_messages` are the ego-local mirror
+-- of an idoru agent's transcript, written via /api/ingest and read by the idoru message source.
+CREATE TABLE IF NOT EXISTS agents (
+    name         TEXT PRIMARY KEY,
+    source       TEXT NOT NULL DEFAULT 'idoru',
+    display_name TEXT,
+    created_at   REAL NOT NULL,
+    meta         TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ext_sessions (
+    id            TEXT NOT NULL,
+    profile_name  TEXT NOT NULL,
+    platform      TEXT,
+    user_id       TEXT,
+    title         TEXT,
+    started_at    REAL,
+    ended_at      REAL,
+    message_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (profile_name, id)
+);
+CREATE INDEX IF NOT EXISTS idx_ext_sessions_profile ON ext_sessions(profile_name, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS ext_messages (
+    id           TEXT NOT NULL,
+    profile_name TEXT NOT NULL,
+    session_id   TEXT NOT NULL,
+    role         TEXT NOT NULL,
+    content      TEXT,
+    timestamp    REAL NOT NULL,
+    active       INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (profile_name, id)
+);
+CREATE INDEX IF NOT EXISTS idx_ext_messages_session ON ext_messages(profile_name, session_id, timestamp);
 
 CREATE TABLE IF NOT EXISTS personality_traits (
     profile_name    TEXT PRIMARY KEY,
@@ -506,6 +542,10 @@ async def run_migrations(db_path: str) -> None:
 
         if current_version < 18:
             # intrusive_thoughts created by DDL above; no ALTER needed
+            pass
+
+        if current_version < 19:
+            # agents, ext_sessions, ext_messages (idoru integration) created by DDL above.
             pass
 
         if current_version < SCHEMA_VERSION:

@@ -176,9 +176,16 @@ async def _get_sync_watermarks(profile_name: str) -> dict:
 
 
 async def sync_session_conversations(
-    session: dict, profile_name: str, db_path: str | None = None
+    session: dict, profile_name: str, db_path: str | None = None,
+    messages: list | None = None,
 ) -> None:
-    """Sync a Hermes session into ego.db conversations, idempotently.
+    """Sync a session into ego.db conversations, idempotently.
+
+    ``messages`` lets a caller supply the message list instead of it being read from Hermes — the
+    idoru path has no Hermes db to read (see :func:`sync_ext_session_conversations`). Everything
+    after the fetch is identical for both sources, deliberately: splitting, part reconciliation,
+    round building and enrichment invalidation are the behaviour every consumer downstream expects,
+    and a second implementation of them would drift.
 
     Re-splits the session's messages and reconciles by part_index: existing
     conversation rows are UPDATED in place (preserving their id, so sentiment/
@@ -188,7 +195,8 @@ async def sync_session_conversations(
     their first sync."""
     session_id = session["id"]
 
-    msgs = await get_session_messages(session_id, db_path=db_path)
+    msgs = messages if messages is not None else await get_session_messages(session_id,
+                                                                            db_path=db_path)
     gap = await _gap_for_source(session.get("source"))
     parts = split_messages(msgs, gap_seconds=gap)
     if not parts:
@@ -447,3 +455,42 @@ async def get_first_conv_id_for_session(session_id: str) -> str | None:
         return row[0] if row else None
     finally:
         await conn.close()
+
+
+async def sync_ext_session_conversations(profile_name: str, session_id: str) -> None:
+    """Sync an *ingested* (idoru) session into conversations — the same treatment Hermes gets.
+
+    idoru pushes to ``/api/ingest/messages``, which lands in ``ext_sessions``/``ext_messages``.
+    Nothing read those: every consumer of "when did she last talk to someone" goes through
+    ``conversations``, which only the Hermes sync filled. So for an idoru profile the solitude clock,
+    the outward idle gate and the round history all froze at whatever the last Hermes-era sync left
+    behind — 2026-08-02 on the pilot, while messages kept arriving and being stored correctly.
+
+    The symptom was a mood engine reporting "alone 99 h" to an agent that had been talked to that
+    afternoon, with loneliness pinned at its cap and no round scored in four days.
+    """
+    conn = await get_ego_db()
+    try:
+        cursor = await conn.execute(
+            "SELECT id, platform, user_id, title, started_at, ended_at, message_count "
+            "FROM ext_sessions WHERE profile_name = ? AND id = ?",
+            (profile_name, session_id),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return
+        cursor = await conn.execute(
+            "SELECT role, content, timestamp FROM ext_messages "
+            "WHERE profile_name = ? AND session_id = ? AND active = 1 ORDER BY timestamp",
+            (profile_name, session_id),
+        )
+        msgs = [{"role": r[0], "content": r[1], "timestamp": r[2]} for r in await cursor.fetchall()]
+    finally:
+        await conn.close()
+
+    # `source` carries the platform so the splitter picks the right gap; an idoru CLI or chat
+    # session splits on the chat gap rather than the two-hour default.
+    session = {"id": session_id, "source": json.dumps({"platform": row[1] or "idoru"}),
+               "title": row[3], "started_at": row[4], "ended_at": row[5],
+               "message_count": row[6] or len(msgs)}
+    await sync_session_conversations(session, profile_name, messages=msgs)

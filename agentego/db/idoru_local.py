@@ -10,6 +10,7 @@ A profile is routed here (rather than to Hermes) when its ``db_path`` is the sen
 """
 from __future__ import annotations
 
+import logging
 import time
 
 from .ego import get_ego_db
@@ -222,6 +223,22 @@ async def ingest_messages(profile: str, session: dict, messages: list[dict]) -> 
             (profile, sid, profile, sid, profile, sid, profile, sid),
         )
         await conn.commit()
-        return new
     finally:
         await conn.close()
+
+    # Mirror the session into `conversations`, which is what everything downstream actually reads:
+    # solitude's "when did she last talk to someone", the outward idle gate, and the rounds the mood
+    # engine scores. Storing messages without this left an idoru profile looking permanently alone —
+    # the pilot reported "alone 99 h" on an afternoon it had been talked to.
+    #
+    # After the commit and outside the connection, since the sync opens its own; and best-effort,
+    # because a push that stored its messages has done the important half and must not be failed by
+    # the bookkeeping that follows it.
+    try:
+        from ..services.conversations import sync_ext_session_conversations
+        await sync_ext_session_conversations(profile, sid)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "ingest stored messages but could not sync conversations for %s/%s", profile, sid,
+            exc_info=True)
+    return new
